@@ -1,1 +1,166 @@
-# MONOSABA-DesktopPET
+# MONOSABA DesktopPET
+
+把 JxmFUN 的希罗 / 艾玛 Live2D 看板娘搬到 Windows 桌面，做成独立桌宠。
+
+人物、右下角人物图标按钮、右键设置面板、人物切换、显示/隐藏、10%–300% 缩放、点击表情、气泡台词、待机视线、中键/左键拖拽和位置记忆都保留；网页端的登录、管理员、音乐和聊天框不移植。
+
+## 功能
+
+- **希罗 / 艾玛**：4096 WebP 模型，PixiJS 8 + Cubism 5。
+- **全屏透明覆盖层**：无边框、透明、置顶，铺满所在屏幕的工作区，不占任务栏。
+- **切换屏幕**：设置面板和托盘都能把桌宠搬到任意一块显示器（「屏幕 1 / 屏幕 2 / …」按坐标顺序编号，主屏会标注）。切换后自动收起面板并弹气泡提示；选择会记住，重启后直接出现在上次那块屏。
+- **不抢前台焦点**：窗口以 `focusable: false`（`WS_EX_NOACTIVATE`）创建，点击、拖拽、滚轮都正常响应，但不会把当前前台窗口切走，避免下方播放器（如 B 站客户端）因失焦而黑屏/暂停。
+- **动态鼠标穿透**：默认点击穿透到桌面；只有人物、右下角图标、设置面板接管鼠标。人物区域按实际模型范围判定，不会用整块透明矩形挡住桌面。
+- **右下角图标**：首次启动是未唤醒状态，点击召唤；加载中显示「回溯中」，失败可重试。
+- **设置面板**：右键人物或点击图标打开；切换人物、切换屏幕、显示/隐藏、鼠标穿透、开机自启、人物大小。切换人物和拖动缩放时面板先冻结位置，人物稳定后再平滑归位，不会来回跳。
+- **人物主题**：希罗使用黑 / 深红，艾玛使用白 / 浅粉 / 樱花粉；设置面板、气泡、加载卡片和图标提示会同步换色。
+- **日记**：独立小窗口，右上角有最小化和关闭；通过 EasyTier + 本机 OpenSSH 只读服务器日记，保留咒语 `hiro110`，输错会直接提示正确密钥。
+- **托盘**：重新载入、始终置顶开关、显示屏幕（多屏时的兜底入口）、打开配置文件、退出。
+
+## 交互
+
+| 操作 | 效果 |
+| --- | --- |
+| 左键点击人物 | 随机表情 + 气泡；艾玛有 75% 概率播放点击音效（冷却 1 秒） |
+| 左键按住 ≥0.5 秒并移动 >4px | 拖拽人物 |
+| 中键按住并移动 | 立即拖拽人物 |
+| 鼠标右键人物 | 打开设置面板 |
+| 点击右下角图标 | 召唤 / 显示 / 打开设置面板 |
+| 设置面板「鼠标穿透」 | 让人物区域点击穿透到桌面；图标和面板仍可点 |
+| 设置面板「开机自启」 | 登录 Windows 后自动启动桌宠；再次点击关闭 |
+| 设置面板「显示屏幕」 | 把桌宠搬到另一块显示器；面板自动收起并提示 |
+| 托盘「显示屏幕」 | 同上；面板或托盘都能切换，用于鼠标够不到当前屏幕时兜底 |
+| 日记右上角 `−` | 最小化为标题栏 |
+| 日记右上角 `×` | 关闭日记 |
+
+人物位置、大小、当前人物、显示/隐藏、穿透状态、所在屏幕都会写入 localStorage，重启后保持。屏幕被拔掉时会清掉记录并留在当前屏。
+
+## 开发
+
+需要 Node.js 20+（推荐 24）和 npm。
+
+```bash
+npm install
+npm run dev
+```
+
+`npm install` 会下载 Electron。如果下载慢，可以先设置镜像再重试：
+
+```powershell
+$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+npm install
+```
+
+类型检查与构建：
+
+```bash
+npm run typecheck
+npm run build
+npm run build:win
+```
+
+`npm run build:win` 产出 `dist/MONOSABA-DesktopPET-<version>-portable.exe`，双击即用，不写注册表。
+
+### 打包时选择默认人物
+
+双击项目根目录的 `build-exe.bat`，按提示选择：
+
+```text
+[1] 希罗（黑红）
+[2] 艾玛（白粉）
+```
+
+脚本会把选择注入 `VITE_DEFAULT_CHARACTER`，然后执行 `npm run build:win`。选择艾玛时，exe 和托盘图标也会换成艾玛。
+
+- 只影响**首次启动**（本机还没有保存过人物偏好时）。
+- 已经使用过的电脑会保留上一次选择；想验证新默认，可以换一个 Windows 用户，或清掉应用的 `Local Storage`（不要误删 `config.json`）。
+- 不用脚本也可以手动指定：
+
+  ```powershell
+  $env:VITE_DEFAULT_CHARACTER="ema"
+  npm run build:win
+  ```
+
+  `build:win` 会根据该变量自动使用 `build/icon-ema.ico`；不设置时默认希罗 `build/icon.ico`。
+
+## 目录
+
+```text
+src/
+├─ main/                 # Electron 主进程
+│  ├─ index.ts           # 单实例、窗口、IPC、托盘
+│  ├─ window.ts          # 全屏透明桌宠窗口
+│  ├─ display.ts         # 屏幕列表、切换、热插拔同步
+│  ├─ mouse-passthrough.ts
+│  ├─ diary-window.ts     # 独立日记窗口
+│  ├─ diary/ssh.ts        # 通过系统 ssh 读取日记
+│  ├─ app-protocol.ts     # app:// 静态资源协议
+│  ├─ config.ts           # userData/config.json
+│  ├─ auto-launch.ts      # 开机自启（便携版登记原始 exe）
+│  └─ tray.ts
+├─ preload/              # contextBridge API
+├─ shared/               # 主进程/渲染进程共用类型
+└─ renderer/
+   ├─ index.html
+   └─ src/
+      ├─ app.tsx          # 桌宠页面
+      ├─ diary-window.tsx # 日记窗口页面
+      ├─ components/live2d/
+      ├─ content/live2d.ts
+      └─ lib/live2d/
+```
+
+## 日记配置
+
+打包版第一次启动会在 userData 目录生成 `config.json`。托盘菜单「打开配置文件」会直接打开它。
+
+开发模式的 userData 通常是：
+
+```text
+%APPDATA%\monosaba-desktoppet\config.json
+```
+
+打包后通常为：
+
+```text
+%APPDATA%\MONOSABA DesktopPET\config.json
+```
+
+默认配置：
+
+```json
+{
+  "diary": {
+    "hosts": ["10.144.144.1", "192.168.124.47", "192.168.124.48"],
+    "port": 22,
+    "username": "mxjserver",
+    "privateKeyPath": "C:\\Users\\MXJ\\.ssh\\jxmfun_server",
+    "remoteDir": "/home/mxjserver/astrbot/data/workspaces/Hiro_FriendMessage_1955272576/diary"
+  }
+}
+```
+
+- `hosts` 按顺序尝试：先 EasyTier，再家里 Wi‑Fi/有线。
+- `privateKeyPath` 是本机 OpenSSH 私钥；要求 `BatchMode=yes` 可以免密登录。
+- `remoteDir` 是服务器上日记目录。
+- 日记是**只读**的，不会修改服务器文件。
+- 如果本机没有这个私钥（例如把应用分享给别人），打开日记只会显示「啥也没写」，不会出现咒语输入框。
+- 需要本机安装 OpenSSH 客户端（Windows 10/11 默认带 `C:\Windows\System32\OpenSSH\ssh.exe`）。
+- 服务器需要 `python3` 和 `base64`（Ubuntu 默认满足）。
+
+如果 EasyTier 暂时断开，日记会显示「连不上日记本，确认 EasyTier 在线」，恢复网络后点「重新载入」即可。
+
+## 素材与授权
+
+- Live2D 模型、图标、`voice/kiang.wav` 来自站点所有者提供的 JxmFUN 资源。
+- `src/renderer/public/live2d/core/live2dcubismcore.min.js` 是 Live2D Inc. 的 Redistributable Code，请保留同目录的 `NOTICE.txt`。
+- 模型资源不随本项目授予任何再分发许可；公开仓库/发布前请确认模型使用授权。
+
+## 已知限制
+
+- 首版只针对 **Windows 10/11 x64**。多屏可以切换，但同一时间只覆盖一块屏幕；跨屏拖动人物暂不支持。
+- 便携版 exe 没有代码签名，Windows SmartScreen 可能提示；选择「仍要运行」即可。
+- 开机自启登记的是当前 exe 路径；如果把便携版 exe 移到别处，需要在设置面板里关闭再重新开启一次。
+- 日记为只读；后续如需编辑，需要额外处理服务器 root 文件权限和并发写入。
+- 不包含 AstrBot 聊天框。
+- 首次打开日记需要建立 SSH 连接，服务器网络较慢时可能需要 10–15 秒。

@@ -1,0 +1,193 @@
+/* 看板娘浮层的主题：希罗黑红，艾玛白粉。只作用于宠物窗口，不影响独立日记窗口。 */
+:root[data-pet-character="hiro"] {
+  --accent: #d21f3c;
+  --pet-accent: #d21f3c;
+  --pet-accent-soft: rgba(210, 31, 60, 0.24);
+  --pet-text: #ffeef1;
+  --pet-muted: #d3a3ad;
+  --pet-title: #ff6b7a;
+  --pet-title-hover: #ff9aa5;
+  --pet-panel-bg: linear-gradient(150deg, rgba(20, 7, 11, 0.97), rgba(5, 3, 4, 0.98));
+  --pet-panel-border: rgba(200, 16, 46, 0.55);
+  --pet-panel-shadow:
+    0 18px 52px rgba(0, 0, 0, 0.55),
+    0 0 26px rgba(200, 16, 46, 0.18);
+  --pet-button-bg: rgba(200, 16, 46, 0.12);
+  --pet-button-hover-bg: rgba(200, 16, 46, 0.22);
+  --pet-button-border: rgba(200, 16, 46, 0.3);
+  --pet-button-text: #ffeef1;
+  --pet-button-on-bg: rgba(200, 16, 46, 0.24);
+  --pet-button-on-border: rgba(255, 90, 110, 0.75);
+  --pet-button-on-text: #fff5f7;
+  --pet-slider-track: rgba(255, 255, 255, 0.14);
+  --pet-slider-fill: #d21f3c;
+  --pet-bubble-bg: rgba(12, 5, 8, 0.9);
+  --pet-bubble-border: rgba(200, 16, 46, 0.5);
+  --pet-bubble-text: #ffeef1;
+  --pet-loading-bg: rgba(14, 5, 8, 0.78);
+  --pet-loading-border: rgba(225, 239, 255, 0.18);
+  --pet-loading-text: #ffeef1;
+  --pet-loading-track: rgba(255, 255, 255, 0.16);
+  --pet-error-bg: rgba(40, 10, 14, 0.82);
+  --pet-error-border: rgba(255, 120, 120, 0.4);
+  --pet-error-text: #ffb4b4;
+  --pet-tip-bg: rgba(12, 5, 8, 0.94);
+  --pet-tip-border: rgba(200, 16, 46, 0.4);
+  --pet-tip-text: #ffeef1;
+  --pet-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  --pet-summon-text: #ff5a5a;
+  --pet-summon-shadow:
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    1px 1px 0 #000,
+    0 0 4px rgba(0, 0, 0, 0.85);
+}
+
+:root[data-pet-character="ema"] {
+  --accent: #e88aa8;
+  --pet-accent: #e88aa8;
+  --pet-accent-soft: rgba(232, 138, 168, 0.22);
+  --pet-text: #4a1f2b;
+  --pet-muted: #8a5a68;
+  --pet-title: #b83b63;
+  --pet-title-hover: #9d2f52;
+  --pet-panel-bg: linear-gradient(155deg, rgba(255, 252, 253, 0.98), rgba(255, 240, 246, 0.98));
+  --pet-panel-border: rgba(240, 138, 168, 0.6);
+  --pet-panel-shadow:
+    0 18px 52px rgba(194, 69, 110, 0.22),
+    0 0 26px rgba(255, 183, 197, 0.2);
+  --pet-button-bg: rgba(255, 183, 197, 0.18);
+  --pet-button-hover-bg: rgba(255, 183, 197, 0.32);
+  --pet-button-border: rgba(240, 138, 168, 0.38);
+  --pet-button-text: #4a1f2b;
+  --pet-button-on-bg: rgba(240, 138, 168, 0.24);
+  --pet-button-on-border: rgba(232, 138, 168, 0.8);
+  --pet-button-on-text: #3a1621;
+  --pet-slider-track: rgba(194, 69, 110, 0.16);
+  --pet-slider-fill: #e07a9b;
+  --pet-bubble-bg: rgba(255, 250, 252, 0.96);
+  --pet-bubble-border: rgba(240, 138, 168, 0.55);
+  --pet-bubble-text: #4a1f2b;
+  --pet-loading-bg: rgba(255, 250, 252, 0.95);
+  --pet-loading-border: rgba(240, 138, 168, 0.35);
+  --pet-loading-text: #4a1f2b;
+  --pet-loading-track: rgba(194, 69, 110, 0.14);
+  --pet-error-bg: rgba(255, 244, 246, 0.97);
+  --pet-error-border: rgba(200, 16, 46, 0.28);
+  --pet-error-text: #b42323;
+  --pet-tip-bg: rgba(255, 250, 252, 0.97);
+  --pet-tip-border: rgba(240, 138, 168, 0.45);
+  --pet-tip-text: #4a1f2b;
+  --pet-shadow: 0 12px 32px rgba(194, 69, 110, 0.18);
+  --pet-summon-text: #d94d7c;
+  --pet-summon-shadow:
+    -1px -1px 0 #5a1a2b,
+    1px -1px 0 #5a1a2b,
+    -1px 1px 0 #5a1a2b,
+    1px 1px 0 #5a1a2b,
+    0 0 4px rgba(90, 26, 43, 0.45);
+}
+
+:root[data-pet-character] .appearance-panel {
+  border-color: var(--pet-panel-border);
+  background: var(--pet-panel-bg);
+  color: var(--pet-text);
+  box-shadow: var(--pet-panel-shadow);
+}
+
+:root[data-pet-character] .appearance-panel-heading button {
+  color: var(--pet-text);
+}
+
+:root[data-pet-character] .appearance-panel-heading button.appearance-panel-character {
+  color: var(--pet-title);
+  text-decoration-color: color-mix(in srgb, var(--pet-title) 60%, transparent);
+}
+
+:root[data-pet-character] .appearance-panel-heading button.appearance-panel-character:hover {
+  color: var(--pet-title-hover);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--pet-title) 35%, transparent);
+}
+
+:root[data-pet-character] .appearance-panel-heading button.appearance-panel-character:focus-visible {
+  outline-color: color-mix(in srgb, var(--pet-title) 80%, transparent);
+}
+
+:root[data-pet-character] .appearance-panel-heading button.appearance-panel-diary {
+  color: var(--pet-muted);
+}
+
+:root[data-pet-character] .appearance-panel-heading button.appearance-panel-diary:hover {
+  color: var(--pet-text);
+}
+
+:root[data-pet-character] .appearance-panel-heading button:not(.appearance-panel-character):not(.appearance-panel-diary):hover {
+  color: var(--pet-title-hover);
+}
+
+:root[data-pet-character] .appearance-choice {
+  border-color: var(--pet-button-border);
+  background: var(--pet-button-bg);
+  color: var(--pet-button-text);
+}
+
+:root[data-pet-character] .appearance-choice:not(:disabled):hover {
+  border-color: var(--pet-accent);
+  background: var(--pet-button-hover-bg);
+}
+
+:root[data-pet-character] .appearance-system.is-on {
+  border-color: var(--pet-button-on-border);
+  background: var(--pet-button-on-bg);
+  color: var(--pet-button-on-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--pet-accent) 18%, transparent),
+    0 0 18px var(--pet-accent-soft);
+}
+
+:root[data-pet-character] .appearance-label,
+:root[data-pet-character] .appearance-range {
+  color: var(--pet-muted);
+}
+
+:root[data-pet-character] .appearance-range input {
+  --range-track: var(--pet-slider-track);
+}
+
+:root[data-pet-character] .appearance-range input::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    var(--pet-slider-fill) 0 var(--range-progress, 50%),
+    var(--pet-slider-track) var(--range-progress, 50%) 100%
+  );
+}
+
+:root[data-pet-character] .appearance-range input::-webkit-slider-thumb {
+  border-color: var(--pet-slider-fill);
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--pet-accent-soft);
+}
+
+:root[data-pet-character] .appearance-range input::-moz-range-track {
+  background: var(--pet-slider-track);
+}
+
+:root[data-pet-character] .appearance-range input::-moz-range-progress {
+  background: var(--pet-slider-fill);
+}
+
+:root[data-pet-character] .appearance-range input::-moz-range-thumb {
+  border-color: var(--pet-slider-fill);
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--pet-accent-soft);
+}
+
+:root[data-pet-character="ema"] .appearance-choice::after {
+  background: linear-gradient(
+    110deg,
+    transparent 25%,
+    rgba(255, 255, 255, 0.7) 48%,
+    transparent 70%
+  );
+}

@@ -1,0 +1,29 @@
+appId: com.mengxj.monosaba.desktop-pet
+productName: MONOSABA DesktopPET
+copyright: Copyright © 2026 MengXJ
+asar: true
+electronDist: node_modules/electron/dist
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**
+  - package.json
+
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+  - from: build/icon-ema.png
+    to: icon-ema.png
+
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.ico
+
+portable:
+  artifactName: MONOSABA-DesktopPET-${version}-portable.exe

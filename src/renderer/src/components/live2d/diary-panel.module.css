@@ -1,0 +1,431 @@
+/*
+ * 希罗的日记本：刻意和网站主题脱钩。
+ * 黑底（书桌）、白纸、红边，正文黑色，标题/时间红色。
+ */
+.overlay {
+  --diary-red: #c8102e;
+  --diary-red-deep: #8e0a20;
+  --diary-ink: #141414;
+  --diary-paper: #fffdf7;
+  --diary-font: "LXGW WenKai", "霞鹜文楷", "Kaiti SC", "STKaiti", "KaiTi",
+    "楷体", "Noto Serif SC", "Songti SC", "SimSun", serif;
+
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: transparent;
+  font-family: var(--diary-font);
+  pointer-events: none;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: min(86vh, 820px);
+  padding-left: 18px;
+  border: 2px solid var(--diary-red);
+  border-radius: 6px;
+  background: var(--diary-paper);
+  color: var(--diary-ink);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 253, 247, 0.6) inset;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+/* 书脊：红色竖条 + 装订孔 */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 12px;
+  background: linear-gradient(180deg, var(--diary-red), var(--diary-red-deep));
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 4px;
+  width: 4px;
+  background-image: radial-gradient(circle, var(--diary-paper) 1.3px, transparent 1.5px);
+  background-size: 4px 16px;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.locked {
+  min-height: min(340px, 70vh);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem 0.7rem 1.5rem;
+  border-bottom: 1.5px solid rgba(200, 16, 46, 0.4);
+}
+
+.title {
+  color: var(--diary-red);
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+.meta {
+  margin-left: 0;
+  color: rgba(20, 20, 20, 0.5);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.select {
+  min-width: 0;
+  max-width: 40%;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid rgba(200, 16, 46, 0.45);
+  border-radius: 3px;
+  background: var(--diary-paper);
+  color: var(--diary-ink);
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.close {
+  padding: 0 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--diary-red);
+  font-family: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  color: var(--diary-red-deep);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: auto;
+}
+
+.windowButton {
+  padding: 0 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--diary-red);
+  font-family: inherit;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.windowButton:hover {
+  color: var(--diary-red-deep);
+}
+
+.minimized {
+  width: min(340px, 100%);
+  min-height: 0;
+}
+
+.minimized .header {
+  border-bottom: 0;
+}
+
+.windowMode {
+  pointer-events: auto;
+}
+
+.windowMode .card {
+  max-height: 820px;
+}
+
+.windowMode .locked {
+  min-height: 0;
+}
+
+.windowMode .header {
+  -webkit-app-region: drag;
+}
+
+.windowMode .header button,
+.windowMode .header select {
+  -webkit-app-region: no-drag;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 0;
+  padding: 1rem 1.3rem 0.6rem 1.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.hint {
+  margin: 2.2rem 0;
+  color: rgba(20, 20, 20, 0.55);
+  font-size: 0.86rem;
+  text-align: center;
+}
+
+.emptyState {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  padding: 1.8rem 1.5rem;
+  font-family: var(--diary-font);
+}
+
+.emptyState .hint {
+  margin: 0;
+}
+
+.emptyText {
+  margin: 0;
+  color: var(--diary-ink);
+  font-size: 1.08rem;
+  letter-spacing: 0.14em;
+}
+
+.error {
+  margin: 2.2rem 0;
+  color: var(--diary-red);
+  font-size: 0.86rem;
+  text-align: center;
+}
+
+.entry {
+  padding: 0.55rem 0 1rem;
+  border-bottom: 1px dashed rgba(200, 16, 46, 0.3);
+}
+
+.entry:last-child {
+  border-bottom: 0;
+}
+
+.entryTitle {
+  margin: 0 0 0.45rem;
+  color: var(--diary-red);
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.markdown {
+  color: var(--diary-ink);
+  font-size: 0.94rem;
+  line-height: 1.95;
+  word-break: break-word;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  margin: 0.95rem 0 0.3rem;
+  color: var(--diary-red-deep);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.markdown h1:first-child,
+.markdown h2:first-child,
+.markdown h3:first-child {
+  margin-top: 0;
+}
+
+.markdown p {
+  margin: 0.25rem 0;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0.3rem 0;
+  padding-left: 1.3rem;
+}
+
+.markdown hr {
+  margin: 0.9rem 0;
+  border: 0;
+  border-top: 1px dashed rgba(200, 16, 46, 0.35);
+}
+
+.markdown a {
+  color: var(--diary-red-deep);
+}
+
+.markdown blockquote {
+  margin: 0.4rem 0;
+  padding-left: 0.7rem;
+  border-left: 2px solid rgba(200, 16, 46, 0.4);
+  color: rgba(20, 20, 20, 0.78);
+}
+
+.editor {
+  width: 100%;
+  min-height: 48vh;
+  padding: 0.8rem 0.9rem;
+  border: 1.5px solid rgba(200, 16, 46, 0.5);
+  border-radius: 3px;
+  background: #fffefb;
+  color: var(--diary-ink);
+  font-family: var(--diary-font);
+  font-size: 0.9rem;
+  line-height: 1.9;
+  resize: vertical;
+}
+
+.editor:focus {
+  outline: 2px solid rgba(200, 16, 46, 0.35);
+  outline-offset: 1px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem 0.7rem 1.5rem;
+  border-top: 1.5px solid rgba(200, 16, 46, 0.3);
+}
+
+.notice {
+  margin-right: auto;
+  color: rgba(20, 20, 20, 0.6);
+  font-size: 0.72rem;
+}
+
+.button {
+  padding: 0.35rem 1rem;
+  border: 1.5px solid var(--diary-red);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--diary-red);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--diary-red);
+  color: var(--diary-paper);
+}
+
+.button:focus-visible {
+  outline: 2px solid rgba(200, 16, 46, 0.5);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.primary {
+  background: var(--diary-red);
+  color: var(--diary-paper);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--diary-red-deep);
+  border-color: var(--diary-red-deep);
+}
+
+/* ---- 上锁：念咒语 ---- */
+
+.lock {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  padding: 2.6rem 1.5rem 3rem;
+}
+
+.lockText {
+  margin: 0;
+  color: var(--diary-ink);
+  font-size: 1rem;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+
+.lockInput {
+  width: min(320px, 100%);
+  padding: 0.45rem 0.2rem;
+  border: 0;
+  border-bottom: 1.5px solid var(--diary-red);
+  border-radius: 0;
+  background: transparent;
+  color: var(--diary-ink);
+  font-family: inherit;
+  font-size: 1rem;
+  letter-spacing: 0.16em;
+  text-align: center;
+}
+
+.lockInput:focus {
+  outline: none;
+  border-bottom-color: var(--diary-red-deep);
+  box-shadow: 0 2px 0 rgba(200, 16, 46, 0.18);
+}
+
+.lockError {
+  margin: -0.4rem 0 0;
+  color: var(--diary-red);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .overlay {
+    padding: 8px;
+  }
+
+  .card {
+    max-height: calc(100dvh - 16px);
+    padding-left: 14px;
+  }
+
+  .card::before {
+    width: 9px;
+  }
+
+  .header {
+    padding-left: 1.1rem;
+  }
+
+  .body {
+    padding: 0.8rem 0.9rem 0.5rem 1.1rem;
+  }
+
+  .footer {
+    padding-left: 1.1rem;
+  }
+
+  .editor {
+    min-height: 40vh;
+  }
+}
