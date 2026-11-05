@@ -38,6 +38,370 @@
     0 0 0 1px rgba(255, 253, 247, 0.6) inset;
   overflow: hidden;
   pointer-events: auto;
+  transform-origin: center center;
+  animation: diary-open 0.26s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease;
+}
+
+@keyframes diary-open {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 切到收合动画时接管 diary-open，关窗要等它播完。 */
+.closing {
+  animation: diary-close 0.2s ease-in both;
+  pointer-events: none;
+}
+
+@keyframes diary-close {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+}
+
+/* 切换日记/记忆时锁住交互，避免连点叠出两层过渡。 */
+.switching {
+  pointer-events: none;
+}
+
+/* ---- 记忆视图：黑底红字 ---- */
+
+.memoryMode {
+  --diary-red: #e60000;
+  --diary-red-deep: #a30000;
+  --diary-paper: rgb(12, 10, 10);
+  --diary-ink: rgb(230, 0, 0);
+
+  border-color: #4a070d;
+  background: rgb(12, 10, 10);
+  color: rgb(230, 0, 0);
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.82),
+    0 0 0 1px rgba(230, 0, 0, 0.16) inset,
+    0 0 42px rgba(230, 0, 0, 0.12);
+}
+
+.memoryMode .header {
+  border-bottom-color: rgba(230, 0, 0, 0.35);
+}
+
+.memoryMode .meta {
+  color: rgba(230, 0, 0, 0.6);
+}
+
+.memoryMode .footer {
+  border-top-color: rgba(230, 0, 0, 0.3);
+}
+
+.memoryMode .notice,
+.memoryMode .hint {
+  color: rgba(230, 0, 0, 0.6);
+}
+
+.memoryMode .body {
+  scrollbar-color: rgba(230, 0, 0, 0.45) rgba(12, 10, 10, 0.9);
+  scrollbar-width: thin;
+}
+
+.memoryMode .body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.memoryMode .body::-webkit-scrollbar-track {
+  background: rgba(230, 0, 0, 0.06);
+}
+
+.memoryMode .body::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: rgba(230, 0, 0, 0.35);
+}
+
+.memoryMode .body::-webkit-scrollbar-thumb:hover {
+  background: rgba(230, 0, 0, 0.55);
+}
+
+.memoryMode .button:hover:not(:disabled) {
+  background: var(--diary-red);
+  color: rgb(12, 10, 10);
+}
+
+.memoryDay {
+  display: grid;
+  gap: 0.15rem;
+  padding-bottom: 0.35rem;
+}
+
+.memoryDate {
+  margin: 1rem 0 0.2rem;
+  color: var(--diary-red);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.memoryDay:first-child .memoryDate {
+  margin-top: 0;
+}
+
+.memoryItem {
+  padding: 0.35rem 0 0.75rem;
+  border-bottom: 1px dashed rgba(230, 0, 0, 0.22);
+}
+
+.memoryItem:last-child {
+  border-bottom: 0;
+}
+
+.memoryMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+  color: rgba(230, 0, 0, 0.7);
+  font-size: 0.68rem;
+}
+
+.memoryKind {
+  padding: 0 0.3rem;
+  border: 1px solid rgba(230, 0, 0, 0.45);
+  border-radius: 3px;
+  line-height: 1.5;
+}
+
+.memoryStars {
+  color: rgba(230, 0, 0, 0.6);
+  letter-spacing: 0.12em;
+}
+
+.memoryScope {
+  margin-left: auto;
+  color: rgba(230, 0, 0, 0.45);
+  letter-spacing: 0.1em;
+}
+
+.memoryText {
+  margin: 0;
+  color: var(--diary-ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.memoryMarkdown {
+  color: var(--diary-ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.9;
+  word-break: break-word;
+}
+
+.memoryMarkdown p {
+  margin: 0.2rem 0;
+}
+
+.memoryMarkdown h1,
+.memoryMarkdown h2,
+.memoryMarkdown h3 {
+  margin: 0.7rem 0 0.25rem;
+  color: var(--diary-red);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.memoryMarkdown ul,
+.memoryMarkdown ol {
+  margin: 0.3rem 0;
+  padding-left: 1.3rem;
+}
+
+.memoryMarkdown a {
+  color: var(--diary-red);
+}
+
+/* ---- 右下角的记忆入口：只显示图标，平时透明，悬停自身才渐显 ---- */
+
+.memoryEntry {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  filter: blur(3px);
+  transform: translateY(1px);
+  transition:
+    opacity 0.25s ease-out,
+    filter 0.25s ease-out,
+    transform 0.25s ease-out;
+}
+
+.memoryEntry img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.memoryEntry:hover,
+.memoryEntry:focus-visible {
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+
+.memoryEntry:focus-visible {
+  outline: 2px solid rgba(200, 16, 46, 0.5);
+  outline-offset: 3px;
+}
+
+.memoryEntry:disabled {
+  cursor: default;
+}
+
+/* 记忆视图里圆标常驻半透明，作为返回日记的入口。 */
+.memoryMode .memoryEntry,
+.memoryEntryActive {
+  opacity: 0.45;
+  filter: none;
+  transform: none;
+}
+
+.memoryMode .memoryEntry:hover,
+.memoryMode .memoryEntry:focus-visible,
+.memoryEntryActive:hover,
+.memoryEntryActive:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .memoryEntry {
+    opacity: 0.55;
+    filter: none;
+    transform: none;
+  }
+}
+
+/* ---- 重新载入：只有一枚环形箭头，悬停弹一下 + 转一圈 ---- */
+
+.reloadButton {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--diary-red);
+  cursor: pointer;
+}
+
+.reloadButton svg {
+  display: block;
+}
+
+.reloadButton:hover:not(:disabled) {
+  animation: reload-pop-spin 0.55s ease-in-out;
+}
+
+.reloadButton:focus-visible {
+  outline: 2px solid rgba(200, 16, 46, 0.5);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+
+.reloadButton:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.reloadButton:disabled svg {
+  animation: reload-spin 0.9s linear infinite;
+}
+
+@keyframes reload-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes reload-pop-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  30% {
+    transform: rotate(140deg) scale(1.15);
+  }
+
+  60% {
+    transform: rotate(280deg) scale(0.95);
+  }
+
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+/* ---- 合上日记：左下角折起的纸角 + 纸张色的叉 ---- */
+
+.foldClose {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 0;
+  background: var(--diary-red);
+  clip-path: polygon(0 0, 0 100%, 100% 100%);
+  cursor: pointer;
+  z-index: 5;
+  transition: filter 0.2s ease;
+}
+
+.foldClose span {
+  position: absolute;
+  left: 7px;
+  bottom: 5px;
+  color: var(--diary-paper);
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.foldClose:hover {
+  filter: brightness(1.12);
+}
+
+.foldClose:focus-visible {
+  outline: 2px solid rgba(255, 253, 247, 0.7);
+  outline-offset: -3px;
 }
 
 /* 书脊：红色竖条 + 装订孔 */
@@ -176,6 +540,25 @@
   padding: 1rem 1.3rem 0.6rem 1.5rem;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-color: rgba(200, 16, 46, 0.4) transparent;
+  scrollbar-width: thin;
+}
+
+.body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.body::-webkit-scrollbar-track {
+  background: rgba(200, 16, 46, 0.05);
+}
+
+.body::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: rgba(200, 16, 46, 0.35);
+}
+
+.body::-webkit-scrollbar-thumb:hover {
+  background: rgba(200, 16, 46, 0.5);
 }
 
 .hint {
@@ -232,6 +615,7 @@
 .markdown {
   color: var(--diary-ink);
   font-size: 0.94rem;
+  font-weight: 600;
   line-height: 1.95;
   word-break: break-word;
 }
@@ -302,7 +686,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 1rem 0.7rem 1.5rem;
+  padding: 0.35rem 1rem 0.45rem 3.4rem;
   border-top: 1.5px solid rgba(200, 16, 46, 0.3);
 }
 
@@ -427,5 +811,20 @@
 
   .editor {
     min-height: 40vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+  }
+
+  .closing {
+    animation: none;
+  }
+
+  .reloadButton:hover:not(:disabled),
+  .reloadButton:disabled svg {
+    animation: none;
   }
 }

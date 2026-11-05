@@ -12,6 +12,8 @@ const DEFAULT_CONFIG: PetConfig = {
     privateKeyPath: join(homedir(), ".ssh", "jxmfun_server"),
     remoteDir:
       "/home/mxjserver/astrbot/data/workspaces/Hiro_FriendMessage_1955272576/diary",
+    memoryDir:
+      "/home/mxjserver/astrbot/data/plugin_data/astrbot_plugin_hiro_memory/memory",
   },
 };
 
@@ -48,6 +50,10 @@ function normalizeConfig(input: unknown): PetConfig {
         typeof diary.remoteDir === "string" && diary.remoteDir.trim()
           ? diary.remoteDir.trim()
           : DEFAULT_CONFIG.diary.remoteDir,
+      memoryDir:
+        typeof diary.memoryDir === "string" && diary.memoryDir.trim()
+          ? diary.memoryDir.trim()
+          : DEFAULT_CONFIG.diary.memoryDir,
     },
   };
 }

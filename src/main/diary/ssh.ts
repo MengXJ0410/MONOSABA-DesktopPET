@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { DiaryConfig, DiaryPayload } from "../../shared/types";
+import type { DiaryConfig, DiaryPayload, MemoryPayload } from "../../shared/types";
 import { readConfig } from "../config";
 
 const execFileAsync = promisify(execFile);
@@ -124,6 +124,18 @@ function isHostKeyError(message: string): boolean {
   return /host key verification failed|remote host identification has changed/i.test(message);
 }
 
+/** 远端脚本可能被 shell 提示信息包住，取最后一行完整 JSON。 */
+function extractJson(raw: string): string {
+  const text = raw.trim();
+  return (
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("{") && line.endsWith("}"))
+      .pop() ?? text
+  );
+}
+
 async function runSsh(args: string[]): Promise<{ stdout: string; stderr: string }> {
   try {
     return await execFileAsync("ssh", args, {
@@ -195,13 +207,7 @@ async function loadFromHost(
   const remoteCommand = `printf %s '${encoded}' | base64 -d | python3 -`;
 
   const { stdout, stderr } = await runSsh(buildArgs(config, host, remoteCommand));
-  const raw = stdout.trim();
-  const text =
-    raw
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith("{") && line.endsWith("}"))
-      .pop() ?? raw;
+  const text = extractJson(stdout);
   if (!text) {
     throw new DiaryRemoteError(
       `日记本返回为空。${stderr ? ` ${stderr.trim()}` : ""}`.trim(),
@@ -279,6 +285,106 @@ export async function loadDiary(requestedBook?: string | null): Promise<DiaryPay
   throw lastError ?? new DiaryRemoteError(
     "连不上日记本，确认 EasyTier 在线。",
     "network",
+  );
+}
+
+function memoryScript(dir: string): string {
+  return `
+import glob, json, os
+
+DIR = ${JSON.stringify(dir)}
+rows = []
+days = set()
+
+for path in sorted(glob.glob(os.path.join(DIR, "*.jsonl"))):
+    try:
+        handle = open(path, "r", encoding="utf-8", errors="replace")
+    except OSError:
+        continue
+    with handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except Exception:
+                continue
+            date = str(item.get("date") or "")
+            text = str(item.get("text") or "")
+            if not date or not text:
+                continue
+            try:
+                imp = int(item.get("imp") or 0)
+            except Exception:
+                imp = 0
+            rows.append({
+                "date": date,
+                "kind": str(item.get("kind") or ""),
+                "imp": imp,
+                "text": text,
+                "scope": str(item.get("scope") or ""),
+            })
+            days.add(date)
+
+rows.sort(key=lambda row: row["date"], reverse=True)
+print(json.dumps({"entries": rows, "days": len(days), "count": len(rows)}, ensure_ascii=False))
+`;
+}
+
+/** 通过同一套 SSH 通道跑一段脚本，并解析最后一行 JSON。 */
+async function runRemoteJson<T>(
+  config: DiaryConfig,
+  script: string,
+  label: string,
+  fallbackError: string,
+): Promise<T> {
+  const encoded = Buffer.from(script, "utf8").toString("base64");
+  const remoteCommand = `printf %s '${encoded}' | base64 -d | python3 -`;
+
+  let lastError: DiaryRemoteError | null = null;
+  for (const host of config.hosts) {
+    try {
+      const { stdout, stderr } = await runSsh(buildArgs(config, host, remoteCommand));
+      const text = extractJson(stdout);
+      if (!text) {
+        throw new DiaryRemoteError(
+          `返回为空。${stderr ? ` ${stderr.trim()}` : ""}`.trim(),
+          "remote",
+        );
+      }
+      return JSON.parse(text) as T;
+    } catch (error) {
+      const mapped = toHostError(error);
+      if (mapped.kind === "missing-ssh" || mapped.kind === "auth") {
+        throw mapped;
+      }
+      lastError = mapped;
+      console.warn(`[${label}] ${host} 连接失败`, mapped.message);
+    }
+  }
+
+  throw lastError ?? new DiaryRemoteError(fallbackError, "network");
+}
+
+/** 读取服务器上的长久记忆（只读，一次取全部 JSONL）。 */
+export async function loadMemory(): Promise<MemoryPayload> {
+  const config = (await readConfig()).diary;
+
+  try {
+    await fs.access(config.privateKeyPath);
+  } catch {
+    throw new DiaryRemoteError(
+      `读不到 SSH 私钥：${config.privateKeyPath}`,
+      "auth",
+    );
+  }
+
+  return runRemoteJson<MemoryPayload>(
+    config,
+    memoryScript(config.memoryDir),
+    "memory",
+    "连不上记忆库，确认 EasyTier 在线。",
   );
 }
 

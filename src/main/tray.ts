@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { BUILD_DEFAULT_CHARACTER } from "./build-info";
 import { ensureConfig } from "./config";
-import { listDisplays, selectDisplay } from "./display";
+import { isForceTop, listDisplays, selectDisplay } from "./display";
 import { getMainWindow } from "./window";
 
 let tray: Tray | null = null;
@@ -57,7 +57,12 @@ export function createTray(): Tray {
           label: "始终置顶",
           type: "checkbox",
           checked: win?.isAlwaysOnTop() ?? true,
-          click: (item) => getMainWindow()?.setAlwaysOnTop(item.checked),
+          // 强制顶层自己会维持置顶，避免两处开关互相打架。
+          enabled: !isForceTop(),
+          click: (item) => {
+            if (isForceTop()) return;
+            getMainWindow()?.setAlwaysOnTop(item.checked);
+          },
         },
         ...screenItems,
         {

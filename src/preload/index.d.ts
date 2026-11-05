@@ -1,7 +1,11 @@
-import type { DiaryPayload, DisplayInfo } from "../shared/types";
+import type { DiaryPayload, DisplayInfo, MemoryPayload } from "../shared/types";
 
 export type DiaryResult =
   | { ok: true; data: DiaryPayload }
+  | { ok: false; error: string };
+
+export type MemoryResult =
+  | { ok: true; data: MemoryPayload }
   | { ok: false; error: string };
 
 export type PetApi = {
@@ -12,10 +16,18 @@ export type PetApi = {
   resizeDiary(size: { width: number; height: number }): void;
   loadDiary(book?: string | null): Promise<DiaryResult>;
   diaryAvailability(): Promise<boolean>;
+  loadMemory(): Promise<MemoryResult>;
+  captureDiaryCard(rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<{ ok: boolean; dataUrl?: string }>;
   getAutoLaunch(): Promise<boolean>;
   setAutoLaunch(enabled: boolean): Promise<boolean>;
   listDisplays(): Promise<DisplayInfo[]>;
   setDisplay(displayId: string): Promise<DisplayInfo | null>;
+  setForceTop(enabled: boolean): Promise<boolean>;
   onDisplayChanged(handler: (info: DisplayInfo) => void): () => void;
   openConfig(): void;
   quit(): void;

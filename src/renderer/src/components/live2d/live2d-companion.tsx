@@ -18,6 +18,7 @@ import {
   LIVE2D_CORE_PATH,
   LIVE2D_DEFAULT_CHARACTER,
   LIVE2D_EXPRESSION_LINES,
+  LIVE2D_FORCE_TOP_STORAGE_KEY,
   LIVE2D_GREETINGS,
   LIVE2D_IDLE_LEAVE_MS,
   LIVE2D_IDLE_LINES,
@@ -31,8 +32,20 @@ import {
   LIVE2D_IDLE_POSE_RETRY_MIN_MS,
   LIVE2D_IDLE_STILL_MS,
   LIVE2D_MIN_TOP_PX,
+  LIVE2D_OPACITY_DEFAULT_BASE,
+  LIVE2D_OPACITY_DEFAULT_HOVER,
+  LIVE2D_OPACITY_MAX,
+  LIVE2D_OPACITY_MIN,
+  LIVE2D_OPACITY_STEP,
+  LIVE2D_OPACITY_STORAGE_KEY,
   LIVE2D_PASSTHROUGH_STORAGE_KEY,
   LIVE2D_POSITION_STORAGE_KEY,
+  LIVE2D_ROTATE_DEFAULT_MAX_SECONDS,
+  LIVE2D_ROTATE_DEFAULT_MIN_SECONDS,
+  LIVE2D_ROTATE_MAX_SECONDS,
+  LIVE2D_ROTATE_MIN_SECONDS,
+  LIVE2D_ROTATE_STEP_SECONDS,
+  LIVE2D_ROTATE_STORAGE_KEY,
   LIVE2D_SCALE_STORAGE_KEY,
   LIVE2D_SCREEN_STORAGE_KEY,
   LIVE2D_SESSION_KEY,
@@ -44,6 +57,8 @@ import {
   type Live2DCharacterId,
   type Live2DClickSound,
   type Live2DExpression,
+  type Live2DOpacitySettings,
+  type Live2DRotateSettings,
 } from "@/content/live2d";
 import { advanceIdleGaze, createIdleGaze, type IdleGazeState } from "@/lib/live2d/idle";
 import { shouldPlayClickSound } from "@/lib/live2d/click-sound";
@@ -100,6 +115,17 @@ function insideRect(rect: Rect | null, x: number, y: number): boolean {
       x < rect.x + rect.width &&
       y < rect.y + rect.height,
   );
+}
+
+/** 面板与小窗的并集：鼠标跨过两者之间的空隙时也要保持可交互。 */
+function unionRect(a: Rect | null, b: Rect | null): Rect | null {
+  if (!a) return b;
+  if (!b) return a;
+  const left = Math.min(a.x, b.x);
+  const top = Math.min(a.y, b.y);
+  const right = Math.max(a.x + a.width, b.x + b.width);
+  const bottom = Math.max(a.y + a.height, b.y + b.height);
+  return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 /** 让人物的可见边缘正好贴住屏幕两侧时，舞台 left 的取值区间。 */
@@ -236,6 +262,106 @@ function clearStoredDisplayId() {
   }
 }
 
+function readStoredForceTop(): boolean {
+  try {
+    return window.localStorage.getItem(LIVE2D_FORCE_TOP_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistForceTop(value: boolean) {
+  try {
+    window.localStorage.setItem(LIVE2D_FORCE_TOP_STORAGE_KEY, value ? "1" : "0");
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function live2dCharacterIds(): Live2DCharacterId[] {
+  return Object.keys(LIVE2D_CHARACTERS) as Live2DCharacterId[];
+}
+
+function clampRotateSeconds(value: unknown, fallback: number) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  const stepped =
+    Math.round(numeric / LIVE2D_ROTATE_STEP_SECONDS) * LIVE2D_ROTATE_STEP_SECONDS;
+  return clamp(stepped, LIVE2D_ROTATE_MIN_SECONDS, LIVE2D_ROTATE_MAX_SECONDS);
+}
+
+function readStoredRotate(): Live2DRotateSettings {
+  const fallback: Live2DRotateSettings = {
+    enabled: false,
+    minSeconds: LIVE2D_ROTATE_DEFAULT_MIN_SECONDS,
+    maxSeconds: LIVE2D_ROTATE_DEFAULT_MAX_SECONDS,
+    characters: live2dCharacterIds(),
+  };
+  try {
+    const raw = window.localStorage.getItem(LIVE2D_ROTATE_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<Live2DRotateSettings>;
+    let min = clampRotateSeconds(parsed.minSeconds, fallback.minSeconds);
+    let max = clampRotateSeconds(parsed.maxSeconds, fallback.maxSeconds);
+    if (min > max) [min, max] = [max, min];
+    const known = new Set(live2dCharacterIds());
+    const characters = Array.isArray(parsed.characters)
+      ? parsed.characters.filter((id): id is Live2DCharacterId => known.has(id))
+      : [];
+    return {
+      enabled: parsed.enabled === true,
+      minSeconds: min,
+      maxSeconds: max,
+      characters: characters.length ? characters : fallback.characters,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function persistRotate(settings: Live2DRotateSettings) {
+  try {
+    window.localStorage.setItem(LIVE2D_ROTATE_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Storage can be unavailable; the interval still works for this session.
+  }
+}
+
+function clampOpacity(value: unknown, fallback: number) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  const stepped = Math.round(numeric / LIVE2D_OPACITY_STEP) * LIVE2D_OPACITY_STEP;
+  return clamp(stepped, LIVE2D_OPACITY_MIN, LIVE2D_OPACITY_MAX);
+}
+
+function readStoredOpacity(): Live2DOpacitySettings {
+  const fallback: Live2DOpacitySettings = {
+    hoverFade: false,
+    hoverOpacity: LIVE2D_OPACITY_DEFAULT_HOVER,
+    baseOpacity: LIVE2D_OPACITY_DEFAULT_BASE,
+  };
+  try {
+    const raw = window.localStorage.getItem(LIVE2D_OPACITY_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<Live2DOpacitySettings>;
+    return {
+      hoverFade: parsed.hoverFade === true,
+      hoverOpacity: clampOpacity(parsed.hoverOpacity, fallback.hoverOpacity),
+      baseOpacity: clampOpacity(parsed.baseOpacity, fallback.baseOpacity),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function persistOpacity(settings: Live2DOpacitySettings) {
+  try {
+    window.localStorage.setItem(LIVE2D_OPACITY_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Storage can be unavailable; the opacity still applies for this session.
+  }
+}
+
 export function Live2DCompanion() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
@@ -277,6 +403,21 @@ export function Live2DCompanion() {
   const [settingsAnchor, setSettingsAnchor] = useState({ x: 12, y: 12 });
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [currentDisplayId, setCurrentDisplayId] = useState<string | null>(null);
+  const [rotateSettings, setRotateSettings] = useState<Live2DRotateSettings>({
+    enabled: false,
+    minSeconds: LIVE2D_ROTATE_DEFAULT_MIN_SECONDS,
+    maxSeconds: LIVE2D_ROTATE_DEFAULT_MAX_SECONDS,
+    characters: live2dCharacterIds(),
+  });
+  const [opacitySettings, setOpacitySettings] = useState<Live2DOpacitySettings>({
+    hoverFade: false,
+    hoverOpacity: LIVE2D_OPACITY_DEFAULT_HOVER,
+    baseOpacity: LIVE2D_OPACITY_DEFAULT_BASE,
+  });
+  const [hoveringCharacter, setHoveringCharacter] = useState(false);
+  const hoveringCharacterRef = useRef(false);
+  const settingsPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [forceTop, setForceTopState] = useState(false);
   const settingsOpenRef = useRef(false);
   const panelFrozenRef = useRef(false);
   const panelFreezeReasonRef = useRef<"character" | "scale" | null>(null);
@@ -337,8 +478,13 @@ export function Live2DCompanion() {
         return;
       }
       const hit = hitRef.current;
+      const popoverRect = settingsOpenRef.current
+        ? settingsPopoverRef.current?.getBoundingClientRect() ?? null
+        : null;
+      // 小窗在面板外侧，鼠标从按钮挪过去会经过一段空隙；把两者并成一个矩形，
+      // 否则跨过空隙的瞬间窗口变成穿透，小窗上的滑杆就点不到了。
       const panelRect = settingsOpenRef.current
-        ? stackRef.current?.getBoundingClientRect() ?? null
+        ? unionRect(stackRef.current?.getBoundingClientRect() ?? null, popoverRect)
         : null;
       const interactive =
         insideRect(hit.gear, x, y) ||
@@ -563,24 +709,118 @@ export function Live2DCompanion() {
     schedulePanelSettle(160);
   }, [schedulePanelSettle]);
 
-  const switchCharacter = useCallback(() => {
-    freezePanel("character");
-    setCharacter((current) => {
-      const next: Live2DCharacterId = current === "hiro" ? "ema" : "hiro";
+  const switchToCharacter = useCallback(
+    (next: Live2DCharacterId) => {
+      freezePanel("character");
+      setCharacter(next);
       try {
         window.localStorage.setItem(LIVE2D_CHARACTER_STORAGE_KEY, next);
       } catch {
         // Ignore storage failures.
       }
+      // 旧模型即将被销毁，先把图标和人物边界恢复成干净状态。
+      setIconFailed(false);
+      setCharacterBox(null);
+      characterBoxRef.current = null;
+      setStatus("idle");
+      clearBubble();
+    },
+    [clearBubble, freezePanel],
+  );
+
+  const switchCharacter = useCallback(() => {
+    switchToCharacter(otherCharacter);
+  }, [otherCharacter, switchToCharacter]);
+
+  const toggleRotate = useCallback(() => {
+    setRotateSettings((current) => {
+      const next = { ...current, enabled: !current.enabled };
+      persistRotate(next);
       return next;
     });
-    // 旧模型即将被销毁，先把图标和人物边界恢复成干净状态。
-    setIconFailed(false);
-    setCharacterBox(null);
-    characterBoxRef.current = null;
-    setStatus("idle");
-    clearBubble();
-  }, [clearBubble, freezePanel]);
+  }, []);
+
+  const changeRotateRange = useCallback((minSeconds: number, maxSeconds: number) => {
+    const normalize = (value: number) =>
+      clamp(
+        Math.round(value / LIVE2D_ROTATE_STEP_SECONDS) * LIVE2D_ROTATE_STEP_SECONDS,
+        LIVE2D_ROTATE_MIN_SECONDS,
+        LIVE2D_ROTATE_MAX_SECONDS,
+      );
+    const min = normalize(minSeconds);
+    const max = Math.max(min, normalize(maxSeconds));
+    setRotateSettings((current) => {
+      const next = { ...current, minSeconds: min, maxSeconds: max };
+      persistRotate(next);
+      return next;
+    });
+  }, []);
+
+  const toggleOpacityHoverFade = useCallback(() => {
+    setOpacitySettings((current) => {
+      const next = { ...current, hoverFade: !current.hoverFade };
+      persistOpacity(next);
+      return next;
+    });
+  }, []);
+
+  const changeOpacity = useCallback((hoverOpacity: number, baseOpacity: number) => {
+    const normalize = (value: number) =>
+      clamp(
+        Math.round(value / LIVE2D_OPACITY_STEP) * LIVE2D_OPACITY_STEP,
+        LIVE2D_OPACITY_MIN,
+        LIVE2D_OPACITY_MAX,
+      );
+    const hover = normalize(hoverOpacity);
+    const base = normalize(baseOpacity);
+    setOpacitySettings((current) => {
+      const next = { ...current, hoverOpacity: hover, baseOpacity: base };
+      persistOpacity(next);
+      return next;
+    });
+  }, []);
+
+  // 强制顶层：窗口扩展到整块屏幕（含任务栏），并持续压在置顶层最前面。
+  const toggleForceTop = useCallback(async () => {
+    const api = window.petApi;
+    const next = !forceTop;
+    setForceTopState(next);
+    persistForceTop(next);
+    if (!api?.setForceTop) return;
+    try {
+      const applied = await api.setForceTop(next);
+      if (applied !== next) {
+        setForceTopState(applied);
+        persistForceTop(applied);
+        showBubble("强制顶层没有设置成功。");
+      }
+    } catch {
+      setForceTopState(!next);
+      persistForceTop(!next);
+      showBubble("强制顶层没有设置成功。");
+    }
+  }, [forceTop, showBubble]);
+
+  // 自动轮换：每次先随机一个区间内的秒数，到点切到下一个人物再重新随机。
+  // 面板打开、人物隐藏、模型还没就绪时暂停，条件恢复后重新计时。
+  useEffect(() => {
+    const { enabled, minSeconds, maxSeconds, characters } = rotateSettings;
+    if (!enabled || !visible || !summoned || settingsOpen) return;
+    if (status !== "ready") return;
+    const rotation = characters.filter((id) => LIVE2D_CHARACTERS[id]);
+    if (rotation.length < 2) return;
+    const span = Math.max(0, maxSeconds - minSeconds);
+    const seconds = minSeconds + Math.round(Math.random() * span);
+    const timer = window.setTimeout(
+      () => {
+        const index = rotation.indexOf(character);
+        const next = rotation[(index + 1) % rotation.length];
+        if (next && next !== character) switchToCharacter(next);
+      },
+      Math.max(1, seconds) * 1000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [character, rotateSettings, settingsOpen, status, summoned, switchToCharacter, visible]);
 
   /** 点击彩蛋：先看冷却，再掷概率；命中才播放。 */
   const playClickSound = useCallback((sound: Live2DClickSound) => {
@@ -630,6 +870,28 @@ export function Live2DCompanion() {
         if (!active) return;
       }
 
+      // 先把「强制顶层」的窗口尺寸应用好，再按新视口摆放人物，避免人物先跳一下。
+      const storedForceTop = readStoredForceTop();
+      if (storedForceTop && api?.setForceTop) {
+        try {
+          const applied = await api.setForceTop(true);
+          if (!active) return;
+          setForceTopState(applied);
+          persistForceTop(applied);
+        } catch {
+          setForceTopState(false);
+          persistForceTop(false);
+        }
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => resolve());
+          });
+        });
+        if (!active) return;
+      } else {
+        setForceTopState(false);
+      }
+
       const storedEnabled = window.localStorage.getItem(LIVE2D_STORAGE_KEY);
       const storedPassthrough = window.localStorage.getItem(LIVE2D_PASSTHROUGH_STORAGE_KEY);
       const hasStoredPreference = storedEnabled === "1" || storedEnabled === "0";
@@ -642,6 +904,8 @@ export function Live2DCompanion() {
       setPassthrough(storedPassthrough === "1");
       setScale(readStoredScale());
       setCharacter(readStoredCharacter());
+      setRotateSettings(readStoredRotate());
+      setOpacitySettings(readStoredOpacity());
       setPosition(readStoredPosition());
       setInitialized(true);
     };
@@ -724,18 +988,36 @@ export function Live2DCompanion() {
     passthroughRef.current = passthrough;
   }, [passthrough]);
 
+  // 记录鼠标是否落在人物实际包围盒上，供「悬停变淡」使用。
+  const updateCharacterHover = useCallback((x: number, y: number) => {
+    let inside = insideRect(hitRef.current.stage, x, y);
+    if (inside) {
+      // 面板/小窗正好压在人物上时，鼠标其实在操作界面，不算「悬停在人物上」。
+      const panelRect = settingsOpenRef.current
+        ? stackRef.current?.getBoundingClientRect() ?? null
+        : null;
+      const popoverRect = settingsPopoverRef.current?.getBoundingClientRect() ?? null;
+      if (insideRect(panelRect, x, y) || insideRect(popoverRect, x, y)) inside = false;
+    }
+    if (hoveringCharacterRef.current === inside) return;
+    hoveringCharacterRef.current = inside;
+    setHoveringCharacter(inside);
+  }, []);
+
   // 用页面内的 clientX/clientY 判断是否该接管鼠标，避免 Windows 缩放坐标误差。
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
       pointerRef.current = { x: event.clientX, y: event.clientY };
       pointerLastAtRef.current = performance.now();
       evaluatePointer(event.clientX, event.clientY);
+      updateCharacterHover(event.clientX, event.clientY);
     };
 
     const onLeave = () => {
       pointerRef.current = null;
       pointerLeftAtRef.current = performance.now();
       sendIgnore(true);
+      updateCharacterHover(-1, -1);
     };
 
     window.addEventListener("mousemove", onMove, { passive: true });
@@ -744,7 +1026,7 @@ export function Live2DCompanion() {
       window.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseleave", onLeave);
     };
-  }, [evaluatePointer, sendIgnore]);
+  }, [evaluatePointer, sendIgnore, updateCharacterHover]);
 
   // 面板平滑移动时，即使鼠标不动，也持续用面板当前范围更新穿透状态。
   useEffect(() => {
@@ -770,6 +1052,8 @@ export function Live2DCompanion() {
       if (!target) return;
       if (stackRef.current?.contains(target)) return;
       if (gearRef.current?.contains(target)) return;
+      // 自动轮换小窗用 portal 挂在 body 上，不在 stack 里，要单独放行。
+      if (settingsPopoverRef.current?.contains(target)) return;
       settingsOpenRef.current = false;
       setSettingsOpen(false);
       sendIgnore(true);
@@ -911,6 +1195,20 @@ export function Live2DCompanion() {
         : null,
     };
   }, [characterBox, layout, passthrough, viewport, visible]);
+
+  // 人物位置/大小变了、或刚切换穿透/显隐时，用最后一次鼠标位置重算悬停状态，
+  // 避免「鼠标没动但人物已经挪到指针下面」时漏掉变淡。
+  useEffect(() => {
+    const pointer = pointerRef.current;
+    if (!pointer || !visible) {
+      if (hoveringCharacterRef.current) {
+        hoveringCharacterRef.current = false;
+        setHoveringCharacter(false);
+      }
+      return;
+    }
+    updateCharacterHover(pointer.x, pointer.y);
+  }, [characterBox, layout, updateCharacterHover, visible]);
 
   useEffect(() => {
     if (!shouldLoad) return;
@@ -1545,6 +1843,13 @@ export function Live2DCompanion() {
     openSettingsAt(Math.max(12, rect.left - 316), Math.max(12, rect.top - 8));
   };
 
+  const hoverFadeActive =
+    visible && passthrough && opacitySettings.hoverFade && hoveringCharacter;
+  const modelOpacity =
+    (hoverFadeActive ? opacitySettings.hoverOpacity : opacitySettings.baseOpacity) / 100;
+  // 悬停变淡 0.3s，移开恢复 0.2s。
+  const modelFadeMs = hoverFadeActive ? 300 : 200;
+
   const iconState =
     !summoned || status === "error"
       ? "sleeping"
@@ -1599,6 +1904,12 @@ export function Live2DCompanion() {
           <div
             ref={mountRef}
             className={`${styles.stage}${passthrough ? ` ${styles.stagePassthrough}` : ""}${visible ? "" : ` ${styles.stageHidden}`}`}
+            style={
+              {
+                "--model-opacity": modelOpacity,
+                "--model-fade": `${modelFadeMs}ms`,
+              } as CSSProperties
+            }
             onContextMenu={onStageContextMenu}
           >
             {visible && status !== "ready" && status !== "error" ? (
@@ -1675,8 +1986,21 @@ export function Live2DCompanion() {
             nextCharacterName={otherCharacterProfile.name}
             displays={displays}
             currentDisplayId={currentDisplayId}
+            rotateEnabled={rotateSettings.enabled}
+            rotateMinSeconds={rotateSettings.minSeconds}
+            rotateMaxSeconds={rotateSettings.maxSeconds}
+            opacityHoverFade={opacitySettings.hoverFade}
+            opacityHover={opacitySettings.hoverOpacity}
+            opacityBase={opacitySettings.baseOpacity}
+            forceTop={forceTop}
+            popoverRef={settingsPopoverRef}
             onSwitchCharacter={switchCharacter}
             onSelectDisplay={selectDisplay}
+            onToggleRotate={toggleRotate}
+            onRotateRangeChange={changeRotateRange}
+            onToggleOpacityHoverFade={toggleOpacityHoverFade}
+            onOpacityChange={changeOpacity}
+            onToggleForceTop={toggleForceTop}
             canViewDiary
             onOpenDiary={() => {
               settingsOpenRef.current = false;

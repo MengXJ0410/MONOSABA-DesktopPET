@@ -61,6 +61,41 @@ export const LIVE2D_POSITION_STORAGE_KEY = "jxmfun-live2d-position";
 export const LIVE2D_PASSTHROUGH_STORAGE_KEY = "jxmfun-live2d-passthrough";
 // 记住上次把桌宠放在哪块屏幕上（存 Electron display id）。
 export const LIVE2D_SCREEN_STORAGE_KEY = "jxmfun-live2d-screen";
+// 强制顶层：窗口铺满整块屏幕（含任务栏），并保持置顶窗口的最前面。
+export const LIVE2D_FORCE_TOP_STORAGE_KEY = "jxmfun-live2d-force-top";
+
+// 人物不透明度：常态值随时生效，悬停值只在鼠标穿透开启时生效。
+export const LIVE2D_OPACITY_STORAGE_KEY = "jxmfun-live2d-opacity";
+export const LIVE2D_OPACITY_MIN = 0;
+export const LIVE2D_OPACITY_MAX = 100;
+export const LIVE2D_OPACITY_STEP = 5;
+export const LIVE2D_OPACITY_DEFAULT_HOVER = 50;
+export const LIVE2D_OPACITY_DEFAULT_BASE = 100;
+
+export type Live2DOpacitySettings = {
+  /** 鼠标穿透开启时，鼠标悬停在人物身上是否变淡。 */
+  hoverFade: boolean;
+  /** 悬停时的不透明度 0–100。 */
+  hoverOpacity: number;
+  /** 常态不透明度 0–100，任何时候都生效。 */
+  baseOpacity: number;
+};
+
+// 自动轮换：按随机区间在人物之间切换。
+export const LIVE2D_ROTATE_STORAGE_KEY = "jxmfun-live2d-rotate";
+export const LIVE2D_ROTATE_MIN_SECONDS = 5;
+export const LIVE2D_ROTATE_MAX_SECONDS = 600;
+export const LIVE2D_ROTATE_STEP_SECONDS = 5;
+export const LIVE2D_ROTATE_DEFAULT_MIN_SECONDS = 30;
+export const LIVE2D_ROTATE_DEFAULT_MAX_SECONDS = 70;
+
+export type Live2DRotateSettings = {
+  enabled: boolean;
+  minSeconds: number;
+  maxSeconds: number;
+  /** 参与轮换的人物；将来加入第三人时由小窗里的多选维护。 */
+  characters: Live2DCharacterId[];
+};
 export const LIVE2D_SIZE_MIN = 10;
 export const LIVE2D_SIZE_MAX = 300;
 export const LIVE2D_SIZE_DEFAULT = 100;

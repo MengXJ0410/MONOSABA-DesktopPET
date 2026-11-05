@@ -38,6 +38,13 @@
   touch-action: pan-y;
 }
 
+/* 人物画布的不透明度：常态值随时生效，悬停变淡由内联 CSS 变量驱动。 */
+.stage canvas {
+  opacity: var(--model-opacity, 1);
+  transition: opacity var(--model-fade, 200ms) ease;
+  will-change: opacity;
+}
+
 .stage canvas {
   display: block;
   width: 100%;

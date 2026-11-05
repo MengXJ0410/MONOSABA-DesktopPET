@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { registerAppProtocol, registerAppScheme } from "./app-protocol";
 import { getAutoLaunchEnabled, setAutoLaunchEnabled } from "./auto-launch";
 import { ensureConfig } from "./config";
-import { listDisplays, selectDisplay, syncWindowToDisplay } from "./display";
-import { loadDiary, diaryAvailability } from "./diary/ssh";
+import { listDisplays, selectDisplay, setForceTop, syncWindowToDisplay, disposeForceTop } from "./display";
+import { loadDiary, diaryAvailability, loadMemory } from "./diary/ssh";
 import { initDiaryWindow } from "./diary-window";
 import { startMousePassthrough } from "./mouse-passthrough";
 import { createTray } from "./tray";
@@ -56,6 +56,43 @@ if (!gotLock) {
       }
     });
 
+    ipcMain.handle("diary:load-memory", async () => {
+      try {
+        const data = await loadMemory();
+        return { ok: true, data };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "记忆暂时打不开。";
+        console.warn("[memory] load failed", message);
+        return { ok: false, error: message };
+      }
+    });
+
+    // 日记窗口切换日记/记忆时的马赛克过渡：截取卡片当前画面，交给渲染层做像素溶解。
+    ipcMain.handle("diary:capture", async (event, rect: unknown) => {
+      const area = rect as { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | null;
+      const x = Math.round(Number(area?.x));
+      const y = Math.round(Number(area?.y));
+      const width = Math.round(Number(area?.width));
+      const height = Math.round(Number(area?.height));
+      if (
+        ![x, y, width, height].every(Number.isFinite) ||
+        width <= 0 ||
+        height <= 0 ||
+        width > 4000 ||
+        height > 4000
+      ) {
+        return { ok: false as const };
+      }
+      try {
+        const image = await event.sender.capturePage({ x, y, width, height });
+        if (image.isEmpty()) return { ok: false as const };
+        return { ok: true as const, dataUrl: image.toDataURL() };
+      } catch (error) {
+        console.warn("[diary] capture failed", error);
+        return { ok: false as const };
+      }
+    });
+
     ipcMain.handle("app:get-auto-launch", () => getAutoLaunchEnabled());
     ipcMain.handle("app:set-auto-launch", (_event, enabled: unknown) => {
       try {
@@ -82,6 +119,7 @@ if (!gotLock) {
       if (typeof displayId !== "string" || !displayId) return null;
       return selectDisplay(displayId);
     });
+    ipcMain.handle("pet:set-force-top", (_event, enabled: unknown) => setForceTop(Boolean(enabled)));
 
     const win = createMainWindow(join(__dirname, "../preload/index.js"));
     startMousePassthrough(win);
@@ -103,6 +141,8 @@ if (!gotLock) {
   app.on("window-all-closed", () => {
     app.quit();
   });
+
+  app.on("before-quit", disposeForceTop);
 
   app.on("activate", () => {
     if (getMainWindow()) {

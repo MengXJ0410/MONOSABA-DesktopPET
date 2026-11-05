@@ -1,8 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DiaryPayload, DisplayInfo } from "../shared/types";
+import type { DiaryPayload, DisplayInfo, MemoryPayload } from "../shared/types";
 
 export type DiaryResult =
   | { ok: true; data: DiaryPayload }
+  | { ok: false; error: string };
+
+export type MemoryResult =
+  | { ok: true; data: MemoryPayload }
   | { ok: false; error: string };
 
 const api = {
@@ -27,6 +31,20 @@ const api = {
   diaryAvailability(): Promise<boolean> {
     return ipcRenderer.invoke("diary:availability") as Promise<boolean>;
   },
+  loadMemory(): Promise<MemoryResult> {
+    return ipcRenderer.invoke("diary:load-memory") as Promise<MemoryResult>;
+  },
+  captureDiaryCard(rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<{ ok: boolean; dataUrl?: string }> {
+    return ipcRenderer.invoke("diary:capture", rect) as Promise<{
+      ok: boolean;
+      dataUrl?: string;
+    }>;
+  },
   getAutoLaunch(): Promise<boolean> {
     return ipcRenderer.invoke("app:get-auto-launch") as Promise<boolean>;
   },
@@ -38,6 +56,9 @@ const api = {
   },
   setDisplay(displayId: string): Promise<DisplayInfo | null> {
     return ipcRenderer.invoke("pet:set-display", displayId) as Promise<DisplayInfo | null>;
+  },
+  setForceTop(enabled: boolean): Promise<boolean> {
+    return ipcRenderer.invoke("pet:set-force-top", enabled) as Promise<boolean>;
   },
   onDisplayChanged(handler: (info: DisplayInfo) => void): () => void {
     const listener = (_event: Electron.IpcRendererEvent, info: DisplayInfo) => handler(info);

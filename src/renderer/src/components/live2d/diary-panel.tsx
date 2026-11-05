@@ -5,10 +5,16 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { DIARY_PASSPHRASE, DIARY_PASSPHRASE_HINT } from "@/content/live2d";
 import { parseEntries } from "@/lib/diary/parse";
-import type { DiaryPayload } from "../../../../shared/types";
+import type {
+  DiaryPayload,
+  MemoryEntry,
+  MemoryPayload,
+} from "../../../../shared/types";
+import { MosaicTransition, type MosaicRect } from "./mosaic-transition";
 import styles from "./diary-panel.module.css";
 
 type Book = { name: string; size: number; mtime: number };
+type DiaryView = "diary" | "memory";
 
 type DiaryPanelProps = {
   onClose: () => void;
@@ -17,10 +23,38 @@ type DiaryPanelProps = {
   onSizeChange?: (size: { width: number; height: number }) => void;
 };
 
+const MEMORY_ICON_PATH = "/live2d/ui/hiro-memory.png";
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+/** 截图失败时的兜底淡出时长。 */
+const FALLBACK_SWITCH_MS = 220;
+
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function ReloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+      <path
+        d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M21 3v5h-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryPanelProps) {
@@ -40,10 +74,29 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
   const [keyError, setKeyError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
+  // 日记 / 记忆两个视图
+  const [view, setView] = useState<DiaryView>("diary");
+  const [memory, setMemory] = useState<MemoryPayload | null>(null);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
+  const [snapshot, setSnapshot] = useState<{
+    imageUrl: string;
+    rect: MosaicRect;
+  } | null>(null);
+
   const closeRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
+  const memoryInFlightRef = useRef(false);
+  const scrollPositionsRef = useRef<Record<DiaryView, number>>({
+    diary: 0,
+    memory: 0,
+  });
 
   const applyPayload = useCallback((data: DiaryPayload) => {
     setBooks(Array.isArray(data.books) ? data.books : []);
@@ -76,6 +129,25 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
     [applyPayload],
   );
 
+  const loadMemory = useCallback(async () => {
+    if (memoryInFlightRef.current) return;
+    memoryInFlightRef.current = true;
+    setMemoryLoading(true);
+    setMemoryError(null);
+    try {
+      const result = await window.petApi.loadMemory();
+      if (!mountedRef.current) return;
+      if (result.ok) setMemory(result.data);
+      else setMemoryError(result.error || "记忆暂时打不开。");
+    } catch (caught) {
+      if (!mountedRef.current) return;
+      setMemoryError(caught instanceof Error ? caught.message : "记忆暂时打不开。");
+    } finally {
+      memoryInFlightRef.current = false;
+      if (mountedRef.current) setMemoryLoading(false);
+    }
+  }, []);
+
   const unlock = useCallback(async () => {
     const value = keyInput.trim();
     if (!value || checking) return;
@@ -90,8 +162,22 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
     setUnlocked(true);
     setKeyInput("");
     await load(null);
+    // 解锁后在后台把记忆也取一份，点入口时切换几乎无等待。
+    void loadMemory();
     if (mountedRef.current) setChecking(false);
-  }, [checking, keyInput, load]);
+  }, [checking, keyInput, load, loadMemory]);
+
+  // 合上日记：先播 200ms 收合动画，再真正关掉窗口。
+  const requestClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    if (window.matchMedia(REDUCED_MOTION_QUERY).matches) {
+      onClose();
+      return;
+    }
+    setClosing(true);
+    window.setTimeout(onClose, 200);
+  }, [onClose]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -151,29 +237,124 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.stopPropagation();
-      onClose();
+      requestClose();
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
+  }, [requestClose]);
+
+  // 切换视图后恢复该视图上次的滚动位置。
+  useEffect(() => {
+    const element = bodyRef.current;
+    if (element) element.scrollTop = scrollPositionsRef.current[view];
+  }, [view]);
+
+  // 截图失败等异常情况下，别让 switching 卡住。
+  useEffect(() => {
+    if (!switching || snapshot) return;
+    const timer = window.setTimeout(() => setSwitching(false), 1200);
+    return () => window.clearTimeout(timer);
+  }, [snapshot, switching]);
 
   const entries = useMemo(() => parseEntries(content), [content]);
   const meta = book ? `${formatSize(size)} · ${entries.length} 篇` : "";
   const locked = available === true && !unlocked;
+
+  const memoryGroups = useMemo(() => {
+    if (!memory) return [] as Array<{ date: string; items: MemoryEntry[] }>;
+    const groups = new Map<string, MemoryEntry[]>();
+    for (const entry of memory.entries) {
+      const items = groups.get(entry.date);
+      if (items) items.push(entry);
+      else groups.set(entry.date, [entry]);
+    }
+    return Array.from(groups, ([date, items]) => ({ date, items }));
+  }, [memory]);
+
+  const memoryMeta = memory
+    ? `${memory.count} 条 · ${memory.days} 天`
+    : memoryLoading
+      ? "正在回忆……"
+      : "";
+
+  const finishSwitch = useCallback(() => {
+    setSnapshot(null);
+    setSwitching(false);
+  }, []);
+
+  const toggleView = useCallback(async () => {
+    if (switching) return;
+    const next: DiaryView = view === "memory" ? "diary" : "memory";
+    if (next === "memory" && !memory && !memoryLoading) void loadMemory();
+
+    setSwitching(true);
+    scrollPositionsRef.current[view] = bodyRef.current?.scrollTop ?? 0;
+
+    const card = cardRef.current;
+    let shot: { imageUrl: string; rect: MosaicRect } | null = null;
+
+    if (card && !window.matchMedia(REDUCED_MOTION_QUERY).matches) {
+      const rect = card.getBoundingClientRect();
+      try {
+        const result = await window.petApi.captureDiaryCard({
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height,
+        });
+        if (result.ok && result.dataUrl) {
+          shot = {
+            imageUrl: result.dataUrl,
+            rect: {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            },
+          };
+        }
+      } catch {
+        // 截图失败就退化成普通淡出。
+      }
+    }
+
+    if (!mountedRef.current) return;
+    setSnapshot(shot);
+    setView(next);
+    if (!shot) {
+      window.setTimeout(() => {
+        if (mountedRef.current) setSwitching(false);
+      }, FALLBACK_SWITCH_MS);
+    }
+  }, [loadMemory, memory, memoryLoading, switching, view]);
+
+  const reloadActiveView = () => {
+    if (view === "memory") void loadMemory();
+    else void load(book);
+  };
+
+  const activeLoading = view === "memory" ? memoryLoading : loading;
 
   return (
     <div className={`${styles.overlay}${windowMode ? ` ${styles.windowMode}` : ""}`}>
       <div
         ref={cardRef}
         data-diary-card=""
-        className={`${styles.card}${locked ? ` ${styles.locked}` : ""}${minimized ? ` ${styles.minimized}` : ""}`}
+        className={`${styles.card}${locked ? ` ${styles.locked}` : ""}${
+          minimized ? ` ${styles.minimized}` : ""
+        }${view === "memory" ? ` ${styles.memoryMode}` : ""}${
+          switching ? ` ${styles.switching}` : ""
+        }${closing ? ` ${styles.closing}` : ""}`}
+        style={snapshot ? { height: snapshot.rect.height } : undefined}
         role="dialog"
         aria-modal="false"
-        aria-label="希罗的日记"
+        aria-label={view === "memory" ? "希罗的记忆" : "希罗的日记"}
       >
         <header className={styles.header}>
-          <span className={styles.title}>希罗的日记</span>
-          {!minimized && unlocked && books.length > 1 ? (
+          <span className={styles.title}>
+            {view === "memory" ? "希罗的记忆" : "希罗的日记"}
+          </span>
+          {!minimized && unlocked && view === "diary" && books.length > 1 ? (
             <select
               className={styles.select}
               value={book ?? ""}
@@ -190,7 +371,11 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
               ))}
             </select>
           ) : null}
-          {!minimized && unlocked ? <span className={styles.meta}>{meta}</span> : null}
+          {!minimized && unlocked ? (
+            <span className={styles.meta}>
+              {view === "memory" ? memoryMeta : meta}
+            </span>
+          ) : null}
           <div className={styles.headerActions}>
             <button
               type="button"
@@ -207,7 +392,7 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
               className={styles.close}
               aria-label="关闭日记"
               title="关闭"
-              onClick={onClose}
+              onClick={requestClose}
             >
               ×
             </button>
@@ -224,45 +409,113 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
           </div>
         ) : unlocked ? (
           <>
-            <div className={styles.body}>
-              {loading ? <p className={styles.hint}>正在翻日记本……</p> : null}
+            <div className={styles.body} ref={bodyRef}>
+              {view === "diary" ? (
+                <>
+                  {loading ? <p className={styles.hint}>正在翻日记本……</p> : null}
 
-              {!loading && error ? <p className={styles.error}>{error}</p> : null}
+                  {!loading && error ? <p className={styles.error}>{error}</p> : null}
 
-              {!loading && !error && entries.length === 0 ? (
-                <p className={styles.hint}>希罗还没写日记。</p>
-              ) : null}
+                  {!loading && !error && entries.length === 0 ? (
+                    <p className={styles.hint}>希罗还没写日记。</p>
+                  ) : null}
 
-              {!loading && !error
-                ? entries.map((entry) => (
-                    <article key={entry.id} className={styles.entry}>
-                      <h3 className={styles.entryTitle}>{entry.title}</h3>
-                      <div className={styles.markdown}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {entry.body}
-                        </ReactMarkdown>
-                      </div>
-                    </article>
-                  ))
-                : null}
+                  {!loading && !error
+                    ? entries.map((entry) => (
+                        <article key={entry.id} className={styles.entry}>
+                          <h3 className={styles.entryTitle}>{entry.title}</h3>
+                          <div className={styles.markdown}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {entry.body}
+                            </ReactMarkdown>
+                          </div>
+                        </article>
+                      ))
+                    : null}
+                </>
+              ) : (
+                <>
+                  {memoryLoading && !memory ? (
+                    <p className={styles.hint}>正在回忆……</p>
+                  ) : null}
+
+                  {!memoryLoading && memoryError ? (
+                    <p className={styles.error}>{memoryError}</p>
+                  ) : null}
+
+                  {!memoryLoading && !memoryError && memory && memory.entries.length === 0 ? (
+                    <p className={styles.hint}>希罗什么也想不起来。</p>
+                  ) : null}
+
+                  {memoryGroups.map((group) => (
+                    <section key={group.date} className={styles.memoryDay}>
+                      <h3 className={styles.memoryDate}>{group.date}</h3>
+                      {group.items.map((entry, index) => (
+                        <article
+                          key={`${group.date}-${index}`}
+                          className={styles.memoryItem}
+                        >
+                          <div className={styles.memoryMetaRow}>
+                            <span className={styles.memoryKind}>
+                              {entry.kind || "记忆"}
+                            </span>
+                            {entry.imp > 0 ? (
+                              <span
+                                className={styles.memoryStars}
+                                aria-label={`重要度 ${entry.imp}`}
+                              >
+                                {"★".repeat(Math.max(0, Math.min(5, entry.imp)))}
+                              </span>
+                            ) : null}
+                            <span className={styles.memoryScope}>
+                              {entry.scope === "diary" ? "日记" : "对话"}
+                            </span>
+                          </div>
+                          {entry.kind === "日记" ? (
+                            <div className={styles.memoryMarkdown}>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {entry.text}
+                              </ReactMarkdown>
+                            </div>
+                          ) : (
+                            <p className={styles.memoryText}>{entry.text}</p>
+                          )}
+                        </article>
+                      ))}
+                    </section>
+                  ))}
+                </>
+              )}
             </div>
 
             <footer className={styles.footer}>
-              {truncated ? (
+              <button
+                type="button"
+                className={styles.reloadButton}
+                aria-label="重新载入"
+                title="重新载入"
+                disabled={activeLoading || switching}
+                onClick={reloadActiveView}
+              >
+                <ReloadIcon />
+              </button>
+              {truncated && view === "diary" ? (
                 <span className={styles.notice}>
                   超过 4MB，只显示最新部分。
                 </span>
               ) : null}
               <button
                 type="button"
-                className={styles.button}
-                disabled={loading}
-                onClick={() => void load(book)}
+                className={`${styles.memoryEntry}${
+                  view === "memory" ? ` ${styles.memoryEntryActive}` : ""
+                }`}
+                aria-label={view === "memory" ? "返回日记" : "查看记忆"}
+                aria-pressed={view === "memory"}
+                title={view === "memory" ? "返回日记" : "查看记忆"}
+                disabled={switching}
+                onClick={() => void toggleView()}
               >
-                {loading ? "读取中……" : "重新载入"}
-              </button>
-              <button type="button" className={styles.button} onClick={onClose}>
-                合上日记
+                <img src={MEMORY_ICON_PATH} alt="" aria-hidden="true" draggable={false} />
               </button>
             </footer>
           </>
@@ -298,7 +551,24 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
             </button>
           </form>
         )}
+        {unlocked && !minimized ? (
+          <button
+            type="button"
+            className={styles.foldClose}
+            aria-label="合上日记"
+            onClick={requestClose}
+          >
+            <span aria-hidden="true">✖</span>
+          </button>
+        ) : null}
       </div>
+      {snapshot ? (
+        <MosaicTransition
+          imageUrl={snapshot.imageUrl}
+          rect={snapshot.rect}
+          onDone={finishSwitch}
+        />
+      ) : null}
     </div>
   );
 }
