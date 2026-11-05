@@ -11,6 +11,7 @@ import type {
   MemoryPayload,
 } from "../../../../shared/types";
 import { MosaicTransition, type MosaicRect } from "./mosaic-transition";
+import { ChaosOverlay } from "./chaos-overlay";
 import styles from "./diary-panel.module.css";
 
 type Book = { name: string; size: number; mtime: number };
@@ -24,9 +25,11 @@ type DiaryPanelProps = {
 };
 
 const MEMORY_ICON_PATH = "/live2d/ui/hiro-memory.png";
+const PEN_ICON_PATH = "/live2d/ui/hiro-pen.png";
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 /** 截图失败时的兜底淡出时长。 */
 const FALLBACK_SWITCH_MS = 220;
+const TAMPER_TOAST_MS = 2600;
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -82,6 +85,13 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
   const [switching, setSwitching] = useState(false);
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
+  // 篡改记忆彩蛋：纯视觉，完成即还原。
+  const [tamperMode, setTamperMode] = useState(false);
+  const [selectedMemoryKey, setSelectedMemoryKey] = useState<string | null>(null);
+  const [draftText, setDraftText] = useState("");
+  const [tamperToast, setTamperToast] = useState<string | null>(null);
+  const penRef = useRef<HTMLDivElement>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const [snapshot, setSnapshot] = useState<{
     imageUrl: string;
     rect: MosaicRect;
@@ -179,6 +189,34 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
     window.setTimeout(onClose, 200);
   }, [onClose]);
 
+  const showTamperToast = useCallback((text: string) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setTamperToast(text);
+    toastTimerRef.current = window.setTimeout(() => {
+      setTamperToast(null);
+      toastTimerRef.current = null;
+    }, TAMPER_TOAST_MS);
+  }, []);
+
+  const cancelTamper = useCallback(() => {
+    setTamperMode(false);
+    setSelectedMemoryKey(null);
+    setDraftText("");
+  }, []);
+
+  const finishTamper = useCallback(() => {
+    const hadSelection = selectedMemoryKey !== null;
+    // 纯视觉阶段：编辑内容直接丢弃。以后接服务端写回时，在这里提交 draftText。
+    cancelTamper();
+    if (hadSelection) showTamperToast("你的魔法太弱啦！希罗拒绝了你！");
+  }, [cancelTamper, selectedMemoryKey, showTamperToast]);
+
+  const startTamper = useCallback(() => {
+    setTamperMode(true);
+    setSelectedMemoryKey(null);
+    setDraftText("");
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     window.petApi?.focus();
@@ -237,11 +275,16 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.stopPropagation();
+      // 篡改模式下 ESC 只退出彩蛋，避免误关窗口丢状态。
+      if (tamperMode) {
+        cancelTamper();
+        return;
+      }
       requestClose();
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [requestClose]);
+  }, [cancelTamper, requestClose, tamperMode]);
 
   // 切换视图后恢复该视图上次的滚动位置。
   useEffect(() => {
@@ -255,6 +298,35 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
     const timer = window.setTimeout(() => setSwitching(false), 1200);
     return () => window.clearTimeout(timer);
   }, [snapshot, switching]);
+
+  // 篡改模式：钢笔光标跟随指针，笔尖对准鼠标；离开窗口隐藏。
+  useEffect(() => {
+    if (!tamperMode) return;
+    const pen = penRef.current;
+    if (!pen) return;
+    const move = (event: PointerEvent) => {
+      pen.style.transform = `translate3d(${event.clientX - 3}px, ${event.clientY - 62}px, 0)`;
+      pen.style.opacity = "1";
+    };
+    const hide = () => {
+      pen.style.opacity = "0";
+    };
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("blur", hide);
+    document.addEventListener("mouseleave", hide);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("blur", hide);
+      document.removeEventListener("mouseleave", hide);
+    };
+  }, [tamperMode]);
+
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    },
+    [],
+  );
 
   const entries = useMemo(() => parseEntries(content), [content]);
   const meta = book ? `${formatSize(size)} · ${entries.length} 篇` : "";
@@ -336,7 +408,11 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
   const activeLoading = view === "memory" ? memoryLoading : loading;
 
   return (
-    <div className={`${styles.overlay}${windowMode ? ` ${styles.windowMode}` : ""}`}>
+    <div
+      className={`${styles.overlay}${windowMode ? ` ${styles.windowMode}` : ""}${
+        tamperMode ? ` ${styles.tamperCursorNone}` : ""
+      }`}
+    >
       <div
         ref={cardRef}
         data-diary-card=""
@@ -409,8 +485,9 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
           </div>
         ) : unlocked ? (
           <>
-            <div className={styles.body} ref={bodyRef}>
-              {view === "diary" ? (
+            <div className={styles.bodyWrap}>
+              <div className={styles.body} ref={bodyRef}>
+                {view === "diary" ? (
                 <>
                   {loading ? <p className={styles.hint}>正在翻日记本……</p> : null}
 
@@ -447,45 +524,73 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
                     <p className={styles.hint}>希罗什么也想不起来。</p>
                   ) : null}
 
-                  {memoryGroups.map((group) => (
-                    <section key={group.date} className={styles.memoryDay}>
-                      <h3 className={styles.memoryDate}>{group.date}</h3>
-                      {group.items.map((entry, index) => (
-                        <article
-                          key={`${group.date}-${index}`}
-                          className={styles.memoryItem}
-                        >
-                          <div className={styles.memoryMetaRow}>
-                            <span className={styles.memoryKind}>
-                              {entry.kind || "记忆"}
-                            </span>
-                            {entry.imp > 0 ? (
-                              <span
-                                className={styles.memoryStars}
-                                aria-label={`重要度 ${entry.imp}`}
-                              >
-                                {"★".repeat(Math.max(0, Math.min(5, entry.imp)))}
-                              </span>
-                            ) : null}
-                            <span className={styles.memoryScope}>
-                              {entry.scope === "diary" ? "日记" : "对话"}
-                            </span>
-                          </div>
-                          {entry.kind === "日记" ? (
-                            <div className={styles.memoryMarkdown}>
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {entry.text}
-                              </ReactMarkdown>
-                            </div>
-                          ) : (
-                            <p className={styles.memoryText}>{entry.text}</p>
-                          )}
-                        </article>
-                      ))}
-                    </section>
-                  ))}
+                  <div className={styles.memoryList}>
+                    {memoryGroups.map((group) => (
+                      <section key={group.date} className={styles.memoryDay}>
+                        <h3 className={styles.memoryDate}>{group.date}</h3>
+                        {group.items.map((entry, index) => {
+                          const itemKey = `${group.date}-${index}`;
+                          const selected = selectedMemoryKey === itemKey;
+                          return (
+                            <article
+                              key={itemKey}
+                              className={`${styles.memoryItem}${
+                                tamperMode ? ` ${styles.memoryItemTamper}` : ""
+                              }${selected ? ` ${styles.memoryItemSelected}` : ""}`}
+                              onClick={
+                                tamperMode
+                                  ? () => {
+                                      if (selectedMemoryKey) return;
+                                      setSelectedMemoryKey(itemKey);
+                                      setDraftText(entry.text);
+                                    }
+                                  : undefined
+                              }
+                            >
+                              <div className={styles.memoryMetaRow}>
+                                <span className={styles.memoryKind}>
+                                  {entry.kind || "记忆"}
+                                </span>
+                                {entry.imp > 0 ? (
+                                  <span
+                                    className={styles.memoryStars}
+                                    aria-label={`重要度 ${entry.imp}`}
+                                  >
+                                    {"★".repeat(Math.max(0, Math.min(5, entry.imp)))}
+                                  </span>
+                                ) : null}
+                                <span className={styles.memoryScope}>
+                                  {entry.scope === "diary" ? "日记" : "对话"}
+                                </span>
+                              </div>
+                              {selected ? (
+                                <textarea
+                                  className={styles.memoryEditor}
+                                  value={draftText}
+                                  autoFocus
+                                  spellCheck={false}
+                                  aria-label="篡改这条记忆"
+                                  onChange={(event) => setDraftText(event.target.value)}
+                                />
+                              ) : entry.kind === "日记" ? (
+                                <div className={styles.memoryMarkdown}>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {entry.text}
+                                  </ReactMarkdown>
+                                </div>
+                              ) : (
+                                <p className={styles.memoryText}>{entry.text}</p>
+                              )}
+                            </article>
+                          );
+                        })}
+                      </section>
+                    ))}
+                  </div>
                 </>
               )}
+              </div>
+              {tamperMode && selectedMemoryKey ? <ChaosOverlay /> : null}
             </div>
 
             <footer className={styles.footer}>
@@ -494,7 +599,7 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
                 className={styles.reloadButton}
                 aria-label="重新载入"
                 title="重新载入"
-                disabled={activeLoading || switching}
+                disabled={activeLoading || switching || tamperMode}
                 onClick={reloadActiveView}
               >
                 <ReloadIcon />
@@ -512,11 +617,24 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
                 aria-label={view === "memory" ? "返回日记" : "查看记忆"}
                 aria-pressed={view === "memory"}
                 title={view === "memory" ? "返回日记" : "查看记忆"}
-                disabled={switching}
+                disabled={switching || tamperMode}
                 onClick={() => void toggleView()}
               >
                 <img src={MEMORY_ICON_PATH} alt="" aria-hidden="true" draggable={false} />
               </button>
+              {view === "memory" ? (
+                <button
+                  type="button"
+                  className={`${styles.tamperTrigger}${
+                    tamperMode ? ` ${styles.tamperTriggerActive}` : ""
+                  }`}
+                  aria-label={tamperMode ? "完成篡改" : "篡改记忆の魔法"}
+                  aria-pressed={tamperMode}
+                  onClick={tamperMode ? finishTamper : startTamper}
+                >
+                  {tamperMode ? "完成篡改" : "篡改记忆の魔法"}
+                </button>
+              ) : null}
             </footer>
           </>
         ) : (
@@ -561,6 +679,11 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
             <span aria-hidden="true">✖</span>
           </button>
         ) : null}
+        {tamperToast ? (
+          <div className={styles.tamperToast} role="status" aria-live="polite">
+            {tamperToast}
+          </div>
+        ) : null}
       </div>
       {snapshot ? (
         <MosaicTransition
@@ -568,6 +691,11 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
           rect={snapshot.rect}
           onDone={finishSwitch}
         />
+      ) : null}
+      {tamperMode ? (
+        <div ref={penRef} className={styles.penCursor} aria-hidden="true">
+          <img src={PEN_ICON_PATH} alt="" draggable={false} />
+        </div>
       ) : null}
     </div>
   );
