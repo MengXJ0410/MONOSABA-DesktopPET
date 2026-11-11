@@ -166,7 +166,7 @@ src/
 
 ## 素材与授权
 
-- Live2D 模型、图标、`voice/kiang.wav` 来自站点所有者提供的 JxmFUN 资源。
+- Live2D 模型、图标、`voice/kiang.wav` 来自 B 站 UP 主 **露姆娅**（UID: 1384755）；请遵守原作者的使用授权。
 - `src/renderer/public/live2d/core/live2dcubismcore.min.js` 是 Live2D Inc. 的 Redistributable Code，请保留同目录的 `NOTICE.txt`。
 - 模型资源不随本项目授予任何再分发许可；公开仓库/发布前请确认模型使用授权。
 
