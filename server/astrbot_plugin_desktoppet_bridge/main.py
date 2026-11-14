@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import os
 import re
 import time
 import uuid
 from pathlib import Path
+
+from PIL import Image as PILImage
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -157,6 +160,24 @@ def _content_image(content: object) -> str | None:
         if isinstance(url, str) and url.startswith("data:image/"):
             return url
     return None
+
+
+def _thumbnail_image(url: str | None, max_size: int = 480) -> str | None:
+    """把会话里的图片压成小缩略图，避免 /history 返回几 MB 的 base64。"""
+    if not isinstance(url, str) or not url.startswith("data:image/"):
+        return None
+    try:
+        _, _, body = url.partition(",")
+        raw = base64.b64decode(body)
+        with PILImage.open(io.BytesIO(raw)) as image:
+            image.thumbnail((max_size, max_size))
+            if image.mode not in ("RGB", "L"):
+                image = image.convert("RGB")
+            out = io.BytesIO()
+            image.save(out, format="JPEG", quality=75)
+        return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
+    except Exception:
+        return None
 
 
 class _DesktopBot:
@@ -419,8 +440,13 @@ class DesktopPetBridge(Star):
         image_positions = [
             index for index, message in enumerate(result) if message.get("image")
         ]
-        for index in image_positions[:-MAX_HISTORY_IMAGES]:
-            result[index]["image"] = None
+        keep = set(image_positions[-MAX_HISTORY_IMAGES:])
+        for index, message in enumerate(result):
+            if index in keep:
+                # 只把最近 8 张压成缩略图，避免历史响应过大、传输超时。
+                message["image"] = _thumbnail_image(message.get("image"))
+            else:
+                message["image"] = None
         return result
 
     # ------------------------------------------------------------------ 发送

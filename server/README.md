@@ -57,6 +57,8 @@ curl -H "Authorization: Bearer abk_..." \
 
 插件会把它作为 `Image.fromBase64(...)` 附加到注入消息里；桌面截图由 Windows 端的 `desktopCapturer` 生成，最长边 1280，JPEG 85。
 
+`/history` 里的图片是插件用 Pillow 生成的 480px JPEG 缩略图，不是原图；原图仍保存在 AstrBot 会话里供模型使用。这样避免历史响应几 MB、EasyTier 较慢时被截断。
+
 消息日志存放在：
 
 ```text

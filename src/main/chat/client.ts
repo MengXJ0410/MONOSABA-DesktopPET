@@ -53,6 +53,7 @@ async function requestFromHost<T>(
   path: string,
   config: ChatConfig,
   init: RequestInit = {},
+  timeoutMs = config.timeoutMs,
 ): Promise<ChatResult<T>> {
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${config.apiKey}`);
@@ -64,7 +65,7 @@ async function requestFromHost<T>(
     response = await fetch(`${base}${ROUTE_PREFIX}${path}`, {
       ...init,
       headers,
-      signal: AbortSignal.timeout(config.timeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     return classifyNetworkError(error);
@@ -80,10 +81,27 @@ async function requestFromHost<T>(
     return fail("server", `桥接插件异常（HTTP ${response.status}）`);
   }
 
+  let raw = "";
+  try {
+    raw = await response.text();
+  } catch (error) {
+    console.warn("[chat] read response body failed", base, path, error);
+    return fail("offline", "无法连接");
+  }
+
   let payload: Envelope;
   try {
-    payload = (await response.json()) as Envelope;
+    payload = JSON.parse(raw) as Envelope;
   } catch {
+    console.warn(
+      "[chat] non-JSON response",
+      base,
+      path,
+      response.status,
+      response.headers.get("content-type"),
+      raw.length,
+      raw.slice(0, 500),
+    );
     return fail("server", "桥接插件返回格式不正确");
   }
 
@@ -101,6 +119,7 @@ async function requestFromHost<T>(
 async function request<T>(
   path: string,
   init: RequestInit = {},
+  timeoutMs?: number,
 ): Promise<ChatResult<T>> {
   const config = (await readConfig()).chat;
   if (!config.apiKey) {
@@ -111,9 +130,10 @@ async function request<T>(
     return fail("offline", "无法连接");
   }
 
+  const timeout = Math.max(config.timeoutMs, timeoutMs ?? 0);
   let last: ChatResult<T> = fail("offline", "无法连接");
   for (const base of bases) {
-    const result = await requestFromHost<T>(base, path, config, init);
+    const result = await requestFromHost<T>(base, path, config, init, timeout);
     if (result.ok) return result;
     last = result;
     // 密钥 / 插件问题换地址也没用，直接返回。
@@ -125,7 +145,12 @@ async function request<T>(
 export async function loadHistory(limit?: number): Promise<ChatHistoryResult> {
   const config = (await readConfig()).chat;
   const size = Math.max(1, Math.min(100, Math.round(limit ?? 40)));
-  return request<ChatHistoryData>(`/history?limit=${size}`);
+  // 历史可能带最近 8 张图，给长一点的超时，避免半路截断导致 JSON 解析失败。
+  return request<ChatHistoryData>(
+    `/history?limit=${size}`,
+    {},
+    Math.max(config.timeoutMs, 30_000),
+  );
 }
 
 export async function sendMessage(
