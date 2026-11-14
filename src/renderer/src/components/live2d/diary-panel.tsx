@@ -30,6 +30,7 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 /** 截图失败时的兜底淡出时长。 */
 const FALLBACK_SWITCH_MS = 220;
 const TAMPER_TOAST_MS = 2600;
+const ERASE_HOLD_MS = 800;
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -90,8 +91,11 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
   const [selectedMemoryKey, setSelectedMemoryKey] = useState<string | null>(null);
   const [draftText, setDraftText] = useState("");
   const [tamperToast, setTamperToast] = useState<string | null>(null);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const [eraseArming, setEraseArming] = useState(false);
   const penRef = useRef<HTMLDivElement>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const eraseTimerRef = useRef<number | null>(null);
   const [snapshot, setSnapshot] = useState<{
     imageUrl: string;
     rect: MosaicRect;
@@ -198,24 +202,113 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
     }, TAMPER_TOAST_MS);
   }, []);
 
+  const selectedEntry = useMemo(() => {
+    if (!memory || !selectedMemoryKey) return null;
+    return (
+      memory.entries.find(
+        (entry) => `${entry.file}:${entry.line}` === selectedMemoryKey,
+      ) ?? null
+    );
+  }, [memory, selectedMemoryKey]);
+
+  const cancelErase = useCallback(() => {
+    if (eraseTimerRef.current) {
+      window.clearTimeout(eraseTimerRef.current);
+      eraseTimerRef.current = null;
+    }
+    setEraseArming(false);
+  }, []);
+
   const cancelTamper = useCallback(() => {
+    cancelErase();
     setTamperMode(false);
     setSelectedMemoryKey(null);
     setDraftText("");
-  }, []);
+  }, [cancelErase]);
 
-  const finishTamper = useCallback(() => {
-    const hadSelection = selectedMemoryKey !== null;
-    // 纯视觉阶段：编辑内容直接丢弃。以后接服务端写回时，在这里提交 draftText。
-    cancelTamper();
-    if (hadSelection) showTamperToast("你的魔法太弱啦！希罗拒绝了你！");
-  }, [cancelTamper, selectedMemoryKey, showTamperToast]);
+  const performErase = useCallback(async () => {
+    if (!selectedEntry || memoryBusy) return;
+    setMemoryBusy(true);
+    try {
+      const result = await window.petApi.deleteMemory({
+        file: selectedEntry.file,
+        line: selectedEntry.line,
+        original: selectedEntry.text,
+      });
+      if (!result.ok) {
+        showTamperToast(`抹除失败：${result.error}`);
+        return;
+      }
+      showTamperToast("这条记忆被抹掉了。");
+      cancelTamper();
+      await loadMemory();
+    } catch (caught) {
+      showTamperToast(
+        `抹除失败：${caught instanceof Error ? caught.message : "未知错误"}`,
+      );
+    } finally {
+      setMemoryBusy(false);
+      setEraseArming(false);
+      if (eraseTimerRef.current) {
+        window.clearTimeout(eraseTimerRef.current);
+        eraseTimerRef.current = null;
+      }
+    }
+  }, [cancelTamper, loadMemory, memoryBusy, selectedEntry, showTamperToast]);
+
+  const startErase = useCallback(() => {
+    if (!selectedEntry || memoryBusy || eraseTimerRef.current) return;
+    setEraseArming(true);
+    eraseTimerRef.current = window.setTimeout(() => {
+      eraseTimerRef.current = null;
+      void performErase();
+    }, ERASE_HOLD_MS);
+  }, [memoryBusy, performErase, selectedEntry]);
+
+  const finishTamper = useCallback(async () => {
+    if (!selectedEntry) {
+      cancelTamper();
+      return;
+    }
+    const text = draftText.trim();
+    if (!text) {
+      showTamperToast("不能改成空白；要删除请按住抹除记忆。");
+      return;
+    }
+    if (text === selectedEntry.text) {
+      cancelTamper();
+      return;
+    }
+    setMemoryBusy(true);
+    try {
+      const result = await window.petApi.updateMemory({
+        file: selectedEntry.file,
+        line: selectedEntry.line,
+        text,
+        original: selectedEntry.text,
+      });
+      if (!result.ok) {
+        showTamperToast(`篡改失败：${result.error}`);
+        return;
+      }
+      showTamperToast("记忆已改写。");
+      cancelTamper();
+      await loadMemory();
+    } catch (caught) {
+      showTamperToast(
+        `篡改失败：${caught instanceof Error ? caught.message : "未知错误"}`,
+      );
+    } finally {
+      setMemoryBusy(false);
+    }
+  }, [cancelTamper, draftText, loadMemory, selectedEntry, showTamperToast]);
 
   const startTamper = useCallback(() => {
+    cancelErase();
     setTamperMode(true);
     setSelectedMemoryKey(null);
     setDraftText("");
-  }, []);
+  }, [cancelErase]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -324,9 +417,15 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
   useEffect(
     () => () => {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      if (eraseTimerRef.current) window.clearTimeout(eraseTimerRef.current);
     },
     [],
   );
+
+  // 换一条记忆或退出篡改模式时，取消还没按满的抹除。
+  useEffect(() => {
+    cancelErase();
+  }, [cancelErase, selectedMemoryKey]);
 
   const entries = useMemo(() => parseEntries(content), [content]);
   const meta = book ? `${formatSize(size)} · ${entries.length} 篇` : "";
@@ -528,8 +627,8 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
                     {memoryGroups.map((group) => (
                       <section key={group.date} className={styles.memoryDay}>
                         <h3 className={styles.memoryDate}>{group.date}</h3>
-                        {group.items.map((entry, index) => {
-                          const itemKey = `${group.date}-${index}`;
+                        {group.items.map((entry) => {
+                          const itemKey = `${entry.file}:${entry.line}`;
                           const selected = selectedMemoryKey === itemKey;
                           return (
                             <article
@@ -569,6 +668,7 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
                                   value={draftText}
                                   autoFocus
                                   spellCheck={false}
+                                  disabled={memoryBusy}
                                   aria-label="篡改这条记忆"
                                   onChange={(event) => setDraftText(event.target.value)}
                                 />
@@ -623,17 +723,58 @@ export function DiaryPanel({ onClose, windowMode = false, onSizeChange }: DiaryP
                 <img src={MEMORY_ICON_PATH} alt="" aria-hidden="true" draggable={false} />
               </button>
               {view === "memory" ? (
-                <button
-                  type="button"
-                  className={`${styles.tamperTrigger}${
-                    tamperMode ? ` ${styles.tamperTriggerActive}` : ""
-                  }`}
-                  aria-label={tamperMode ? "完成篡改" : "篡改记忆の魔法"}
-                  aria-pressed={tamperMode}
-                  onClick={tamperMode ? finishTamper : startTamper}
-                >
-                  {tamperMode ? "完成篡改" : "篡改记忆の魔法"}
-                </button>
+                tamperMode ? (
+                  <div className={styles.tamperActions}>
+                    <button
+                      type="button"
+                      className={styles.tamperAction}
+                      onClick={() => void finishTamper()}
+                      disabled={memoryBusy}
+                    >
+                      完成篡改
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.tamperAction} ${styles.tamperActionDanger}${
+                        eraseArming ? ` ${styles.tamperActionArming}` : ""
+                      }`}
+                      aria-label="按住抹除这条记忆"
+                      title="按住 0.8 秒抹除"
+                      disabled={!selectedEntry || memoryBusy}
+                      onClick={(event) => event.preventDefault()}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        startErase();
+                      }}
+                      onPointerUp={cancelErase}
+                      onPointerLeave={cancelErase}
+                      onPointerCancel={cancelErase}
+                      onKeyDown={(event) => {
+                        if (event.key === " " || event.key === "Enter") {
+                          event.preventDefault();
+                          startErase();
+                        }
+                      }}
+                      onKeyUp={(event) => {
+                        if (event.key === " " || event.key === "Enter") {
+                          event.preventDefault();
+                          cancelErase();
+                        }
+                      }}
+                    >
+                      抹除记忆
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.tamperTrigger}
+                    aria-label="篡改记忆の魔法"
+                    onClick={startTamper}
+                  >
+                    篡改记忆の魔法
+                  </button>
+                )
               ) : null}
             </footer>
           </>

@@ -2,7 +2,7 @@
 
 把 JxmFUN 的希罗 / 艾玛 Live2D 看板娘搬到 Windows 桌面，做成独立桌宠。
 
-人物、右下角人物图标按钮、右键设置面板、人物切换、显示/隐藏、10%–300% 缩放、点击表情、气泡台词、待机视线、中键/左键拖拽和位置记忆都保留；网页端的登录、管理员、音乐和聊天框不移植。
+人物、右下角人物图标按钮、右键设置面板、人物切换、显示/隐藏、10%–300% 缩放、点击表情、气泡台词、待机视线、中键/左键拖拽和位置记忆都保留；网页端的登录、管理员和音乐不移植，聊天改成双击图标打开的独立小窗，并与手机 QQ 私聊共享同一个 AstrBot 会话。
 
 ## 功能
 
@@ -18,7 +18,9 @@
 - **强制顶层**：开启后窗口从「工作区」扩到整块屏幕（含任务栏），人物可以盖在任务栏上，并每隔约 0.9 秒把自己重新提到置顶窗口的最前面，避免被任务栏、开始菜单等顶下去。关闭后回到原来的工作区范围，并恢复原来的「始终置顶」状态。独占全屏游戏仍然盖不住。
 - **人物主题**：希罗使用黑 / 深红，艾玛使用白 / 浅粉 / 樱花粉；设置面板、气泡、加载卡片和图标提示会同步换色。
 - **日记**：独立小窗口，右上角有最小化和关闭；通过 EasyTier + 本机 OpenSSH 只读服务器日记，保留咒语 `hiro110`，输错会直接提示正确密钥。
-- **希罗的记忆**：日记翻开后，右下角有一个平时隐藏的花形图标，悬停才渐显。点击后日记内容切换成服务器上的真实长久记忆（22 天 / 200+ 条），以黑底 `rgb(12,10,10)`、红字 `rgb(230,0,0)` 展示，按日期倒序分组并标注类型、重要度和来源；切换时从右下角做马赛克像素溶解，再点图标回到日记。记忆和日记共用同一套 SSH 只读通道；记忆页底部还藏着一个悬停才显形的「篡改记忆の魔法」彩蛋（纯视觉，完成即还原）。
+- **希罗的记忆**：日记翻开后，右下角有一个平时隐藏的花形图标，悬停才渐显。点击后日记内容切换成服务器上的真实长久记忆（22 天 / 200+ 条），以黑底 `rgb(12,10,10)`、红字 `rgb(230,0,0)` 展示，按日期倒序分组并标注类型、重要度和来源；切换时从右下角做马赛克像素溶解，再点图标回到日记。记忆和日记共用同一套 SSH 读通道；记忆页底部还藏着一个悬停才显形的「篡改记忆の魔法」——选中一条记忆可以改正文，点「完成篡改」保存；右边「抹除记忆」按住约 0.8 秒删除。写入走 SSH + `docker exec`，并自动通知记忆插件重建当天索引。
+- **聊天**：双击右下角希罗图标打开独立聊天窗口（单击仍然打开设置面板，艾玛不接入）。窗口和手机 QQ 私聊共用 AstrBot 的同一个人格、记忆和会话；桌面发出的消息只回桌面，不投递到 QQ；手机 QQ 里的收发消息会通过服务器桥接插件实时同步进来。深色半透明黑红卡片，希罗在左（复用桌宠的深色红边气泡），我在右（白底、青色边框、黑字）；打开时回填当前会话最近 40 条，标题栏有连接状态点，没有 EasyTier 时直接显示「无法连接」。
+- **获取屏幕**：聊天框顶部有开关，默认关。打开后，每条从桌面发出的消息都会附带当前屏幕的截图（最长边 1280，JPEG）；多屏时开关旁出现「屏幕 N」选择，默认跟随桌宠所在屏幕。截图以缩略图显示在我这边的气泡里，重新打开聊天时最近 8 张也会回填。希罗只会在这条带截图的消息里临时收到「画面里的 Live2D 桌宠是她自己」的设定，不写进会话历史。手机 QQ 的消息不附带截图。
 - **托盘**：重新载入、始终置顶开关、显示屏幕（多屏时的兜底入口）、打开配置文件、退出。
 
 ## 交互
@@ -30,6 +32,11 @@
 | 中键按住并移动 | 立即拖拽人物 |
 | 鼠标右键人物 | 打开设置面板 |
 | 点击右下角图标 | 召唤 / 显示 / 打开设置面板 |
+| 双击右下角希罗图标 | 打开聊天窗口；单击仍然打开设置面板，艾玛双击不响应 |
+| 聊天框 `Enter` / `Shift+Enter` | 发送 / 换行 |
+| 聊天框「获取屏幕」开关 | 打开后每条桌面消息附带当前屏幕截图；默认关，会记住状态 |
+| 聊天框「屏幕 N」 | 多屏时选择截图来自哪块屏幕；默认跟随桌宠所在屏幕 |
+| 聊天框右上角 `×` 或 `Esc` | 关闭聊天窗口 |
 | 设置面板「鼠标穿透」 | 让人物区域点击穿透到桌面；图标和面板仍可点 |
 | 悬停「鼠标穿透」 | 设置人物常态不透明度，以及穿透开启后悬停人物时的变淡程度 |
 | 设置面板「开机自启」 | 登录 Windows 后自动启动桌宠；再次点击关闭 |
@@ -42,7 +49,7 @@
 | 日记左下角刷新图标 | 重新载入当前日记 / 记忆；悬停时弹一下并转一圈 |
 | 日记左下角折角 | 合上日记（先播放 0.2 秒收合动画再关窗） |
 | 日记右下角花形图标 | 平时隐藏，悬停渐显；点击切换到希罗的真实记忆，再点一次回到日记 |
-| 记忆页底部中间「篡改记忆の魔法」 | 悬停才显形；开启后 64px 钢笔光标可点选一条记忆编辑，其余内容被黑色为主的随机马赛克遮罩并抽搐；点「完成篡改」即还原并提示「你的魔法太弱啦！希罗拒绝了你！」 |
+| 记忆页底部中间「篡改记忆の魔法」 | 悬停才显形；开启后 64px 钢笔光标可点选一条记忆编辑，其余内容被黑色为主的随机马赛克遮罩并抽搐；点「完成篡改」保存正文；右边「抹除记忆」按住约 0.8 秒删除，提前松手取消 |
 
 人物位置、大小、当前人物、显示/隐藏、穿透状态、所在屏幕、自动轮换开关与周期、强制顶层、人物不透明度都会写入 localStorage，重启后保持。屏幕被拔掉时会清掉记录并留在当前屏。
 
@@ -105,6 +112,8 @@ src/
 │  ├─ mouse-passthrough.ts
 │  ├─ diary-window.ts     # 独立日记窗口
 │  ├─ diary/ssh.ts        # 通过系统 ssh 读取日记
+│  ├─ chat-window.ts      # 独立聊天窗口、增量拉取与状态
+│  ├─ chat/client.ts      # AstrBot 桥接插件 HTTP 客户端
 │  ├─ app-protocol.ts     # app:// 静态资源协议
 │  ├─ config.ts           # userData/config.json
 │  ├─ auto-launch.ts      # 开机自启（便携版登记原始 exe）
@@ -116,9 +125,12 @@ src/
    └─ src/
       ├─ app.tsx          # 桌宠页面
       ├─ diary-window.tsx # 日记窗口页面
+      ├─ chat-window.tsx  # 聊天窗口页面
       ├─ components/live2d/
+      ├─ components/chat/
       ├─ content/live2d.ts
       └─ lib/live2d/
+server/                   # AstrBot 桥接插件（部署到服务器）
 ```
 
 ## 日记配置
@@ -147,7 +159,16 @@ src/
     "username": "mxjserver",
     "privateKeyPath": "C:\\Users\\MXJ\\.ssh\\jxmfun_server",
     "remoteDir": "/home/mxjserver/astrbot/data/workspaces/Hiro_FriendMessage_1955272576/diary",
-    "memoryDir": "/home/mxjserver/astrbot/data/plugin_data/astrbot_plugin_hiro_memory/memory"
+    "memoryDir": "/home/mxjserver/astrbot/data/plugin_data/astrbot_plugin_hiro_memory/memory",
+    "memoryDirInContainer": "/AstrBot/data/plugin_data/astrbot_plugin_hiro_memory/memory",
+    "containerName": "astrbot"
+  },
+  "chat": {
+    "hosts": ["10.144.144.1", "192.168.124.47", "192.168.124.48"],
+    "port": 6185,
+    "apiKey": "abk_...",
+    "timeoutMs": 15000,
+    "pollMs": 700
   }
 }
 ```
@@ -155,14 +176,67 @@ src/
 - `hosts` 按顺序尝试：先 EasyTier，再家里 Wi‑Fi/有线。
 - `privateKeyPath` 是本机 OpenSSH 私钥；要求 `BatchMode=yes` 可以免密登录。
 - `remoteDir` 是服务器上日记目录。
-- `memoryDir` 是 AstrBot 长久记忆的 JSONL 目录（`memory/YYYY-MM-DD.jsonl`），只读。
-- 日记和记忆都是**只读**的，不会修改服务器文件。
+- `memoryDir` 是 AstrBot 长久记忆的 JSONL 目录（`memory/YYYY-MM-DD.jsonl`），用于读取。
+- `memoryDirInContainer` 是同一目录在 AstrBot 容器里的路径，用于写入。
+- `containerName` 是 AstrBot 容器名；写入走 `docker exec -i <containerName> python3 -`。
+- 日记是**只读**的；记忆页的「篡改记忆の魔法」会真的修改/删除 JSONL，并自动触发记忆插件重建当天索引。
 - 如果本机没有这个私钥（例如把应用分享给别人），打开日记只会显示「啥也没写」，不会出现咒语输入框，也不会有记忆入口。
 - 需要本机安装 OpenSSH 客户端（Windows 10/11 默认带 `C:\Windows\System32\OpenSSH\ssh.exe`）。
-- 服务器需要 `python3` 和 `base64`（Ubuntu 默认满足）。
-- 记忆目录由容器内 root 写入，但权限是 `755/644`，`mxjserver` 可以直接读，不需要 docker。
+- 服务器需要 `python3`、`base64` 和可用的 `docker`；`mxjserver` 需要 docker 组权限（默认已满足）。
+- 记忆目录由容器内 root 写入，权限是 `755/644`，`mxjserver` 只能读；所以写入必须走 docker。
 
 如果 EasyTier 暂时断开，日记会显示「连不上日记本，确认 EasyTier 在线」、记忆会显示「连不上记忆库」，恢复网络后点「重新载入」即可。
+
+### 聊天配置
+
+- `chat.hosts` / `chat.port`：AstrBot dashboard 的地址和端口，默认 `6185`，按顺序尝试 EasyTier 和局域网地址。
+- `chat.apiKey`：服务器桥接插件的 API Key（`abk_...`，`plugin` scope）。为空时聊天框显示「未配置 AstrBot 密钥」。
+- `chat.timeoutMs`：单次 HTTP 请求超时。
+- `chat.pollMs`：聊天窗口打开期间的增量拉取间隔，默认 700ms。
+- 聊天框只在窗口打开时拉取；关闭后不会再占用连接。服务器端的桥接插件仍然会记录消息，重新打开时用当前 AstrBot 会话回填最近 40 条。
+
+## 聊天配置（服务器桥接插件）
+
+桌面端不能直接复用 QQ 的 AstrBot 会话，所以仓库里带了一个服务器插件 `server/astrbot_plugin_desktoppet_bridge/`：
+
+- 把桌面消息注入 `Hiro:FriendMessage:1955272576`，走完整管线（人格 / 记忆 / 会话）。
+- 注入事件使用假 bot，希罗对桌面消息的回复**不会**发到 QQ。
+- 用 `on_llm_request` / `on_decorating_result` 记录手机 QQ 的完整收发消息，桌面每 700ms 增量拉取。
+- 用 `on_decorating_result` 记录回复，不受 NapCat 控制台日志「多行截断」的影响。
+- 提供 `/ping`、`/send`、`/messages`、`/history` 四个 Web API，需要 `plugin` scope 的 API Key。
+
+部署：
+
+```bash
+scp -r server/astrbot_plugin_desktoppet_bridge \
+  mxjserver@10.144.144.1:/home/mxjserver/astrbot/data/plugins/
+ssh mxjserver@10.144.144.1 "docker restart astrbot"
+```
+
+生成 API Key（在服务器上执行，输出一行 `abk_...`）：
+
+```bash
+scp server/create_api_key.py mxjserver@10.144.144.1:/tmp/
+ssh mxjserver@10.144.144.1 \
+  "docker exec -i astrbot python3 - < /tmp/create_api_key.py"
+```
+
+把输出的 `abk_...` 填进本机 `config.json` 的 `chat.apiKey`。验证：
+
+```bash
+curl -H "Authorization: Bearer abk_..." \
+  http://10.144.144.1:6185/api/v1/plugins/extensions/astrbot_plugin_desktoppet_bridge/ping
+```
+
+返回 `{"status":"ok","data":{"platform":true,"qqConnected":true}}` 即可。
+
+说明：
+
+- 桌面消息只回桌面，不会出现在手机 QQ；手机 QQ 的消息和希罗的回复会实时出现在聊天框。
+- 桌面聊天不支持 `/` 开头的指令，避免个别插件绕过假 bot 直接把消息发到 QQ。
+- 图片 / 语音 / 表情在聊天框里显示为 `[图片]`、`[语音]`、`[表情]` 占位。
+- 没有 EasyTier（或服务器不可达）时，聊天框直接显示「无法连接」，恢复后点「重试」。
+- 桥接插件改动后需要重启一次 AstrBot；API Key 写入数据库后不需要重启。
 
 ## 素材与授权
 
@@ -175,6 +249,12 @@ src/
 - 首版只针对 **Windows 10/11 x64**。多屏可以切换，但同一时间只覆盖一块屏幕；跨屏拖动人物暂不支持。
 - 便携版 exe 没有代码签名，Windows SmartScreen 可能提示；选择「仍要运行」即可。
 - 开机自启登记的是当前 exe 路径；如果把便携版 exe 移到别处，需要在设置面板里关闭再重新开启一次。
-- 日记为只读；后续如需编辑，需要额外处理服务器 root 文件权限和并发写入。
-- 不包含 AstrBot 聊天框。
-- 首次打开日记需要建立 SSH 连接，服务器网络较慢时可能需要 10–15 秒。
+- 日记为只读；记忆页的「篡改记忆の魔法」会通过 SSH + `docker exec` 写入，需要服务器 docker 权限。
+- 聊天只接入希罗，艾玛不接入；桌面消息不会投递到手机 QQ（本阶段范围），手机 QQ 的消息和希罗的回复会同步到桌面。
+- 桌面聊天不支持 `/` 开头的 AstrBot 指令，只聊文本。
+- 聊天依赖服务器桥接插件和 `plugin` scope 的 API Key；没有 EasyTier 或插件未部署时显示「无法连接」/「桥接插件未安装」。
+- 聊天历史来自 AstrBot 当前会话，没有逐条时间；最近 8 张图片显示缩略图，更早的只显示 `[图片]`，语音仍显示 `[语音]` 占位。
+- 「获取屏幕」只对桌面聊天框发出的消息生效；当前设定下截图会包含聊天框和桌宠。截图会上传给 AstrBot 主模型，需要多模态模型，并会增加 token 消耗。
+- 截图由 Windows 端生成，最长边 1280、JPEG 85；AstrBot 还会按 `image_compress_options.max_size` 再压一次。截图失败时仍会发送文字并提示。
+- 多屏选择默认跟随桌宠所在屏幕并记住上次选择；显示器拔掉后回退到主屏。
+- 首次打开日记需要建立 SSH 连接，服务器网络较慢时可能需要 10–15 秒；聊天走 HTTP，不受 SSH 建连影响。

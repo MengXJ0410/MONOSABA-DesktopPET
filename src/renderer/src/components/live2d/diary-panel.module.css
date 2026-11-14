@@ -490,6 +490,90 @@
     0 0 26px rgba(255, 0, 0, 0.45);
 }
 
+/* ---- 篡改模式底部操作：完成篡改 / 抹除记忆 ---- */
+
+.tamperActions {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  white-space: nowrap;
+}
+
+.tamperAction {
+  position: relative;
+  padding: 0.1rem 0.15rem 0.25rem;
+  border: 0;
+  background: transparent;
+  color: rgb(255, 0, 0);
+  font-family: "STXingkai", "华文行楷", "KaiTi", "楷体", serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition:
+    text-shadow 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.tamperAction::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.15s ease-out;
+}
+
+.tamperAction:hover:not(:disabled),
+.tamperAction:focus-visible {
+  text-shadow:
+    0 0 10px rgba(255, 0, 0, 0.85),
+    0 0 26px rgba(255, 0, 0, 0.45);
+}
+
+.tamperAction:focus-visible {
+  outline: 2px solid rgba(255, 0, 0, 0.65);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.tamperAction:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tamperActionDanger {
+  color: rgb(255, 70, 70);
+}
+
+.tamperActionArming {
+  text-shadow:
+    0 0 12px rgba(255, 0, 0, 0.95),
+    0 0 30px rgba(255, 0, 0, 0.6);
+}
+
+.tamperActionArming::after {
+  transform: scaleX(1);
+  transition: transform 0.8s linear;
+}
+
+@media (max-width: 640px) {
+  .tamperActions {
+    gap: 0.55rem;
+  }
+
+  .tamperAction {
+    font-size: 0.85rem;
+  }
+}
+
 .penCursor {
   position: fixed;
   left: 0;

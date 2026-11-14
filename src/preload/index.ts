@@ -1,5 +1,17 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DiaryPayload, DisplayInfo, MemoryPayload } from "../shared/types";
+import type {
+  ChatHistoryResult,
+  ChatMessage,
+  ChatSendOptions,
+  ChatSendResult,
+  ChatStatus,
+  DiaryPayload,
+  DisplayInfo,
+  MemoryDeleteInput,
+  MemoryPayload,
+  MemoryUpdateInput,
+  MemoryWriteResult,
+} from "../shared/types";
 
 export type DiaryResult =
   | { ok: true; data: DiaryPayload }
@@ -33,6 +45,42 @@ const api = {
   },
   loadMemory(): Promise<MemoryResult> {
     return ipcRenderer.invoke("diary:load-memory") as Promise<MemoryResult>;
+  },
+  updateMemory(input: MemoryUpdateInput): Promise<MemoryWriteResult> {
+    return ipcRenderer.invoke("diary:update-memory", input) as Promise<MemoryWriteResult>;
+  },
+  deleteMemory(input: MemoryDeleteInput): Promise<MemoryWriteResult> {
+    return ipcRenderer.invoke("diary:delete-memory", input) as Promise<MemoryWriteResult>;
+  },
+  openChat(anchor?: { x: number; y: number }): void {
+    ipcRenderer.send("chat:open", anchor);
+  },
+  closeChat(): void {
+    ipcRenderer.send("chat:close");
+  },
+  chatHistory(): Promise<ChatHistoryResult> {
+    return ipcRenderer.invoke("chat:history") as Promise<ChatHistoryResult>;
+  },
+  chatSend(text: string, options?: ChatSendOptions): Promise<ChatSendResult> {
+    return ipcRenderer.invoke("chat:send", { text, ...options }) as Promise<ChatSendResult>;
+  },
+  onChatMessages(handler: (messages: ChatMessage[]) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, messages: ChatMessage[]) => {
+      handler(messages);
+    };
+    ipcRenderer.on("chat:messages", listener);
+    return () => {
+      ipcRenderer.removeListener("chat:messages", listener);
+    };
+  },
+  onChatStatus(handler: (status: ChatStatus) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, status: ChatStatus) => {
+      handler(status);
+    };
+    ipcRenderer.on("chat:status", listener);
+    return () => {
+      ipcRenderer.removeListener("chat:status", listener);
+    };
   },
   captureDiaryCard(rect: {
     x: number;

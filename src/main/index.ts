@@ -4,7 +4,15 @@ import { registerAppProtocol, registerAppScheme } from "./app-protocol";
 import { getAutoLaunchEnabled, setAutoLaunchEnabled } from "./auto-launch";
 import { ensureConfig } from "./config";
 import { listDisplays, selectDisplay, setForceTop, syncWindowToDisplay, disposeForceTop } from "./display";
-import { loadDiary, diaryAvailability, loadMemory } from "./diary/ssh";
+import {
+  loadDiary,
+  diaryAvailability,
+  loadMemory,
+  updateMemory,
+  deleteMemory,
+} from "./diary/ssh";
+import type { MemoryDeleteInput, MemoryUpdateInput } from "../shared/types";
+import { initChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
 import { startMousePassthrough } from "./mouse-passthrough";
 import { createTray } from "./tray";
@@ -36,6 +44,7 @@ if (!gotLock) {
     await ensureConfig();
     registerAppProtocol();
     initDiaryWindow();
+    initChatWindow();
 
     ipcMain.handle("diary:load", async (_event, book: unknown) => {
       try {
@@ -63,6 +72,26 @@ if (!gotLock) {
       } catch (error) {
         const message = error instanceof Error ? error.message : "记忆暂时打不开。";
         console.warn("[memory] load failed", message);
+        return { ok: false, error: message };
+      }
+    });
+
+    ipcMain.handle("diary:update-memory", async (_event, input: unknown) => {
+      try {
+        return await updateMemory(input as MemoryUpdateInput);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "写入失败。";
+        console.warn("[memory] update failed", message);
+        return { ok: false, error: message };
+      }
+    });
+
+    ipcMain.handle("diary:delete-memory", async (_event, input: unknown) => {
+      try {
+        return await deleteMemory(input as MemoryDeleteInput);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "删除失败。";
+        console.warn("[memory] delete failed", message);
         return { ok: false, error: message };
       }
     });

@@ -14,6 +14,16 @@ const DEFAULT_CONFIG: PetConfig = {
       "/home/mxjserver/astrbot/data/workspaces/Hiro_FriendMessage_1955272576/diary",
     memoryDir:
       "/home/mxjserver/astrbot/data/plugin_data/astrbot_plugin_hiro_memory/memory",
+    memoryDirInContainer:
+      "/AstrBot/data/plugin_data/astrbot_plugin_hiro_memory/memory",
+    containerName: "astrbot",
+  },
+  chat: {
+    hosts: ["10.144.144.1", "192.168.124.47", "192.168.124.48"],
+    port: 6185,
+    apiKey: "",
+    timeoutMs: 15_000,
+    pollMs: 700,
   },
 };
 
@@ -30,10 +40,17 @@ function normalizeConfig(input: unknown): PetConfig {
   const hosts = Array.isArray(diary.hosts)
     ? diary.hosts.filter((host): host is string => typeof host === "string" && host.trim().length > 0)
     : DEFAULT_CONFIG.diary.hosts;
+  const normalizedHosts = hosts.length > 0 ? hosts : DEFAULT_CONFIG.diary.hosts;
+  const chat = isRecord(input) && isRecord(input.chat) ? input.chat : {};
+  const chatHosts = Array.isArray(chat.hosts)
+    ? chat.hosts.filter(
+        (host): host is string => typeof host === "string" && host.trim().length > 0,
+      )
+    : normalizedHosts;
 
   return {
     diary: {
-      hosts: hosts.length > 0 ? hosts : DEFAULT_CONFIG.diary.hosts,
+      hosts: normalizedHosts,
       port:
         typeof diary.port === "number" && Number.isFinite(diary.port)
           ? diary.port
@@ -54,6 +71,34 @@ function normalizeConfig(input: unknown): PetConfig {
         typeof diary.memoryDir === "string" && diary.memoryDir.trim()
           ? diary.memoryDir.trim()
           : DEFAULT_CONFIG.diary.memoryDir,
+      memoryDirInContainer:
+        typeof diary.memoryDirInContainer === "string" &&
+        diary.memoryDirInContainer.trim()
+          ? diary.memoryDirInContainer.trim()
+          : DEFAULT_CONFIG.diary.memoryDirInContainer,
+      containerName:
+        typeof diary.containerName === "string" && diary.containerName.trim()
+          ? diary.containerName.trim()
+          : DEFAULT_CONFIG.diary.containerName,
+    },
+    chat: {
+      hosts: chatHosts.length > 0 ? chatHosts : normalizedHosts,
+      port:
+        typeof chat.port === "number" && Number.isFinite(chat.port)
+          ? chat.port
+          : DEFAULT_CONFIG.chat.port,
+      apiKey:
+        typeof chat.apiKey === "string"
+          ? chat.apiKey.trim()
+          : DEFAULT_CONFIG.chat.apiKey,
+      timeoutMs:
+        typeof chat.timeoutMs === "number" && Number.isFinite(chat.timeoutMs)
+          ? Math.max(1000, chat.timeoutMs)
+          : DEFAULT_CONFIG.chat.timeoutMs,
+      pollMs:
+        typeof chat.pollMs === "number" && Number.isFinite(chat.pollMs)
+          ? Math.max(250, chat.pollMs)
+          : DEFAULT_CONFIG.chat.pollMs,
     },
   };
 }

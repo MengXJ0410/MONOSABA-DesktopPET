@@ -1,4 +1,16 @@
-import type { DiaryPayload, DisplayInfo, MemoryPayload } from "../shared/types";
+import type {
+  ChatHistoryResult,
+  ChatMessage,
+  ChatSendOptions,
+  ChatSendResult,
+  ChatStatus,
+  DiaryPayload,
+  DisplayInfo,
+  MemoryDeleteInput,
+  MemoryPayload,
+  MemoryUpdateInput,
+  MemoryWriteResult,
+} from "../shared/types";
 
 export type DiaryResult =
   | { ok: true; data: DiaryPayload }
@@ -17,6 +29,14 @@ export type PetApi = {
   loadDiary(book?: string | null): Promise<DiaryResult>;
   diaryAvailability(): Promise<boolean>;
   loadMemory(): Promise<MemoryResult>;
+  updateMemory(input: MemoryUpdateInput): Promise<MemoryWriteResult>;
+  deleteMemory(input: MemoryDeleteInput): Promise<MemoryWriteResult>;
+  openChat(anchor?: { x: number; y: number }): void;
+  closeChat(): void;
+  chatHistory(): Promise<ChatHistoryResult>;
+  chatSend(text: string, options?: ChatSendOptions): Promise<ChatSendResult>;
+  onChatMessages(handler: (messages: ChatMessage[]) => void): () => void;
+  onChatStatus(handler: (status: ChatStatus) => void): () => void;
   captureDiaryCard(rect: {
     x: number;
     y: number;

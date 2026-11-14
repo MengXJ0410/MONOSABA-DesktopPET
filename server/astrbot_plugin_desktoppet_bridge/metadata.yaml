@@ -1,0 +1,9 @@
+name: astrbot_plugin_desktoppet_bridge
+display_name: 桌宠聊天桥接
+desc: 让 MONOSABA DesktopPET 与 QQ 私聊共享同一个 AstrBot 会话；桌面消息只回桌面，不投递到 QQ。
+version: 0.2.0
+author: MXJ
+repo: ""
+astrbot_version: ">=4.29.0"
+support_platforms:
+  - aiocqhttp

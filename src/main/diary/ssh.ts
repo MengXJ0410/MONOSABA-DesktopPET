@@ -2,7 +2,14 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { DiaryConfig, DiaryPayload, MemoryPayload } from "../../shared/types";
+import type {
+  DiaryConfig,
+  DiaryPayload,
+  MemoryDeleteInput,
+  MemoryPayload,
+  MemoryUpdateInput,
+  MemoryWriteResult,
+} from "../../shared/types";
 import { readConfig } from "../config";
 
 const execFileAsync = promisify(execFile);
@@ -301,8 +308,11 @@ for path in sorted(glob.glob(os.path.join(DIR, "*.jsonl"))):
         handle = open(path, "r", encoding="utf-8", errors="replace")
     except OSError:
         continue
+    file_name = os.path.basename(path)
+    line_no = 0
     with handle:
         for line in handle:
+            line_no += 1
             line = line.strip()
             if not line:
                 continue
@@ -324,6 +334,8 @@ for path in sorted(glob.glob(os.path.join(DIR, "*.jsonl"))):
                 "imp": imp,
                 "text": text,
                 "scope": str(item.get("scope") or ""),
+                "file": file_name,
+                "line": line_no,
             })
             days.add(date)
 
@@ -332,16 +344,13 @@ print(json.dumps({"entries": rows, "days": len(days), "count": len(rows)}, ensur
 `;
 }
 
-/** 通过同一套 SSH 通道跑一段脚本，并解析最后一行 JSON。 */
-async function runRemoteJson<T>(
+/** 通过同一套 SSH 通道跑一段远端命令，并解析最后一行 JSON。 */
+async function runRemoteCommandJson<T>(
   config: DiaryConfig,
-  script: string,
+  remoteCommand: string,
   label: string,
   fallbackError: string,
 ): Promise<T> {
-  const encoded = Buffer.from(script, "utf8").toString("base64");
-  const remoteCommand = `printf %s '${encoded}' | base64 -d | python3 -`;
-
   let lastError: DiaryRemoteError | null = null;
   for (const host of config.hosts) {
     try {
@@ -367,6 +376,36 @@ async function runRemoteJson<T>(
   throw lastError ?? new DiaryRemoteError(fallbackError, "network");
 }
 
+/** 在宿主机上跑 Python 脚本（读取用）。 */
+async function runRemoteJson<T>(
+  config: DiaryConfig,
+  script: string,
+  label: string,
+  fallbackError: string,
+): Promise<T> {
+  const encoded = Buffer.from(script, "utf8").toString("base64");
+  const remoteCommand = `printf %s '${encoded}' | base64 -d | python3 -`;
+  return runRemoteCommandJson<T>(config, remoteCommand, label, fallbackError);
+}
+
+function safeContainerName(value: string): string {
+  const name = value.trim();
+  return /^[A-Za-z0-9_.-]+$/.test(name) ? name : "astrbot";
+}
+
+/** 在 AstrBot 容器里跑 Python 脚本（写入用，root 权限）。 */
+async function runContainerJson<T>(
+  config: DiaryConfig,
+  script: string,
+  label: string,
+  fallbackError: string,
+): Promise<T> {
+  const encoded = Buffer.from(script, "utf8").toString("base64");
+  const container = safeContainerName(config.containerName);
+  const remoteCommand = `printf %s '${encoded}' | base64 -d | docker exec -i ${container} python3 -`;
+  return runRemoteCommandJson<T>(config, remoteCommand, label, fallbackError);
+}
+
 /** 读取服务器上的长久记忆（只读，一次取全部 JSONL）。 */
 export async function loadMemory(): Promise<MemoryPayload> {
   const config = (await readConfig()).diary;
@@ -386,6 +425,164 @@ export async function loadMemory(): Promise<MemoryPayload> {
     "memory",
     "连不上记忆库，确认 EasyTier 在线。",
   );
+}
+
+type MemoryWriteAction = "update" | "delete";
+type RemoteWritePayload = { ok: boolean; error?: string };
+
+function memoryWriteScript(
+  action: MemoryWriteAction,
+  config: DiaryConfig,
+  input: { file: string; line: number; original: string; text?: string },
+): string {
+  return `
+import json, os, re, sys, time
+
+DIR = ${JSON.stringify(config.memoryDirInContainer)}
+FILE = ${JSON.stringify(input.file)}
+LINE = ${JSON.stringify(input.line)}
+ORIGINAL = ${JSON.stringify(input.original)}
+TEXT = ${JSON.stringify(action === "update" ? input.text ?? "" : "")}
+ACTION = ${JSON.stringify(action)}
+REINDEX_DIR = os.path.join(os.path.dirname(DIR), "reindex")
+
+def out(payload):
+    print(json.dumps(payload, ensure_ascii=False))
+    sys.exit(0)
+
+if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}\\.jsonl", FILE):
+    out({"ok": False, "error": "文件名不合法。"})
+if not isinstance(LINE, int) or LINE < 1:
+    out({"ok": False, "error": "行号不合法。"})
+if ACTION == "update" and not TEXT.strip():
+    out({"ok": False, "error": "不能改成空白；要删除请用抹除记忆。"})
+
+path = os.path.join(DIR, FILE)
+if not os.path.isfile(path):
+    out({"ok": False, "error": "这一天没有记忆文件。"})
+
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+except OSError as exc:
+    out({"ok": False, "error": "读取失败：%s" % exc})
+
+index = LINE - 1
+if index < 0 or index >= len(lines):
+    out({"ok": False, "error": "这一行已经不存在，请刷新。"})
+
+try:
+    item = json.loads(lines[index])
+except Exception:
+    out({"ok": False, "error": "这一行不是有效记忆，请刷新。"})
+
+current = str(item.get("text") or "")
+if ORIGINAL and current != ORIGINAL:
+    out({"ok": False, "error": "这条记忆已经变了，请刷新后再试。"})
+
+if ACTION == "update":
+    item["text"] = TEXT
+    lines[index] = json.dumps(item, ensure_ascii=False)
+else:
+    del lines[index]
+
+tmp = path + ".tmp"
+try:
+    if lines:
+        with open(tmp, "w", encoding="utf-8", newline="\\n") as handle:
+            handle.write("\\n".join(lines) + "\\n")
+        os.replace(tmp, path)
+    else:
+        os.remove(path)
+except OSError as exc:
+    try:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    except OSError:
+        pass
+    out({"ok": False, "error": "写入失败：%s" % exc})
+
+day = str(item.get("date") or os.path.splitext(FILE)[0])
+scope = str(item.get("scope") or "")
+if scope:
+    os.makedirs(REINDEX_DIR, exist_ok=True)
+    safe_scope = re.sub(r"[^A-Za-z0-9_-]+", "-", scope)[:40] or "x"
+    marker = os.path.join(REINDEX_DIR, "%s-%s.json" % (day, safe_scope))
+    with open(marker, "w", encoding="utf-8") as handle:
+        json.dump({
+            "day": day,
+            "scope": scope,
+            "op": ACTION,
+            "file": FILE,
+            "line": LINE,
+            "ts": int(time.time()),
+        }, handle, ensure_ascii=False)
+
+out({"ok": True, "day": day, "scope": scope, "file": FILE, "line": LINE})
+`;
+}
+
+function validateMemoryWriteInput(
+  input: MemoryUpdateInput | MemoryDeleteInput,
+): string | null {
+  if (!input || typeof input !== "object") return "参数不合法。";
+  if (!/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(input.file)) return "文件名不合法。";
+  if (!Number.isInteger(input.line) || input.line < 1) return "行号不合法。";
+  if (typeof input.original !== "string") return "原文不合法。";
+  if ("text" in input) {
+    if (typeof input.text !== "string" || !input.text.trim()) {
+      return "新文本不能为空。";
+    }
+    if (input.text.length > 500) return "新文本太长。";
+  }
+  return null;
+}
+
+async function writeMemory(
+  action: MemoryWriteAction,
+  input: MemoryUpdateInput | MemoryDeleteInput,
+): Promise<MemoryWriteResult> {
+  const config = (await readConfig()).diary;
+  const invalid = validateMemoryWriteInput(input);
+  if (invalid) return { ok: false, error: invalid };
+
+  try {
+    await fs.access(config.privateKeyPath);
+  } catch {
+    return { ok: false, error: `读不到 SSH 私钥：${config.privateKeyPath}` };
+  }
+
+  try {
+    const payload = await runContainerJson<RemoteWritePayload>(
+      config,
+      memoryWriteScript(action, config, input),
+      "memory-write",
+      "连不上记忆库，确认 EasyTier 在线。",
+    );
+    if (!payload.ok) {
+      return { ok: false, error: payload.error || "写入失败。" };
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "写入失败。",
+    };
+  }
+}
+
+/** 修改一条记忆的正文；原文不匹配会拒绝。 */
+export async function updateMemory(
+  input: MemoryUpdateInput,
+): Promise<MemoryWriteResult> {
+  return writeMemory("update", input);
+}
+
+/** 删除一条记忆；原文不匹配会拒绝。 */
+export async function deleteMemory(
+  input: MemoryDeleteInput,
+): Promise<MemoryWriteResult> {
+  return writeMemory("delete", input);
 }
 
 export { DiaryRemoteError };

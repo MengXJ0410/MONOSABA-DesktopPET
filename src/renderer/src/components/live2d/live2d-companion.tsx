@@ -436,6 +436,8 @@ export function Live2DCompanion() {
   // 点击彩蛋音效：音频实例复用，避免每次点击都新建；冷却时间戳用 -Infinity 起手，保证第一次点击不被误挡。
   const clickSoundRef = useRef<{ src: string; audio: HTMLAudioElement } | null>(null);
   const lastClickSoundAtRef = useRef(Number.NEGATIVE_INFINITY);
+  // 单击开面板、双击开聊天：第一次点击延迟 240ms，第二次点击取消它。
+  const settingsIconClickTimerRef = useRef<number | null>(null);
 
   const characterProfile = LIVE2D_CHARACTERS[character];
   const otherCharacter = character === "hiro" ? "ema" : "hiro";
@@ -447,6 +449,15 @@ export function Live2DCompanion() {
       delete document.documentElement.dataset.petCharacter;
     };
   }, [character]);
+
+  useEffect(() => {
+    return () => {
+      if (settingsIconClickTimerRef.current !== null) {
+        window.clearTimeout(settingsIconClickTimerRef.current);
+        settingsIconClickTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const showBubble = useCallback((text: string, duration = 6200) => {
     if (bubbleTimerRef.current) window.clearTimeout(bubbleTimerRef.current);
@@ -1856,20 +1867,25 @@ export function Live2DCompanion() {
       : shouldLoad && visible && status !== "ready"
         ? "loading"
         : "awake";
+  const chatAvailable = character === "hiro";
   const iconLabel =
     iconState === "sleeping"
       ? `召唤${characterProfile.name}`
       : iconState === "loading"
         ? `${characterProfile.name}回溯中`
-        : characterProfile.name;
+        : chatAvailable
+          ? `${characterProfile.name}，双击打开聊天`
+          : characterProfile.name;
   const iconTip =
     iconState === "sleeping"
       ? `召唤${characterProfile.name}`
       : iconState === "loading"
         ? `${characterProfile.name}回溯中……`
-        : characterProfile.name;
+        : chatAvailable
+          ? `${characterProfile.name} · 双击聊天`
+          : characterProfile.name;
 
-  const onSettingsIconClick = () => {
+  const onSettingsIconClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
     if (iconState === "loading") return;
     if (iconState === "sleeping") {
       summonCompanion();
@@ -1880,7 +1896,20 @@ export function Live2DCompanion() {
       toggleVisible();
       return;
     }
-    toggleSettingsFromGear();
+    if (settingsIconClickTimerRef.current !== null) {
+      window.clearTimeout(settingsIconClickTimerRef.current);
+      settingsIconClickTimerRef.current = null;
+      // 艾玛不接入聊天：双击直接吞掉，避免面板开一下又关。
+      if (!chatAvailable) return;
+      closeSettings();
+      window.petApi.openChat({ x: event.clientX, y: event.clientY });
+      return;
+    }
+
+    settingsIconClickTimerRef.current = window.setTimeout(() => {
+      settingsIconClickTimerRef.current = null;
+      toggleSettingsFromGear();
+    }, 240);
   };
 
   return (

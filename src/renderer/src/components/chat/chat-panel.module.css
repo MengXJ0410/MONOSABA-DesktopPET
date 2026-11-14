@@ -1,0 +1,436 @@
+/*
+ * 希罗聊天框：和控制面板同款黑红玻璃底。
+ * 希罗在左（红气泡 / 白字），我在右（白气泡 / 黑字）；不显示名字和时间。
+ */
+
+.shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  background: transparent;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(200, 16, 46, 0.55);
+  border-radius: 12px;
+  background: linear-gradient(150deg, rgba(20, 7, 11, 0.15), rgba(5, 3, 4, 0.15));
+  box-shadow:
+    0 18px 52px rgba(0, 0, 0, 0.58),
+    0 0 26px rgba(200, 16, 46, 0.18);
+  color: #ffeef1;
+  overflow: hidden;
+  backdrop-filter: blur(18px);
+  animation: chat-open 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes chat-open {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- 标题栏 ---- */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 10px 12px 9px 14px;
+  border-bottom: 1px solid rgba(200, 16, 46, 0.28);
+  -webkit-app-region: drag;
+}
+
+.title {
+  color: #ff6b7a;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 7px currentColor;
+}
+
+.dotOnline {
+  color: #5ad48a;
+}
+
+.dotWarn {
+  color: #f0b429;
+}
+
+.dotOffline {
+  color: #ff5a5a;
+}
+
+.close {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 238, 241, 0.5);
+  font-size: 1.15rem;
+  line-height: 1;
+  -webkit-app-region: no-drag;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.close:hover {
+  background: rgba(200, 16, 46, 0.22);
+  color: #fff8f9;
+}
+
+.close:focus-visible {
+  outline: 2px solid rgba(255, 107, 122, 0.85);
+  outline-offset: 1px;
+}
+
+/* ---- 获取屏幕工具栏 ---- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(200, 16, 46, 0.18);
+  background: rgba(8, 3, 5, 0.18);
+  -webkit-app-region: no-drag;
+}
+
+.captureToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 238, 241, 0.56);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  transition: color 0.18s ease;
+}
+
+.captureToggle:hover {
+  color: rgba(255, 238, 241, 0.82);
+}
+
+.captureToggle:focus-visible {
+  outline: 2px solid rgba(255, 107, 122, 0.8);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.switchTrack {
+  position: relative;
+  display: inline-block;
+  width: 26px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: background 0.18s ease;
+}
+
+.switchThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s ease;
+}
+
+.captureOn {
+  color: #ff9aa5;
+}
+
+.captureOn .switchTrack {
+  background: #c8102e;
+}
+
+.captureOn .switchThumb {
+  transform: translateX(12px);
+}
+
+.displaySelect {
+  margin-left: auto;
+  max-width: 42%;
+  padding: 3px 6px;
+  border: 1px solid rgba(200, 16, 46, 0.35);
+  border-radius: 6px;
+  background: rgba(8, 3, 5, 0.55);
+  color: #ffeef1;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  outline: none;
+}
+
+.displaySelect:focus-visible {
+  border-color: rgba(255, 96, 116, 0.85);
+  box-shadow: 0 0 0 2px rgba(200, 16, 46, 0.16);
+}
+
+/* ---- 状态提示 ---- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 0 0 auto;
+  margin: 8px 12px 0;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 90, 90, 0.32);
+  border-radius: 8px;
+  background: rgba(60, 10, 16, 0.72);
+  color: #ffb4b4;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.bannerWarn {
+  border-color: rgba(240, 180, 41, 0.3);
+  background: rgba(48, 34, 4, 0.62);
+  color: #f5d27a;
+}
+
+.retry {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.retry:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.retry:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ---- 消息列表 ---- */
+
+.list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px 14px 10px;
+  overflow-y: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(200, 16, 46, 0.45);
+}
+
+.list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.placeholder {
+  margin: auto;
+  color: rgba(255, 238, 241, 0.38);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+}
+
+.row {
+  display: flex;
+  width: 100%;
+}
+
+.rowAssistant {
+  justify-content: flex-start;
+}
+
+.rowUser {
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: 78%;
+  padding: 0.7rem 0.9rem;
+  border-radius: 14px;
+  font-size: 0.85rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  animation: bubble-in 0.18s ease-out both;
+}
+
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 希罗：复用桌宠现成的对话气泡（黑底、红边、浅色字、磨砂）。 */
+.bubbleAssistant {
+  border: 1px solid var(--pet-bubble-border, rgba(200, 16, 46, 0.5));
+  background: var(--pet-bubble-bg, rgba(12, 5, 8, 0.9));
+  color: var(--pet-bubble-text, #ffeef1);
+  box-shadow: var(--pet-shadow, 0 12px 32px rgba(0, 0, 0, 0.4));
+  backdrop-filter: blur(10px);
+}
+
+/* 我：白底、青色边框、黑色字。 */
+.bubbleUser {
+  border: 1px solid #1fbbbb;
+  background: #ffffff;
+  color: #141414;
+  box-shadow: 0 2px 12px rgba(31, 187, 187, 0.2);
+}
+
+.thumb {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  margin-top: 7px;
+  border: 1px solid rgba(200, 16, 46, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  object-fit: contain;
+}
+
+.bubbleUser .thumb {
+  border-color: rgba(31, 187, 187, 0.4);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.typing {
+  padding: 1px 4px;
+  color: rgba(255, 238, 241, 0.48);
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+}
+
+.sendError {
+  flex: 0 0 auto;
+  padding: 0 14px 5px;
+  color: #ff9aa5;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+/* ---- 输入区 ---- */
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 9px 12px 12px;
+  border-top: 1px solid rgba(200, 16, 46, 0.22);
+  background: rgba(8, 3, 5, 0.3);
+}
+
+.composer textarea {
+  flex: 1 1 auto;
+  min-height: 36px;
+  max-height: 120px;
+  padding: 7px 10px;
+  border: 1px solid rgba(200, 16, 46, 0.28);
+  border-radius: 9px;
+  background: rgba(8, 3, 5, 0.55);
+  color: #ffeef1;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  outline: none;
+  resize: none;
+  user-select: text;
+  -webkit-user-select: text;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.composer textarea::placeholder {
+  color: rgba(255, 238, 241, 0.32);
+}
+
+.composer textarea:focus {
+  border-color: rgba(255, 96, 116, 0.85);
+  box-shadow: 0 0 0 2px rgba(200, 16, 46, 0.16);
+}
+
+.composer textarea:disabled {
+  opacity: 0.5;
+}
+
+.send {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  background: #c8102e;
+  color: #fff8f9;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  transition:
+    background 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.send:not(:disabled):hover {
+  background: #e0173a;
+}
+
+.send:disabled {
+  opacity: 0.38;
+}
+
+.send:focus-visible {
+  outline: 2px solid rgba(255, 107, 122, 0.9);
+  outline-offset: 2px;
+}

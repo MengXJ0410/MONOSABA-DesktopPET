@@ -1,0 +1,50 @@
+{
+  "umo": {
+    "description": "共享的 AstrBot 会话 UMO",
+    "type": "string",
+    "hint": "桌面聊天注入的会话。默认与 QQ 私聊 1955272576 完全同一个会话、人格和记忆。",
+    "default": "Hiro:FriendMessage:1955272576"
+  },
+  "platform_id": {
+    "description": "平台适配器 ID",
+    "type": "string",
+    "hint": "AstrBot 里 QQ 平台配置的 ID。",
+    "default": "Hiro"
+  },
+  "user_id": {
+    "description": "用户 QQ 号",
+    "type": "string",
+    "hint": "私聊会话的 session_id，也是注入消息的 sender_id。",
+    "default": "1955272576"
+  },
+  "self_id": {
+    "description": "机器人 QQ 号",
+    "type": "string",
+    "hint": "注入消息的 self_id，用于唤醒、权限和日志。",
+    "default": "1169321938"
+  },
+  "user_nickname": {
+    "description": "注入消息的昵称",
+    "type": "string",
+    "hint": "默认「他」，与记忆插件的 user_alias 一致。",
+    "default": "他"
+  },
+  "history_limit": {
+    "description": "打开聊天框时回填的历史条数",
+    "type": "int",
+    "hint": "从当前 AstrBot 会话读取最近 N 条。",
+    "default": 40
+  },
+  "max_log": {
+    "description": "内存 / 磁盘消息日志上限",
+    "type": "int",
+    "hint": "超过后丢弃最旧的记录，只影响桌面增量拉取，不影响 AstrBot 会话历史。",
+    "default": 500
+  },
+  "screen_hint": {
+    "description": "截图时临时给希罗的设定",
+    "type": "string",
+    "hint": "只在桌面消息附带截图时通过临时 TextPart 注入，不写进会话历史。留空则关闭。",
+    "default": "这张截图来自他的电脑屏幕；画面里的 Live2D 桌宠人物是希罗本人（也就是你），不是其他人。聊天窗口是你们正在用的桌面聊天框。"
+  }
+}
