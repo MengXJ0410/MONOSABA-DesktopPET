@@ -326,18 +326,38 @@ function buildTimeline(messages: ChatMessage[]): TimelineItem[] {
   return items;
 }
 
+function normalizeChatCommand(input: ChatCommand): ChatCommand {
+  const command = input as Partial<ChatCommand> & {
+    aliases?: unknown;
+    subcommands?: unknown;
+  };
+  return {
+    ...input,
+    name: typeof command.name === "string" ? command.name : "",
+    aliases: Array.isArray(command.aliases)
+      ? command.aliases.filter((alias): alias is string => typeof alias === "string")
+      : [],
+    description: typeof command.description === "string" ? command.description : "",
+    permission: typeof command.permission === "string" ? command.permission : "",
+    plugin: typeof command.plugin === "string" ? command.plugin : "",
+    dangerous: command.dangerous === true,
+    subcommands: Array.isArray(command.subcommands)
+      ? command.subcommands.map((sub) => normalizeChatCommand(sub as ChatCommand))
+      : [],
+  };
+}
+
 function flattenCommands(data: ChatCommandsData | null): ChatCommand[] {
   const result: ChatCommand[] = [];
   const seen = new Set<string>();
-  const add = (command: ChatCommand) => {
+  const add = (input: ChatCommand) => {
+    const command = normalizeChatCommand(input);
     if (!command.name || seen.has(command.name)) return;
     seen.add(command.name);
     result.push(command);
+    for (const sub of command.subcommands) add(sub);
   };
-  for (const command of data?.commands ?? []) {
-    add(command);
-    for (const sub of command.subcommands ?? []) add(sub);
-  }
+  for (const command of data?.commands ?? []) add(command);
   return result.sort((a, b) => a.name.localeCompare(b.name, "zh"));
 }
 
@@ -348,8 +368,10 @@ function filterCommands(list: ChatCommand[], draft: string): ChatCommand[] {
   return list
     .filter((command) => {
       if (command.name.toLowerCase().startsWith(query)) return true;
-      return command.aliases.some((alias) =>
-        alias.toLowerCase().startsWith(query),
+      const aliases = Array.isArray(command.aliases) ? command.aliases : [];
+      return aliases.some(
+        (alias) =>
+          typeof alias === "string" && alias.toLowerCase().startsWith(query),
       );
     })
     .slice(0, 20);
