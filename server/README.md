@@ -20,8 +20,9 @@ ssh mxjserver@10.144.144.1 "docker restart astrbot"
 启动日志里应出现：
 
 ```text
-[desktoppet] 桥接 0.3.0 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
-[desktoppet] 已安装发送层捕获
+[desktoppet] 桥接 0.3.1 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
+[desktoppet] 发送捕获循环已启动
+[desktoppet] 已安装发送层捕获 bot=CQHttp replaced=functools.partial(...)
 ```
 
 ## API Key
@@ -47,7 +48,7 @@ curl -H "Authorization: Bearer abk_..." \
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/ping` | `{platform, qqConnected, epoch}` |
+| GET | `/ping` | `{platform, qqConnected, epoch, capture}` |
 | POST | `/send` | `{text, image?}` → 注入同一会话，返回日志条目；支持 `/` 指令 |
 | GET | `/messages?after=&limit=` | 增量消息 + `cursor` + `hasMore` + `qqConnected` + `epoch` |
 | GET | `/bootstrap?` | 首次全量回填：全部日志 + 会话历史（默认 500 条）+ `epoch` / `version` / `capabilities` |
@@ -108,18 +109,50 @@ curl -H "Authorization: Bearer abk_..." \
   → 解析 OneBot 消息段 → 写入 messages.jsonl
 ```
 
-- 包装函数每 3 秒自检一次；AstrBot 重启或适配器重建后会自动重装，插件重载时记录目标会切到新实例。
+- 包装函数每 3 秒自检一次；AstrBot 重启、平台重连或插件重载后会自动重装。收到消息和发起 LLM 请求前也会主动检查一次。
+- 自检看的是「包装函数是否仍是当前 `bot.send_private_msg`」，而不是实例上的标记位。aiocqhttp 的 `CQHttp.__getattr__` 会给任何未知属性返回一个可调用的 `functools.partial`，用 `getattr` 判断标记会被它骗过去。
 - 只记录目标 `user_id` 的私聊。
 - `text` 拼接；`image` 下载后落盘成 `attachments`；`face` → `[表情]`；`record` → `[语音]`；`video` → `[视频]`；`at` → `@昵称`；`file` → `[文件]`；`reply` / `forward` / `node` 忽略。
 - 同一条消息链里的多段文本合并成一条；AstrBot 分段回复是多次发送，所以会保留成多条消息。
+- `message` 是字符串、单个消息段或 `MessageChain` 时也能记录。
+
+`/ping` 的 `capture` 用来确认发送层是否在工作：
+
+```json
+{
+  "capture": {
+    "wrapped": true,
+    "task": true,
+    "captured": 18,
+    "lastCaptureAt": 1794801234567,
+    "note": "已安装"
+  }
+}
+```
+
+`wrapped` 为 `false` 时说明当前 bot 上的包装失效（通常是平台刚重连），最多等 3 秒会自动补装。
+
+## 唤醒词截断
+
+AstrBot 的 `WakingCheckStage` 只要发现消息以 `wake_prefix` 开头，就会把它从 `message_str` 里删掉——即使私聊本来不需要唤醒词。例如 `wake_prefix` 配了「希罗」：
+
+```text
+希罗酱，你在吗   →   酱，你在吗
+```
+
+模型和会话历史都只看到后半句。桥接在收到这个会话的消息时会用原始消息组件重建一次 `message_str`，把前缀补回来；桌面注入和手机 QQ 两个方向都生效。日志里会出现：
+
+```text
+[desktoppet] 已恢复唤醒词截断：'酱，你在吗' -> '希罗酱，你在吗'
+```
 
 ## 存储
 
 ```text
 /AstrBot/data/plugin_data/astrbot_plugin_desktoppet_bridge/
-  ├─ messages.jsonl   发送日志，最多 max_log（默认 2000）条
-  ├─ meta.json        epoch
-  └─ media/           图片原图（按 sha1 命名）+ 按需缩略图
+  ├─ messages.jsonl      发送日志，最多 max_log（默认 2000）条
+  ├─ messages.meta.json  epoch
+  └─ media/              图片原图（按 sha1 命名）+ 按需缩略图
 ```
 
 `media_max_mb`（默认 500）只做容量告警，不会自动删除仍被日志引用的图片。

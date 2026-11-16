@@ -13,6 +13,14 @@
 - 放开桌面端的 / 指令；桌面注入事件按管理员处理。
 - /messages 的 cursor 改为“最后一条实际返回的消息 id”，并返回 hasMore。
 
+0.3.1 变更：
+- 发送层捕获改为校验“包装函数是否仍是当前方法”，平台重连 / 插件重载后能自愈；
+  /ping 返回 capture 状态（wrapped / task / captured / lastCaptureAt）。
+- 用户消息进来和 LLM 请求前都会主动补装捕获。
+- send_private_msg 的 message 支持字符串、单段 dict 和 MessageChain。
+- 恢复被 AstrBot 唤醒词截断的消息文本（例如 wake_prefix 配了「希罗」时
+  「希罗酱…」会变成「酱…」）。
+
 设计边界：
 - 只处理一个固定 UMO（默认 Hiro:FriendMessage:1955272576）。
 - 媒体原图保存在 plugin_data/<plugin>/media；缩略图按需生成。
@@ -52,7 +60,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 PLUGIN_NAME = "astrbot_plugin_desktoppet_bridge"
-PLUGIN_VERSION = "0.3.0"
+PLUGIN_VERSION = "0.3.1"
 
 DEFAULT_UMO = "Hiro:FriendMessage:1955272576"
 DEFAULT_PLATFORM_ID = "Hiro"
@@ -643,6 +651,9 @@ class DesktopPetBridge(Star):
         self._lock = asyncio.Lock()
         self._capture_task: asyncio.Task | None = None
         self._closed = False
+        self._capture_count = 0
+        self._last_capture_ts = 0
+        self._capture_note = "未开始"
         self._mood_config: dict = {}
         self._affection_k: float | None = None
 
@@ -722,6 +733,7 @@ class DesktopPetBridge(Star):
         self._restore_capture()
 
     async def _capture_loop(self) -> None:
+        logger.info("[desktoppet] 发送捕获循环已启动")
         while not self._closed:
             try:
                 self._ensure_capture()
@@ -921,35 +933,76 @@ class DesktopPetBridge(Star):
         return False
 
     # ------------------------------------------------------------------ 发送捕获
-    def _ensure_capture(self) -> None:
+    def _ensure_capture(self) -> bool:
+        """确保 bot.send_private_msg 上挂着我们的记录包装。
+
+        用「包装函数对象是否仍是当前方法」来判断，而不是只看 owner 标记：
+        插件重载、平台重连、别的插件二次包装都可能让标记还在、包装却已经失效。
+        """
         adapter = self._adapter()
         bot = getattr(adapter, "bot", None) if adapter is not None else None
         if bot is None:
-            return
-        owner = getattr(bot, "_desktoppet_capture_owner", None)
-        if owner is not None:
-            # 插件重载后把记录目标指向新实例，避免旧实例继续接收。
+            self._capture_note = "等待平台适配器"
+            return False
+
+        # 注意：aiocqhttp 的 CQHttp.__getattr__ 会给任何未知属性返回一个
+        # functools.partial，getattr 永远拿不到 None。我们自己的标记必须走
+        # __dict__，否则会被误判成“已经装过包装”。
+        state = getattr(bot, "__dict__", {})
+        wrapper = state.get("_desktoppet_send_wrapper")
+        current = getattr(bot, "send_private_msg", None)
+        if current is None:
+            self._capture_note = "bot 缺少 send_private_msg"
+            return False
+        if wrapper is not None and current is wrapper:
+            # 包装还在，只需要把记录目标指向当前实例（插件重载时会换实例）。
             bot._desktoppet_capture_owner = self
-            return
-        original = bot.send_private_msg
+            self._capture_note = "已安装"
+            return True
+
+        original = current
 
         async def wrapped(*args: object, **kwargs: object) -> object:
             result = await original(*args, **kwargs)
             try:
-                current = getattr(bot, "_desktoppet_capture_owner", None)
-                if current is not None:
-                    await current._capture_bot_send(kwargs)
+                owner = getattr(bot, "__dict__", {}).get("_desktoppet_capture_owner")
+                if owner is not None:
+                    await owner._capture_bot_send(kwargs)
             except Exception:
                 logger.exception("[desktoppet] 记录 QQ 回复失败")
             return result
 
         try:
             bot.send_private_msg = wrapped
+            bot._desktoppet_send_wrapper = wrapped
             bot._desktoppet_original_send_private = original
             bot._desktoppet_capture_owner = self
-            logger.info("[desktoppet] 已安装发送层捕获")
+            self._capture_note = "已安装"
+            logger.info(
+                "[desktoppet] 已安装发送层捕获 bot=%s replaced=%s",
+                type(bot).__name__,
+                getattr(original, "__qualname__", repr(original)),
+            )
+            return True
         except Exception:
+            self._capture_note = "安装失败"
             logger.exception("[desktoppet] 无法安装发送层捕获")
+            return False
+
+    def _capture_state(self) -> dict:
+        adapter = self._adapter()
+        bot = getattr(adapter, "bot", None) if adapter is not None else None
+        state = getattr(bot, "__dict__", {}) if bot is not None else {}
+        wrapper = state.get("_desktoppet_send_wrapper")
+        return {
+            "wrapped": bool(bot)
+            and wrapper is not None
+            and getattr(bot, "send_private_msg", None) is wrapper,
+            "task": self._capture_task is not None and not self._capture_task.done(),
+            "captured": self._capture_count,
+            "lastCaptureAt": self._last_capture_ts,
+            "note": self._capture_note,
+        }
 
     def _restore_capture(self) -> None:
         adapter = self._adapter()
@@ -957,13 +1010,24 @@ class DesktopPetBridge(Star):
         if bot is None:
             return
         try:
-            if getattr(bot, "_desktoppet_capture_owner", None) is not self:
+            if (
+                getattr(bot, "__dict__", {}).get("_desktoppet_capture_owner")
+                is not self
+            ):
+                # 已经有新实例接管，别把它的包装拆掉。
                 return
-            original = getattr(bot, "_desktoppet_original_send_private", None)
-            if original is not None:
+            state = getattr(bot, "__dict__", {})
+            wrapper = state.get("_desktoppet_send_wrapper")
+            original = state.get("_desktoppet_original_send_private")
+            if (
+                wrapper is not None
+                and original is not None
+                and getattr(bot, "send_private_msg", None) is wrapper
+            ):
                 bot.send_private_msg = original
             for attr in (
                 "_desktoppet_capture_owner",
+                "_desktoppet_send_wrapper",
                 "_desktoppet_original_send_private",
             ):
                 try:
@@ -975,11 +1039,31 @@ class DesktopPetBridge(Star):
 
     async def _capture_bot_send(self, kwargs: dict) -> None:
         user_id = kwargs.get("user_id")
-        if user_id is not None and str(user_id) != self.user_id:
+        if user_id is None:
+            user_id = kwargs.get("target_id")
+        if user_id is not None and str(user_id) != str(self.user_id):
             return
         message = kwargs.get("message")
-        if isinstance(message, list):
-            await self._capture_onebot_message(message, "qq")
+        if isinstance(message, str):
+            # 有些插件直接把 plain text 交给 send_private_msg。
+            text = _clean(message)
+            if text:
+                entry = await self._append("assistant", text, "qq")
+                if entry:
+                    self._mark_captured()
+            return
+        if hasattr(message, "chain"):
+            message = getattr(message, "chain")
+        if isinstance(message, dict):
+            message = [message]
+        if isinstance(message, (list, tuple)):
+            entry = await self._capture_onebot_message(list(message), "qq")
+            if entry:
+                self._mark_captured()
+
+    def _mark_captured(self) -> None:
+        self._capture_count += 1
+        self._last_capture_ts = int(time.time() * 1000)
 
     async def _capture_onebot_message(
         self,
@@ -994,6 +1078,10 @@ class DesktopPetBridge(Star):
         attachments: list[dict] = []
         for segment in message:
             if not isinstance(segment, dict):
+                # 也接受 AstrBot MessageChain 里的组件对象。
+                text = _component_text(segment)
+                if text:
+                    texts.append(text)
                 continue
             kind = segment.get("type")
             data = segment.get("data")
@@ -1504,6 +1592,7 @@ class DesktopPetBridge(Star):
                 "qqConnected": self._qq_connected(),
                 "version": PLUGIN_VERSION,
                 "epoch": self._epoch,
+                "capture": self._capture_state(),
                 "capabilities": [
                     "bootstrap",
                     "status",
@@ -1772,12 +1861,48 @@ class DesktopPetBridge(Star):
         try:
             if event.unified_msg_origin != self.umo:
                 return
+            self._restore_wake_prefix_text(event)
+            self._ensure_capture()
             if event.get_extra("_desktoppet_logged"):
                 return
             event.set_extra("_desktoppet_logged", True)
             await self._capture_event_user(event)
         except Exception:
             logger.exception("[desktoppet] 记录用户消息失败")
+
+    def _restore_wake_prefix_text(self, event: AstrMessageEvent) -> None:
+        """把被 AstrBot 唤醒词截掉的前缀补回来。
+
+        私聊本来不需要唤醒词，但 AstrBot 的 WakingCheckStage 只要看到消息以
+        wake_prefix 开头就会把它从 message_str 里删掉。例如配置了「希罗」
+        时，「希罗酱，在吗」会变成「酱，在吗」，模型和会话历史都只看到后半句。
+        消息组件里仍是原文，所以这里按组件重建一次 message_str。
+        """
+        try:
+            components = event.get_messages()
+        except Exception:
+            components = getattr(event.message_obj, "message", []) or []
+        texts: list[str] = []
+        for comp in components:
+            if type(comp).__name__ == "Plain":
+                texts.append(getattr(comp, "text", "") or "")
+        original = "".join(texts).strip()
+        if not original:
+            return
+        current = (event.message_str or "").strip()
+        if original == current or not original.endswith(current):
+            return
+        event.message_str = original
+        try:
+            if getattr(event, "message_obj", None) is not None:
+                event.message_obj.message_str = original
+        except Exception:
+            pass
+        logger.info(
+            "[desktoppet] 已恢复唤醒词截断：%r -> %r",
+            current[:24],
+            original[:24],
+        )
 
     async def _capture_event_user(self, event: AstrMessageEvent) -> None:
         texts: list[str] = []
@@ -1829,6 +1954,9 @@ class DesktopPetBridge(Star):
         try:
             if event.unified_msg_origin != self.umo:
                 return
+
+            # 回复即将发出，先把发送层捕获准备好。
+            self._ensure_capture()
 
             # 带截图的桌面消息：临时告诉模型画面里的 Live2D 是她自己。
             if (
