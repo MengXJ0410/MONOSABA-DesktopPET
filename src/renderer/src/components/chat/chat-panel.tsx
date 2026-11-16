@@ -604,7 +604,9 @@ function MessageContent({
     <div
       className={`${styles.bubble} ${
         assistant ? styles.bubbleAssistant : styles.bubbleUser
-      } ${full ? styles.bubbleFull : styles.bubbleCompact}`}
+      } ${full ? styles.bubbleFull : styles.bubbleCompact}${
+        message.pending ? ` ${styles.bubblePending}` : ""
+      }`}
     >
       {text ? <span className={styles.bubbleText}>{text}</span> : null}
       {directImage ? (
@@ -1935,6 +1937,8 @@ export function ChatPanel() {
   const statusTimerRef = useRef<number | null>(null);
   const themeTimerRef = useRef<number | null>(null);
   const themePendingRef = useRef<ChatTheme | null>(null);
+  /** 已上屏但还没被桥接确认的消息，等真实消息回来时按文本对账。 */
+  const optimisticRef = useRef<{ id: number; text: string }[]>([]);
   const viewerTokenRef = useRef(0);
   const uiRef = useRef(ui);
   const panelOpenRef = useRef(panelOpen);
@@ -2071,11 +2075,31 @@ export function ChatPanel() {
         (message) => message.id === 0 || !knownIdsRef.current.has(message.id),
       );
       if (fresh.length === 0) return;
+
+      // 轮询可能比 /send 响应先拿到同一条用户消息：按文本认领乐观消息，
+      // 用真实消息替换它，避免出现两个一样的气泡。
+      const settledPending = new Set<number>();
+      for (const message of fresh) {
+        if (message.role !== "user") continue;
+        const text = message.text.trim();
+        const pending = optimisticRef.current.find((item) => item.text === text);
+        if (!pending) continue;
+        settledPending.add(pending.id);
+        optimisticRef.current = optimisticRef.current.filter(
+          (item) => item.id !== pending.id,
+        );
+      }
+
       for (const message of fresh) {
         if (message.id !== 0) knownIdsRef.current.add(message.id);
       }
-      setMessages((prev) => [...prev, ...fresh.map((message) => ({ ...message, live: true }))]);
-      setTotal((prev) => prev + fresh.length);
+      setMessages((prev) => [
+        ...prev.filter((message) => !settledPending.has(message.id)),
+        ...fresh.map((message) => ({ ...message, live: true })),
+      ]);
+      setTotal((prev) =>
+        Math.max(0, prev + fresh.length - settledPending.size),
+      );
       if (fresh.some((message) => message.role === "assistant")) {
         if (awaitingRef.current) {
           awaitingRef.current = false;
@@ -2136,32 +2160,6 @@ export function ChatPanel() {
     setViewer({ src: url, loading: false, error: null, animated: false });
   }, []);
 
-  const upsertMessage = useCallback(
-    (message: ChatMessage, image?: string | null) => {
-      const exists =
-        message.id !== 0 && knownIdsRef.current.has(message.id);
-      if (!exists && message.id !== 0) knownIdsRef.current.add(message.id);
-      setMessages((prev) => {
-        const index = prev.findIndex(
-          (item) => message.id !== 0 && item.id === message.id,
-        );
-        if (index >= 0) {
-          if (!image || prev[index].image) return prev;
-          const next = [...prev];
-          next[index] = { ...prev[index], image };
-          return next;
-        }
-        if (exists) return prev;
-        return [
-          ...prev,
-          { ...message, image: image ?? message.image ?? null, live: true },
-        ];
-      });
-      if (!exists) setTotal((prev) => prev + 1);
-    },
-    [],
-  );
-
   const retryConnection = useCallback(async () => {
     setLoading(true);
     try {
@@ -2218,9 +2216,63 @@ export function ChatPanel() {
       setSending(true);
       setSendError(null);
       setConfirmState(null);
+      // 回复可能比 /send 响应先到，先挂上等待标记；界面提示等确认后再切。
       awaitingRef.current = true;
-      setWaiting(true);
+      setWaiting(false);
       setTimedOut(false);
+
+      // 立即清空输入框并上屏，别让消息滞留在输入框里。
+      setDraft((prev) => (prev.trim() === value ? "" : prev));
+      const tempId = -Date.now();
+      optimisticRef.current.push({ id: tempId, text: value });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          ts: Date.now(),
+          role: "user",
+          origin: "desktop",
+          text: value,
+          image: null,
+          attachments: [],
+          live: true,
+          pending: true,
+        },
+      ]);
+      setTotal((prev) => prev + 1);
+      nearBottomRef.current = true;
+      setStick(true);
+
+      const settle = (message: ChatMessage | null, image?: string | null) => {
+        const wasPending = optimisticRef.current.some((item) => item.id === tempId);
+        optimisticRef.current = optimisticRef.current.filter(
+          (item) => item.id !== tempId,
+        );
+        if (!message) {
+          setMessages((prev) => prev.filter((item) => item.id !== tempId));
+          if (wasPending) setTotal((prev) => Math.max(0, prev - 1));
+          return;
+        }
+        const exists = message.id !== 0 && knownIdsRef.current.has(message.id);
+        if (message.id !== 0) knownIdsRef.current.add(message.id);
+        setMessages((prev) => {
+          const without = prev.filter((item) => item.id !== tempId);
+          if (exists) {
+            if (!image) return without;
+            return without.map((item) =>
+              item.id === message.id && !item.image ? { ...item, image } : item,
+            );
+          }
+          return [
+            ...without,
+            { ...message, image: image ?? message.image ?? null, live: true },
+          ];
+        });
+        setTotal((prev) =>
+          Math.max(0, prev + (exists && wasPending ? -1 : 0)),
+        );
+      };
+
       try {
         const result = await window.petApi.chatSend(value, {
           captureScreen: captureEnabled,
@@ -2228,17 +2280,17 @@ export function ChatPanel() {
         });
         if (!result.ok) {
           awaitingRef.current = false;
-          setWaiting(false);
+          settle(null);
+          // 用户没在发送期间输入新内容时，把原文放回输入框。
+          setDraft((prev) => (prev.trim() ? prev : value));
           setSendError(result.error);
           if (result.kind === "auth" || result.kind === "offline") {
             setStatus(statusFromError(result.kind, result.error));
           }
           return;
         }
-        setDraft((prev) => (prev.trim() === value ? "" : prev));
-        if (result.data.message) {
-          upsertMessage(result.data.message, result.data.screenImage ?? null);
-        }
+        settle(result.data.message ?? null, result.data.screenImage ?? null);
+        if (awaitingRef.current) setWaiting(true);
         if (result.data.captureFailed) {
           setSendError("截图失败，已只发送文字。");
         }
@@ -2249,14 +2301,15 @@ export function ChatPanel() {
         }
       } catch {
         awaitingRef.current = false;
-        setWaiting(false);
+        settle(null);
+        setDraft((prev) => (prev.trim() ? prev : value));
         setSendError("发送失败，请稍后重试。");
       } finally {
         sendingRef.current = false;
         setSending(false);
       }
     },
-    [captureEnabled, displayId, refreshStatus, upsertMessage],
+    [captureEnabled, displayId, refreshStatus],
   );
 
   const submit = useCallback(() => {
@@ -3131,17 +3184,22 @@ export function ChatPanel() {
                     />
                   ),
                 )}
-                {waiting ? (
+                {sending ? (
+                  <div className={styles.sendingHint} aria-live="polite">
+                    消息正在发送…
+                  </div>
+                ) : waiting ? (
                   <div className={styles.typing} aria-live="polite">
                     <span className={styles.typingDots} aria-hidden="true">
                       <i />
                       <i />
                       <i />
                     </span>
-                    希罗正在输入…
+                    希罗正在回复中…
                   </div>
+                ) : timedOut ? (
+                  <div className={styles.typingMuted}>希罗没有回应。</div>
                 ) : null}
-                {timedOut ? <div className={styles.typingMuted}>希罗没有回应。</div> : null}
               </div>
               {!stick && visibleMessages.length > 0 ? (
                 <button

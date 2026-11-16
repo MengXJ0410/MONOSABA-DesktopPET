@@ -244,6 +244,8 @@ export type ChatMessage = {
   attachments?: ChatAttachment[];
   /** 本次运行中实时收到的消息；渲染层据此保留 GIF 动画。 */
   live?: boolean;
+  /** 仅渲染层使用：还没被桥接确认的乐观消息。 */
+  pending?: boolean;
   /** 历史回填没有原始时间，ts 是按顺序推算的近似值。 */
   approximate?: boolean;
 };

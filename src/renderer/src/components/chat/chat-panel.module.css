@@ -1132,6 +1132,19 @@
   font-size: 0.75rem;
 }
 
+.sendingHint {
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+/* 乐观消息：已经上屏，但桥接还没确认。 */
+.bubblePending {
+  opacity: 0.72;
+}
+
 .jumpButton {
   position: absolute;
   right: 16px;
