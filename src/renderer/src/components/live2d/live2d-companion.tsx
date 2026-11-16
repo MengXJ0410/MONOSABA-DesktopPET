@@ -1836,6 +1836,19 @@ export function Live2DCompanion() {
     };
   }, []);
 
+  // 完整版聊天左侧栏的「设置」按钮：唤出桌宠现有的控制面板。
+  useEffect(() => {
+    const off = window.petApi?.onOpenSettings?.(() => {
+      const rect = gearRef.current?.getBoundingClientRect();
+      const x = Math.max(12, (rect?.left ?? window.innerWidth - 340) - 316);
+      const y = Math.max(12, (rect?.top ?? 12) - 8);
+      // 面板需要接收鼠标；等鼠标重新移动后，evaluatePointer 会恢复穿透。
+      sendIgnore(false);
+      openSettingsAt(x, y);
+    });
+    return off;
+  }, [openSettingsAt, sendIgnore]);
+
   const onStageContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (passthrough) return;
     event.preventDefault();

@@ -12,6 +12,7 @@ import {
   deleteMemory,
 } from "./diary/ssh";
 import type { MemoryDeleteInput, MemoryUpdateInput } from "../shared/types";
+import { chatService } from "./chat/service";
 import { initChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
 import { startMousePassthrough } from "./mouse-passthrough";
@@ -45,6 +46,9 @@ if (!gotLock) {
     registerAppProtocol();
     initDiaryWindow();
     initChatWindow();
+    void chatService.start().catch((error) => {
+      console.error("[chat] service start failed", error);
+    });
 
     ipcMain.handle("diary:load", async (_event, book: unknown) => {
       try {
@@ -171,7 +175,10 @@ if (!gotLock) {
     app.quit();
   });
 
-  app.on("before-quit", disposeForceTop);
+  app.on("before-quit", () => {
+    disposeForceTop();
+    void chatService.stop();
+  });
 
   app.on("activate", () => {
     if (getMainWindow()) {

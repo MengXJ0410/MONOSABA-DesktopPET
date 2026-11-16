@@ -90,6 +90,14 @@ export type MemoryPayload = {
   count: number;
 };
 
+export type ChatUiMode = "compact" | "full";
+
+/** 完整版窗口的自定义缩放方向（透明窗口无法使用系统边框缩放）。 */
+export type ChatResizeDirection = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
+/** 聊天窗口的位置与尺寸（不含卡片外的 8px 透明留白）。 */
+export type ChatBounds = Rect;
+
 /** 桌面聊天框连接 AstrBot 桥接插件的配置。 */
 export type ChatConfig = {
   /** 依次尝试的服务器地址，复用日记的 EasyTier / 局域网地址。 */
@@ -101,19 +109,56 @@ export type ChatConfig = {
   timeoutMs: number;
   /** 聊天窗口打开期间的增量拉取间隔。 */
   pollMs: number;
+  /** 完整版 / 小窗偏好、窗口尺寸与通知设置。 */
+  ui: ChatUiConfig;
+};
+
+export type ChatUiConfig = {
+  /** 上次使用的界面模式。 */
+  mode: ChatUiMode;
+  /** 小窗卡片位置与尺寸（窗口 bounds 去掉 8px 留白）。 */
+  compactBounds: ChatBounds | null;
+  /** 完整版卡片位置与尺寸。 */
+  fullBounds: ChatBounds | null;
+  /** 完整版图钉：窗口是否始终置顶。 */
+  fullPinned: boolean;
+  /** 窗口隐藏时是否弹 Windows 通知。 */
+  notifications: boolean;
+  /** 本地缓存最多保留多少条消息。 */
+  cacheLimit: number;
+  /** 本地缓存 / 缩略图最多占用多少 MB。 */
+  cacheMaxMb: number;
 };
 
 export type ChatRole = "user" | "assistant";
 
-/** 一条聊天消息；从 AstrBot 会话回填的历史 id/ts 为 0。 */
+/** 桥接插件保存的图片附件；缩略图 / 原图通过 /media 按需读取。 */
+export type ChatAttachment = {
+  type: "image";
+  /** 桥接插件 media 目录里的文件名，例如 3f2a...c1.webp。 */
+  media: string;
+  mime: string;
+  width?: number;
+  height?: number;
+  animated?: boolean;
+  bytes?: number;
+};
+
+/** 一条聊天消息；从 AstrBot 会话回填的历史 id/ts 可能为 0。 */
 export type ChatMessage = {
   id: number;
   ts: number;
   role: ChatRole;
   origin?: "qq" | "desktop" | null;
   text: string;
-  /** 图片消息的 data URL；桌面截图和会话回填的图片会带。 */
+  /** 旧接口内联的图片 data URL；新消息改用 attachments。 */
   image?: string | null;
+  /** 图片 / 表情包附件。 */
+  attachments?: ChatAttachment[];
+  /** 本次运行中实时收到的消息；渲染层据此保留 GIF 动画。 */
+  live?: boolean;
+  /** 历史回填没有原始时间，ts 是按顺序推算的近似值。 */
+  approximate?: boolean;
 };
 
 export type ChatConnectionState =
@@ -157,11 +202,121 @@ export type ChatSendOptions = {
 export type ChatPollData = {
   messages: ChatMessage[];
   cursor: number;
+  hasMore?: boolean;
   qqConnected: boolean;
+  epoch?: string;
 };
 
 export type ChatHistoryResult = ChatResult<ChatHistoryData>;
 export type ChatSendResult = ChatResult<ChatSendData>;
+
+export type ChatBootstrapData = {
+  /** 桥接插件发送日志（包含 QQ 与桌面的实际收发）。 */
+  messages: ChatMessage[];
+  /** AstrBot 当前会话历史，用于补齐插件安装前的对话。 */
+  history: ChatMessage[];
+  cursor: number;
+  epoch: string;
+  qqConnected: boolean;
+  version?: string;
+  capabilities?: string[];
+  logLimit?: number;
+};
+
+export type ChatBootstrapResult = ChatResult<ChatBootstrapData>;
+
+export type ChatMoodEmotion = {
+  name: string;
+  /** 0–1，已按半衰期衰减。 */
+  intensity: number;
+  reason: string;
+  ts: number;
+};
+
+export type ChatAffection = {
+  value: number;
+  cap: number;
+  stage: string;
+  partner: boolean;
+  gainToday: number;
+  lossToday: number;
+  gainCapToday: number;
+  breakupPending: boolean;
+  coldWar: boolean;
+  coldWarSince: number;
+  coldWarReason: string;
+};
+
+export type ChatRecentExchange = {
+  user: string;
+  assistant: string;
+  ts: number;
+};
+
+export type ChatStatusData = {
+  available: boolean;
+  error?: string;
+  umo?: string;
+  updatedAt?: number;
+  thoughtAt?: number;
+  lastThought?: string;
+  affection?: ChatAffection | null;
+  emotions?: ChatMoodEmotion[];
+  recent?: ChatRecentExchange[];
+  coldWar?: boolean;
+};
+
+export type ChatCommand = {
+  name: string;
+  aliases: string[];
+  description: string;
+  permission: string;
+  plugin: string;
+  dangerous: boolean;
+  subcommands: ChatCommand[];
+};
+
+export type ChatCommandsData = {
+  commands: ChatCommand[];
+  source: "astrbot" | "fallback";
+  generatedAt: number;
+};
+
+export type ChatMediaKind = "thumb" | "original";
+
+export type ChatMediaData = {
+  media: string;
+  mime: string;
+  width: number;
+  height: number;
+  animated: boolean;
+  bytes: number;
+  base64: string;
+};
+
+export type ChatMediaResult =
+  | { ok: true; dataUrl: string; mime: string }
+  | { ok: false; error: string };
+
+export type ChatUiState = {
+  mode: ChatUiMode;
+  pinned: boolean;
+  unread: number;
+  notifications: boolean;
+};
+
+export type ChatInitialData = {
+  messages: ChatMessage[];
+  total: number;
+  cursor: number;
+  qqConnected: boolean;
+  status: ChatStatus;
+  ui: ChatUiState;
+  commands: ChatCommandsData;
+  epoch: string;
+};
+
+export type ChatInitialResult = ChatResult<ChatInitialData>;
 
 export type PetConfig = {
   diary: DiaryConfig;

@@ -4,8 +4,10 @@
 
 - 桌面消息注入 `Hiro:FriendMessage:1955272576`，走完整管线（人格 / 记忆 / 会话）。
 - 注入事件使用假 bot，希罗对桌面消息的回复不会发到 QQ。
-- 记录手机 QQ 的完整收发消息（`on_llm_request` / `on_decorating_result`），桌面增量拉取。
-- 回复从装饰后的 MessageChain 取文本，不受 NapCat 控制台日志「多行截断」影响。
+- 在 bot 的**实际发送层**（`send_private_msg`）逐条记录消息，保留 QQ 的分段节奏、表情包和指令回复。
+- 手机 QQ 的用户消息由 `on_llm_request` 记录。
+- 支持图片 / GIF：原图存 `media/`，日志只存元数据，缩略图按需生成。
+- 桌面端可以使用全部 AstrBot 指令（注入事件按管理员处理）。
 
 ## 部署
 
@@ -18,7 +20,8 @@ ssh mxjserver@10.144.144.1 "docker restart astrbot"
 启动日志里应出现：
 
 ```text
-[desktoppet] 桥接已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
+[desktoppet] 桥接 0.3.0 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
+[desktoppet] 已安装发送层捕获
 ```
 
 ## API Key
@@ -44,10 +47,14 @@ curl -H "Authorization: Bearer abk_..." \
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/ping` | `{platform, qqConnected}` |
-| POST | `/send` | `{text, image?}` → 注入同一会话，返回日志条目 |
-| GET | `/messages?after=&limit=` | 增量消息 + `cursor` + `qqConnected` |
-| GET | `/history?limit=` | 当前会话最近 N 条 + `cursor` + `qqConnected`；最近 8 张图片带 data URL |
+| GET | `/ping` | `{platform, qqConnected, epoch}` |
+| POST | `/send` | `{text, image?}` → 注入同一会话，返回日志条目；支持 `/` 指令 |
+| GET | `/messages?after=&limit=` | 增量消息 + `cursor` + `hasMore` + `qqConnected` + `epoch` |
+| GET | `/bootstrap?` | 首次全量回填：全部日志 + 会话历史（默认 500 条）+ `epoch` / `version` / `capabilities` |
+| GET | `/status?` | 心情 / 好感面板数据（读取 `mood.json`，复刻半衰期与好感衰减） |
+| GET | `/media?media=&kind=thumb\|original` | 图片缩略图 / 原图，base64 JSON |
+| GET | `/commands` | 动态读取 AstrBot 指令列表（失败时用内置兜底） |
+| GET | `/history?limit=` | 兼容旧版：当前会话最近 N 条，最近 8 张图带缩略图 |
 
 `/send` 的 `image` 形如：
 
@@ -57,21 +64,87 @@ curl -H "Authorization: Bearer abk_..." \
 
 插件会把它作为 `Image.fromBase64(...)` 附加到注入消息里；桌面截图由 Windows 端的 `desktopCapturer` 生成，最长边 1280，JPEG 85。
 
-`/history` 里的图片是插件用 Pillow 生成的 480px JPEG 缩略图，不是原图；原图仍保存在 AstrBot 会话里供模型使用。这样避免历史响应几 MB、EasyTier 较慢时被截断。
+`/messages` 返回结构：
 
-消息日志存放在：
-
-```text
-/AstrBot/data/plugin_data/astrbot_plugin_desktoppet_bridge/messages.jsonl
+```json
+{
+  "messages": [
+    {
+      "id": 12,
+      "ts": 1794796822202,
+      "role": "assistant",
+      "origin": "qq",
+      "text": "我刚刚泡了杯茶。",
+      "attachments": [
+        {
+          "type": "image",
+          "media": "1f3c...9a.png",
+          "mime": "image/png",
+          "width": 320,
+          "height": 320,
+          "animated": false,
+          "bytes": 3885
+        }
+      ]
+    }
+  ],
+  "cursor": 12,
+  "hasMore": false,
+  "qqConnected": true,
+  "epoch": "6f1c..."
+}
 ```
 
-最多 500 条，重启后继续。`/history` 从 AstrBot 当前会话读取，因此回填内容包含桥接插件安装之前的对话。
+- `cursor` 是**最后一条实际返回的消息 id**，不是请求里的 `after`。
+- `hasMore` 为 true 时桌面端会立刻再拉一次。
+- `epoch` 变化表示日志已被重置（例如 `messages.jsonl` 被删），桌面端会清空 cursor 并重新 bootstrap。
+- `/bootstrap` 的 `history` 不带图片，避免响应过大；图片以发送层日志里的 `attachments` 为准。
+
+## 消息记录
+
+```
+手机 QQ / 桌面注入 → AstrBot 管线 → send_private_msg（被包装）
+  → 原始发送成功
+  → 解析 OneBot 消息段 → 写入 messages.jsonl
+```
+
+- 包装函数每 3 秒自检一次；AstrBot 重启或适配器重建后会自动重装，插件重载时记录目标会切到新实例。
+- 只记录目标 `user_id` 的私聊。
+- `text` 拼接；`image` 下载后落盘成 `attachments`；`face` → `[表情]`；`record` → `[语音]`；`video` → `[视频]`；`at` → `@昵称`；`file` → `[文件]`；`reply` / `forward` / `node` 忽略。
+- 同一条消息链里的多段文本合并成一条；AstrBot 分段回复是多次发送，所以会保留成多条消息。
+
+## 存储
+
+```text
+/AstrBot/data/plugin_data/astrbot_plugin_desktoppet_bridge/
+  ├─ messages.jsonl   发送日志，最多 max_log（默认 2000）条
+  ├─ meta.json        epoch
+  └─ media/           图片原图（按 sha1 命名）+ 按需缩略图
+```
+
+`media_max_mb`（默认 500）只做容量告警，不会自动删除仍被日志引用的图片。
 
 ## 配置
 
-`_conf_schema.json` 里的 `umo` / `platform_id` / `user_id` / `self_id` / `user_nickname` / `history_limit` / `max_log` 都有默认值，通常不需要改。
+`_conf_schema.json` 里的配置一般不需要改：
 
-`screen_hint` 是带截图的桌面消息临时注入给模型的设定，默认：
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `umo` | `Hiro:FriendMessage:1955272576` | 共享会话 |
+| `platform_id` | `Hiro` | QQ 平台适配器 ID |
+| `user_id` | `1955272576` | 用户 QQ 号 |
+| `self_id` | `1169321938` | 机器人 QQ 号 |
+| `user_nickname` | `他` | 注入消息昵称 |
+| `history_limit` | `40` | 旧 `/history` 的条数 |
+| `bootstrap_history_limit` | `500` | 首次回填的会话历史条数，0 关闭 |
+| `max_log` | `2000` | 发送日志上限 |
+| `media_max_mb` | `500` | 媒体目录告警阈值 |
+| `mood_data_path` | 空 | 留空用 `plugin_data/astrbot_plugin_hiro_mood/mood.json` |
+| `mood_config_path` | 空 | 留空用 `config/astrbot_plugin_hiro_mood_config.json` |
+| `mood_timezone` | `Asia/Shanghai` | 「今日好感增减」的日期边界 |
+| `screen_hint` | 见下 | 带截图的桌面消息临时注入的设定 |
+
+`screen_hint` 默认内容：
 
 > 这张截图来自他的电脑屏幕；画面里的 Live2D 桌宠人物是希罗本人（也就是你），不是其他人。聊天窗口是你们正在用的桌面聊天框。
 
@@ -79,6 +152,8 @@ curl -H "Authorization: Bearer abk_..." \
 
 ## 注意
 
-- 桌面 `/send` 会拒绝 `/` 开头的指令，避免个别插件绕过假 bot 把消息发到 QQ。
+- 桌面端已放开全部 `/` 指令；注入事件 `role = "admin"`。危险指令由**桌面端**发送前二次确认，插件侧不拦截。
+- 指令回复如果被某个插件直接调用 QQ 发送接口，会真的发到 QQ，同时也被发送层记录。
 - 注入事件依赖 `Hiro` 适配器已加载；QQ / NapCat 没连上也能聊，只是手机消息同步不过来。
 - 插件改动后重启一次 AstrBot；API Key 是数据库里的，不需要跟着重启。
+- `mood.json` 不存在或字段缺失时，`/status` 返回 `available: false`，桌面端会隐藏状态面板的数据而不是报错。

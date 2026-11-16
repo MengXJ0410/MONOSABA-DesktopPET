@@ -30,16 +30,46 @@
     "default": "他"
   },
   "history_limit": {
-    "description": "打开聊天框时回填的历史条数",
+    "description": "兼容旧接口的回填条数",
     "type": "int",
-    "hint": "从当前 AstrBot 会话读取最近 N 条。",
+    "hint": "仅 /history 使用；桌面完整版改用 /bootstrap。",
     "default": 40
   },
-  "max_log": {
-    "description": "内存 / 磁盘消息日志上限",
+  "bootstrap_history_limit": {
+    "description": "首次启动时回填的会话历史条数",
     "type": "int",
-    "hint": "超过后丢弃最旧的记录，只影响桌面增量拉取，不影响 AstrBot 会话历史。",
+    "hint": "从 AstrBot 会话记录里取最近 N 条，和发送日志合并去重后作为桌面首次启动的完整历史。设为 0 则不回填。",
     "default": 500
+  },
+  "max_log": {
+    "description": "发送日志上限",
+    "type": "int",
+    "hint": "逐条记录 QQ / 桌面实际发出的消息，超过后丢弃最旧的记录。只影响桌面增量拉取，不影响 AstrBot 会话历史。",
+    "default": 2000
+  },
+  "media_max_mb": {
+    "description": "媒体目录上限（MB）",
+    "type": "int",
+    "hint": "原图与缩略图的总容量。超过只会记录警告，不会自动删除仍在日志里引用的图片。",
+    "default": 500
+  },
+  "mood_data_path": {
+    "description": "心情数据路径（可选）",
+    "type": "string",
+    "hint": "留空则使用 plugin_data/astrbot_plugin_hiro_mood/mood.json。",
+    "default": ""
+  },
+  "mood_config_path": {
+    "description": "心情插件配置路径（可选）",
+    "type": "string",
+    "hint": "留空则使用 config/astrbot_plugin_hiro_mood_config.json。",
+    "default": ""
+  },
+  "mood_timezone": {
+    "description": "心情数据的时区",
+    "type": "string",
+    "hint": "用于判断「今日好感增减」的日期边界。",
+    "default": "Asia/Shanghai"
   },
   "screen_hint": {
     "description": "截图时临时给希罗的设定",

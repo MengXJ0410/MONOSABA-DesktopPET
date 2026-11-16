@@ -17,6 +17,8 @@ extraResources:
     to: icon.png
   - from: build/icon-ema.png
     to: icon-ema.png
+  - from: build/icon-unread.png
+    to: icon-unread.png
 
 win:
   target:

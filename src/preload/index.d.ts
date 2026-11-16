@@ -1,9 +1,17 @@
 import type {
-  ChatHistoryResult,
+  ChatCommandsData,
+  ChatInitialData,
+  ChatInitialResult,
+  ChatMediaKind,
+  ChatMediaResult,
   ChatMessage,
+  ChatResizeDirection,
   ChatSendOptions,
   ChatSendResult,
   ChatStatus,
+  ChatStatusData,
+  ChatUiMode,
+  ChatUiState,
   DiaryPayload,
   DisplayInfo,
   MemoryDeleteInput,
@@ -33,10 +41,28 @@ export type PetApi = {
   deleteMemory(input: MemoryDeleteInput): Promise<MemoryWriteResult>;
   openChat(anchor?: { x: number; y: number }): void;
   closeChat(): void;
-  chatHistory(): Promise<ChatHistoryResult>;
+  chatInitial(): Promise<ChatInitialResult>;
+  chatLoadMore(beforeId: number, limit?: number): Promise<ChatMessage[]>;
   chatSend(text: string, options?: ChatSendOptions): Promise<ChatSendResult>;
+  chatMedia(media: string, kind: ChatMediaKind): Promise<ChatMediaResult>;
+  chatCommands(force?: boolean): Promise<ChatCommandsData | null>;
+  chatStatusData(force?: boolean): Promise<ChatStatusData | null>;
+  chatSetMode(mode: ChatUiMode): Promise<ChatUiState | null>;
+  chatSetPinned(pinned: boolean): Promise<ChatUiState | null>;
+  chatSetNotifications(enabled: boolean): Promise<ChatUiState | null>;
+  chatMarkRead(): void;
+  chatRetry(): Promise<ChatInitialResult | null>;
+  chatOpenSettings(): void;
+  chatMinimize(): void;
+  chatResizeStart(direction: ChatResizeDirection): void;
+  chatResizeMove(): void;
+  chatResizeEnd(): void;
   onChatMessages(handler: (messages: ChatMessage[]) => void): () => void;
+  onChatReset(handler: (data: ChatInitialData) => void): () => void;
   onChatStatus(handler: (status: ChatStatus) => void): () => void;
+  onChatCommands(handler: (data: ChatCommandsData) => void): () => void;
+  onChatUiState(handler: (state: ChatUiState) => void): () => void;
+  onOpenSettings(handler: () => void): () => void;
   captureDiaryCard(rect: {
     x: number;
     y: number;

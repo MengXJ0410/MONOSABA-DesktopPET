@@ -1,10 +1,18 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
-  ChatHistoryResult,
+  ChatCommandsData,
+  ChatInitialData,
+  ChatInitialResult,
+  ChatMediaKind,
+  ChatMediaResult,
   ChatMessage,
+  ChatResizeDirection,
   ChatSendOptions,
   ChatSendResult,
   ChatStatus,
+  ChatStatusData,
+  ChatUiMode,
+  ChatUiState,
   DiaryPayload,
   DisplayInfo,
   MemoryDeleteInput,
@@ -58,11 +66,53 @@ const api = {
   closeChat(): void {
     ipcRenderer.send("chat:close");
   },
-  chatHistory(): Promise<ChatHistoryResult> {
-    return ipcRenderer.invoke("chat:history") as Promise<ChatHistoryResult>;
+  chatInitial(): Promise<ChatInitialResult> {
+    return ipcRenderer.invoke("chat:initial") as Promise<ChatInitialResult>;
+  },
+  chatLoadMore(beforeId: number, limit = 200): Promise<ChatMessage[]> {
+    return ipcRenderer.invoke("chat:load-more", beforeId, limit) as Promise<ChatMessage[]>;
   },
   chatSend(text: string, options?: ChatSendOptions): Promise<ChatSendResult> {
     return ipcRenderer.invoke("chat:send", { text, ...options }) as Promise<ChatSendResult>;
+  },
+  chatMedia(media: string, kind: ChatMediaKind): Promise<ChatMediaResult> {
+    return ipcRenderer.invoke("chat:media", media, kind) as Promise<ChatMediaResult>;
+  },
+  chatCommands(force = false): Promise<ChatCommandsData | null> {
+    return ipcRenderer.invoke("chat:commands", force) as Promise<ChatCommandsData | null>;
+  },
+  chatStatusData(force = false): Promise<ChatStatusData | null> {
+    return ipcRenderer.invoke("chat:status-data", force) as Promise<ChatStatusData | null>;
+  },
+  chatSetMode(mode: ChatUiMode): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-mode", mode) as Promise<ChatUiState | null>;
+  },
+  chatSetPinned(pinned: boolean): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-pinned", pinned) as Promise<ChatUiState | null>;
+  },
+  chatSetNotifications(enabled: boolean): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-notifications", enabled) as Promise<ChatUiState | null>;
+  },
+  chatMarkRead(): void {
+    void ipcRenderer.invoke("chat:mark-read");
+  },
+  chatRetry(): Promise<ChatInitialResult | null> {
+    return ipcRenderer.invoke("chat:retry") as Promise<ChatInitialResult | null>;
+  },
+  chatOpenSettings(): void {
+    void ipcRenderer.invoke("chat:open-settings");
+  },
+  chatMinimize(): void {
+    ipcRenderer.send("chat:minimize");
+  },
+  chatResizeStart(direction: ChatResizeDirection): void {
+    ipcRenderer.send("chat:resize-start", direction);
+  },
+  chatResizeMove(): void {
+    ipcRenderer.send("chat:resize-move");
+  },
+  chatResizeEnd(): void {
+    ipcRenderer.send("chat:resize-end");
   },
   onChatMessages(handler: (messages: ChatMessage[]) => void): () => void {
     const listener = (_event: Electron.IpcRendererEvent, messages: ChatMessage[]) => {
@@ -73,6 +123,15 @@ const api = {
       ipcRenderer.removeListener("chat:messages", listener);
     };
   },
+  onChatReset(handler: (data: ChatInitialData) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, data: ChatInitialData) => {
+      handler(data);
+    };
+    ipcRenderer.on("chat:reset", listener);
+    return () => {
+      ipcRenderer.removeListener("chat:reset", listener);
+    };
+  },
   onChatStatus(handler: (status: ChatStatus) => void): () => void {
     const listener = (_event: Electron.IpcRendererEvent, status: ChatStatus) => {
       handler(status);
@@ -80,6 +139,31 @@ const api = {
     ipcRenderer.on("chat:status", listener);
     return () => {
       ipcRenderer.removeListener("chat:status", listener);
+    };
+  },
+  onChatCommands(handler: (data: ChatCommandsData) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, data: ChatCommandsData) => {
+      handler(data);
+    };
+    ipcRenderer.on("chat:commands", listener);
+    return () => {
+      ipcRenderer.removeListener("chat:commands", listener);
+    };
+  },
+  onChatUiState(handler: (state: ChatUiState) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, state: ChatUiState) => {
+      handler(state);
+    };
+    ipcRenderer.on("chat:ui-state", listener);
+    return () => {
+      ipcRenderer.removeListener("chat:ui-state", listener);
+    };
+  },
+  onOpenSettings(handler: () => void): () => void {
+    const listener = () => handler();
+    ipcRenderer.on("pet:open-settings", listener);
+    return () => {
+      ipcRenderer.removeListener("pet:open-settings", listener);
     };
   },
   captureDiaryCard(rect: {

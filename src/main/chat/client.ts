@@ -1,12 +1,19 @@
 import type {
+  ChatBootstrapData,
+  ChatBootstrapResult,
+  ChatCommandsData,
   ChatConfig,
   ChatErrorKind,
   ChatHistoryData,
   ChatHistoryResult,
+  ChatMediaData,
+  ChatMediaKind,
+  ChatMediaResult,
   ChatPollData,
   ChatResult,
   ChatSendData,
   ChatSendResult,
+  ChatStatusData,
 } from "../../shared/types";
 import { readConfig } from "../config";
 
@@ -153,6 +160,15 @@ export async function loadHistory(limit?: number): Promise<ChatHistoryResult> {
   );
 }
 
+export async function bootstrapChat(): Promise<ChatBootstrapResult> {
+  const config = (await readConfig()).chat;
+  return request<ChatBootstrapData>(
+    "/bootstrap",
+    {},
+    Math.max(config.timeoutMs, 60_000),
+  );
+}
+
 export async function sendMessage(
   text: string,
   imageBase64?: string | null,
@@ -173,6 +189,36 @@ export async function pollMessages(
 ): Promise<ChatResult<ChatPollData>> {
   const size = Math.max(1, Math.min(200, Math.round(limit)));
   return request<ChatPollData>(`/messages?after=${Math.max(0, after)}&limit=${size}`);
+}
+
+export async function loadChatStatus(): Promise<ChatResult<ChatStatusData>> {
+  return request<ChatStatusData>("/status");
+}
+
+export async function loadCommands(): Promise<ChatResult<ChatCommandsData>> {
+  return request<ChatCommandsData>("/commands", {}, 20_000);
+}
+
+export async function loadMedia(
+  media: string,
+  kind: ChatMediaKind,
+): Promise<ChatMediaResult> {
+  const result = await request<ChatMediaData>(
+    `/media?media=${encodeURIComponent(media)}&kind=${kind}`,
+    {},
+    30_000,
+  );
+  if (!result.ok) return { ok: false, error: result.error };
+  const data = result.data;
+  if (!data || typeof data.base64 !== "string" || !data.base64) {
+    return { ok: false, error: "图片为空。" };
+  }
+  const mime = typeof data.mime === "string" && data.mime ? data.mime : "image/webp";
+  return {
+    ok: true,
+    mime,
+    dataUrl: `data:${mime};base64,${data.base64}`,
+  };
 }
 
 export async function pingBridge(): Promise<

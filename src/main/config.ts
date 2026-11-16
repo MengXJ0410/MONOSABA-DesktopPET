@@ -2,7 +2,17 @@ import { app } from "electron";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { PetConfig } from "../shared/types";
+import type { ChatBounds, ChatUiConfig, PetConfig } from "../shared/types";
+
+const DEFAULT_CHAT_UI: ChatUiConfig = {
+  mode: "compact",
+  compactBounds: null,
+  fullBounds: null,
+  fullPinned: false,
+  notifications: true,
+  cacheLimit: 20_000,
+  cacheMaxMb: 500,
+};
 
 const DEFAULT_CONFIG: PetConfig = {
   diary: {
@@ -24,6 +34,7 @@ const DEFAULT_CONFIG: PetConfig = {
     apiKey: "",
     timeoutMs: 15_000,
     pollMs: 700,
+    ui: DEFAULT_CHAT_UI,
   },
 };
 
@@ -33,6 +44,46 @@ export function configPath(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeBounds(value: unknown): ChatBounds | null {
+  if (!isRecord(value)) return null;
+  const x = finiteNumber(value.x);
+  const y = finiteNumber(value.y);
+  const width = finiteNumber(value.width);
+  const height = finiteNumber(value.height);
+  if (x === null || y === null || width === null || height === null) return null;
+  if (width < 320 || height < 240 || width > 6000 || height > 4000) return null;
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+function normalizeChatUi(input: unknown): ChatUiConfig {
+  const ui = isRecord(input) ? input : {};
+  const mode = ui.mode === "full" ? "full" : "compact";
+  return {
+    mode,
+    compactBounds: normalizeBounds(ui.compactBounds),
+    fullBounds: normalizeBounds(ui.fullBounds),
+    fullPinned: ui.fullPinned === true,
+    notifications: ui.notifications !== false,
+    cacheLimit:
+      finiteNumber(ui.cacheLimit) !== null
+        ? Math.max(500, Math.round(finiteNumber(ui.cacheLimit) as number))
+        : DEFAULT_CHAT_UI.cacheLimit,
+    cacheMaxMb:
+      finiteNumber(ui.cacheMaxMb) !== null
+        ? Math.max(50, Math.round(finiteNumber(ui.cacheMaxMb) as number))
+        : DEFAULT_CHAT_UI.cacheMaxMb,
+  };
 }
 
 function normalizeConfig(input: unknown): PetConfig {
@@ -99,8 +150,27 @@ function normalizeConfig(input: unknown): PetConfig {
         typeof chat.pollMs === "number" && Number.isFinite(chat.pollMs)
           ? Math.max(250, chat.pollMs)
           : DEFAULT_CONFIG.chat.pollMs,
+      ui: normalizeChatUi(chat.ui),
     },
   };
+}
+
+async function readRawConfig(): Promise<Record<string, unknown>> {
+  const path = await ensureConfig();
+  try {
+    const raw = await fs.readFile(path, "utf8");
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeRawConfig(config: Record<string, unknown>): Promise<void> {
+  const path = await ensureConfig();
+  const tmp = `${path}.tmp`;
+  await fs.writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  await fs.rename(tmp, path);
 }
 
 export async function ensureConfig(): Promise<string> {
@@ -115,11 +185,22 @@ export async function ensureConfig(): Promise<string> {
 }
 
 export async function readConfig(): Promise<PetConfig> {
-  const path = await ensureConfig();
-  try {
-    const raw = await fs.readFile(path, "utf8");
-    return normalizeConfig(JSON.parse(raw.replace(/^\uFEFF/, "")) as unknown);
-  } catch {
-    return normalizeConfig(DEFAULT_CONFIG);
-  }
+  return normalizeConfig(await readRawConfig());
+}
+
+export async function updateChatUi(
+  patch: Partial<ChatUiConfig>,
+): Promise<ChatUiConfig> {
+  const raw = await readRawConfig();
+  const chat = isRecord(raw.chat) ? raw.chat : {};
+  const current = normalizeChatUi(chat.ui);
+  const next = normalizeChatUi({ ...current, ...patch });
+  await writeRawConfig({
+    ...raw,
+    chat: {
+      ...chat,
+      ui: next,
+    },
+  });
+  return next;
 }

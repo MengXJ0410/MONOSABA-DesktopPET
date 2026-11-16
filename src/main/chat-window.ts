@@ -1,33 +1,136 @@
-import { BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { join } from "node:path";
 import type {
-  ChatHistoryResult,
-  ChatResult,
+  ChatInitialResult,
+  ChatMediaKind,
+  ChatMediaResult,
+  ChatMessage,
+  ChatResizeDirection,
   ChatSendResult,
-  ChatStatus,
+  ChatUiMode,
+  ChatUiState,
+  Rect,
 } from "../shared/types";
 import { appEntryUrl } from "./app-protocol";
 import {
-  loadHistory,
-  pollMessages,
-  resetChatHostCache,
-  sendMessage,
-} from "./chat/client";
-import { captureDisplay, type CapturedScreen } from "./chat/capture";
-import { readConfig } from "./config";
+  chatService,
+  type ChatService,
+} from "./chat/service";
 
 const WINDOW_PADDING = 8;
-const CARD_WIDTH = 420;
-const CARD_HEIGHT = 600;
-const WINDOW_WIDTH = CARD_WIDTH + WINDOW_PADDING * 2;
-const WINDOW_HEIGHT = CARD_HEIGHT + WINDOW_PADDING * 2;
+const COMPACT_CARD_WIDTH = 420;
+const COMPACT_CARD_HEIGHT = 600;
+const FULL_CARD_WIDTH = 1040;
+const FULL_CARD_HEIGHT = 700;
+const FULL_MIN_WIDTH = 880;
+const FULL_MIN_HEIGHT = 560;
 
 let chatWindow: BrowserWindow | null = null;
+let chatWindowMode: ChatUiMode = "compact";
 let initialized = false;
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-let pollCursor = 0;
-let pollInFlight = false;
-let lastStatus: ChatStatus | null = null;
+let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+let quitting = false;
+
+type ResizeSession = {
+  windowId: number;
+  direction: ChatResizeDirection;
+  startPoint: { x: number; y: number };
+  startBounds: Rect;
+};
+
+let resizeSession: ResizeSession | null = null;
+let resizeTimer: ReturnType<typeof setInterval> | null = null;
+
+const RESIZE_DIRECTIONS = new Set<ChatResizeDirection>([
+  "n",
+  "s",
+  "e",
+  "w",
+  "ne",
+  "nw",
+  "se",
+  "sw",
+]);
+
+function isResizeDirection(value: unknown): value is ChatResizeDirection {
+  return typeof value === "string" && RESIZE_DIRECTIONS.has(value as ChatResizeDirection);
+}
+
+function resizeBounds(
+  start: Rect,
+  direction: ChatResizeDirection,
+  dx: number,
+  dy: number,
+): Rect {
+  let left = start.x;
+  let top = start.y;
+  let right = start.x + start.width;
+  let bottom = start.y + start.height;
+
+  if (direction.includes("e")) right = start.x + start.width + dx;
+  if (direction.includes("s")) bottom = start.y + start.height + dy;
+  if (direction.includes("w")) left = start.x + dx;
+  if (direction.includes("n")) top = start.y + dy;
+
+  if (right - left < FULL_MIN_WIDTH) {
+    if (direction.includes("w")) left = right - FULL_MIN_WIDTH;
+    else right = left + FULL_MIN_WIDTH;
+  }
+  if (bottom - top < FULL_MIN_HEIGHT) {
+    if (direction.includes("n")) top = bottom - FULL_MIN_HEIGHT;
+    else bottom = top + FULL_MIN_HEIGHT;
+  }
+
+  return {
+    x: Math.round(left),
+    y: Math.round(top),
+    width: Math.round(right - left),
+    height: Math.round(bottom - top),
+  };
+}
+
+function service(): ChatService {
+  return chatService;
+}
+
+function applyResizeFrame(): void {
+  if (!resizeSession) return;
+  if (
+    !chatWindow ||
+    chatWindow.isDestroyed() ||
+    chatWindow.id !== resizeSession.windowId
+  ) {
+    stopResize();
+    return;
+  }
+
+  const point = screen.getCursorScreenPoint();
+  const next = resizeBounds(
+    resizeSession.startBounds,
+    resizeSession.direction,
+    point.x - resizeSession.startPoint.x,
+    point.y - resizeSession.startPoint.y,
+  );
+  const current = chatWindow.getBounds();
+  if (
+    current.x !== next.x ||
+    current.y !== next.y ||
+    current.width !== next.width ||
+    current.height !== next.height
+  ) {
+    chatWindow.setBounds(next);
+  }
+}
+
+function stopResize(): void {
+  if (resizeTimer) {
+    clearInterval(resizeTimer);
+    resizeTimer = null;
+  }
+  const hadSession = resizeSession !== null;
+  resizeSession = null;
+  if (hadSession) persistBoundsSoon();
+}
 
 function loadChatPage(win: BrowserWindow): void {
   const devUrl = process.env.ELECTRON_RENDERER_URL;
@@ -37,126 +140,157 @@ function loadChatPage(win: BrowserWindow): void {
   void win.loadURL(url);
 }
 
-function placeWindow(
-  win: BrowserWindow,
-  anchor: { x: number; y: number } | null,
-): void {
-  if (!anchor) {
-    win.center();
-    return;
+function windowSizeForMode(mode: ChatUiMode): { width: number; height: number } {
+  if (mode === "full") {
+    return { width: FULL_CARD_WIDTH, height: FULL_CARD_HEIGHT };
   }
-
-  const display = screen.getDisplayNearestPoint({
-    x: Math.round(anchor.x),
-    y: Math.round(anchor.y),
-  });
-  const area = display.workArea;
-
-  let x = Math.round(anchor.x - WINDOW_WIDTH - 24);
-  if (x < area.x + 8) x = Math.round(anchor.x + 24);
-  if (x + WINDOW_WIDTH > area.x + area.width - 8) {
-    x = area.x + area.width - WINDOW_WIDTH - 8;
-  }
-
-  let y = Math.round(anchor.y - WINDOW_HEIGHT + 96);
-  y = Math.max(area.y + 8, Math.min(area.y + area.height - WINDOW_HEIGHT - 8, y));
-
-  win.setBounds({ x, y, width: WINDOW_WIDTH, height: WINDOW_HEIGHT });
-}
-
-function emitStatus(win: BrowserWindow, status: ChatStatus): void {
-  if (win.isDestroyed()) return;
-  if (
-    lastStatus &&
-    lastStatus.state === status.state &&
-    lastStatus.detail === status.detail
-  ) {
-    return;
-  }
-  lastStatus = status;
-  win.webContents.send("chat:status", status);
-}
-
-function statusFromResult(
-  result: Extract<ChatResult<unknown>, { ok: false }>,
-): ChatStatus {
-  if (result.kind === "auth") {
-    return { state: "auth", detail: result.error };
-  }
-  if (result.kind === "server" && result.error.includes("未安装")) {
-    return { state: "bridge-missing", detail: result.error };
-  }
-  if (result.kind === "server") {
-    return { state: "offline", detail: result.error };
-  }
-  return { state: "offline", detail: result.error };
-}
-
-function onlineStatus(qqConnected: boolean): ChatStatus {
-  return qqConnected ? { state: "online" } : { state: "qq-offline" };
-}
-
-function stopPolling(): void {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-  pollInFlight = false;
-  lastStatus = null;
-}
-
-function startPolling(win: BrowserWindow, pollMs: number): void {
-  if (pollTimer) clearInterval(pollTimer);
-  lastStatus = null;
-
-  const tick = async () => {
-    if (pollInFlight || win.isDestroyed()) return;
-    pollInFlight = true;
-    try {
-      const result = await pollMessages(pollCursor);
-      if (win.isDestroyed()) return;
-      if (!result.ok) {
-        emitStatus(win, statusFromResult(result));
-        return;
-      }
-      const data = result.data;
-      pollCursor = Math.max(pollCursor, data.cursor);
-      if (data.messages.length > 0) {
-        win.webContents.send("chat:messages", data.messages);
-      }
-      emitStatus(win, onlineStatus(data.qqConnected));
-    } finally {
-      pollInFlight = false;
-    }
+  return {
+    width: COMPACT_CARD_WIDTH + WINDOW_PADDING * 2,
+    height: COMPACT_CARD_HEIGHT + WINDOW_PADDING * 2,
   };
-
-  pollTimer = setInterval(() => {
-    void tick();
-  }, pollMs);
 }
 
-function createChatWindow(anchor: { x: number; y: number } | null): BrowserWindow {
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    chatWindow.show();
-    chatWindow.focus();
-    return chatWindow;
+function cardBoundsFromWindow(mode: ChatUiMode, bounds: Rect): Rect {
+  const padding = mode === "compact" ? WINDOW_PADDING : 0;
+  return {
+    x: bounds.x + padding,
+    y: bounds.y + padding,
+    width: Math.max(100, bounds.width - padding * 2),
+    height: Math.max(100, bounds.height - padding * 2),
+  };
+}
+
+function windowBoundsFromCard(mode: ChatUiMode, card: Rect): Rect {
+  const padding = mode === "compact" ? WINDOW_PADDING : 0;
+  return {
+    x: card.x - padding,
+    y: card.y - padding,
+    width: card.width + padding * 2,
+    height: card.height + padding * 2,
+  };
+}
+
+function clampToArea(bounds: Rect, area: Rect): Rect {
+  const width = Math.min(Math.max(bounds.width, 300), area.width - 16);
+  const height = Math.min(Math.max(bounds.height, 240), area.height - 16);
+  const x = Math.min(
+    Math.max(bounds.x, area.x + 8),
+    area.x + area.width - width - 8,
+  );
+  const y = Math.min(
+    Math.max(bounds.y, area.y + 8),
+    area.y + area.height - height - 8,
+  );
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+function targetBounds(
+  mode: ChatUiMode,
+  anchor: { x: number; y: number } | null,
+): Rect {
+  const ui = service().getUiConfig();
+  const size = windowSizeForMode(mode);
+  const saved = mode === "full" ? ui.fullBounds : ui.compactBounds;
+
+  if (saved) {
+    const display = screen.getDisplayNearestPoint({ x: saved.x, y: saved.y });
+    const card: Rect =
+      mode === "full"
+        ? {
+            x: saved.x,
+            y: saved.y,
+            width: Math.max(FULL_MIN_WIDTH, saved.width),
+            height: Math.max(FULL_MIN_HEIGHT, saved.height),
+          }
+        : {
+            x: saved.x,
+            y: saved.y,
+            width: COMPACT_CARD_WIDTH,
+            height: COMPACT_CARD_HEIGHT,
+          };
+    return clampToArea(windowBoundsFromCard(mode, card), display.workArea);
   }
 
+  if (mode === "compact" && anchor) {
+    const display = screen.getDisplayNearestPoint({
+      x: Math.round(anchor.x),
+      y: Math.round(anchor.y),
+    });
+    const area = display.workArea;
+    let x = Math.round(anchor.x - size.width - 24);
+    if (x < area.x + 8) x = Math.round(anchor.x + 24);
+    if (x + size.width > area.x + area.width - 8) {
+      x = area.x + area.width - size.width - 8;
+    }
+    let y = Math.round(anchor.y - size.height + 96);
+    y = Math.max(area.y + 8, Math.min(area.y + area.height - size.height - 8, y));
+    return { x, y, width: size.width, height: size.height };
+  }
+
+  const display = screen.getDisplayNearestPoint(
+    anchor ?? screen.getCursorScreenPoint(),
+  );
+  const area = display.workArea;
+  return clampToArea(
+    {
+      x: area.x + (area.width - size.width) / 2,
+      y: area.y + (area.height - size.height) / 2,
+      width: size.width,
+      height: size.height,
+    },
+    area,
+  );
+}
+
+function persistBoundsSoon(): void {
+  if (boundsTimer) clearTimeout(boundsTimer);
+  boundsTimer = setTimeout(() => {
+    boundsTimer = null;
+    if (!chatWindow || chatWindow.isDestroyed()) return;
+    const card = cardBoundsFromWindow(chatWindowMode, chatWindow.getBounds());
+    void service().updateBounds(chatWindowMode, card);
+  }, 450);
+}
+
+function saveWindowBounds(win: BrowserWindow, mode: ChatUiMode): void {
+  if (win.isDestroyed()) return;
+  const card = cardBoundsFromWindow(mode, win.getBounds());
+  void service().updateBounds(mode, card);
+}
+
+function notifyWindowState(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  const active = win.isVisible() && win.isFocused();
+  service().setWindowActive(active);
+}
+
+function createChatWindow(mode: ChatUiMode, bounds: Rect): BrowserWindow {
+  const full = mode === "full";
   const win = new BrowserWindow({
-    width: WINDOW_WIDTH,
-    height: WINDOW_HEIGHT,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     show: false,
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
     hasShadow: true,
+    roundedCorners: !full,
+    thickFrame: !full,
     resizable: false,
-    minimizable: false,
+    minimizable: full,
     maximizable: false,
     fullscreenable: false,
-    skipTaskbar: true,
-    alwaysOnTop: true,
+    skipTaskbar: !full,
+    alwaysOnTop: !full || service().getUiState().pinned,
     title: "希罗",
+    icon: join(app.getAppPath(), "build", "icon.png"),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -168,12 +302,18 @@ function createChatWindow(anchor: { x: number; y: number } | null): BrowserWindo
   });
 
   chatWindow = win;
-  pollCursor = 0;
-  lastStatus = null;
+  chatWindowMode = mode;
+  if (resizeTimer) {
+    clearInterval(resizeTimer);
+    resizeTimer = null;
+  }
+  resizeSession = null;
   win.setMenu(null);
-  win.setAlwaysOnTop(true);
-  placeWindow(win, anchor);
-
+  win.setMinimumSize(
+    full ? FULL_MIN_WIDTH : windowSizeForMode("compact").width,
+    full ? FULL_MIN_HEIGHT : windowSizeForMode("compact").height,
+  );
+  win.setVisibleOnAllWorkspaces(false);
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event, url) => {
     const allowed = process.env.ELECTRON_RENDERER_URL
@@ -183,43 +323,134 @@ function createChatWindow(anchor: { x: number; y: number } | null): BrowserWindo
   });
 
   win.once("ready-to-show", () => {
+    if (win.isDestroyed()) return;
     win.show();
+    // Electron 45 在 Windows 上只有 screen-saver 层级能真正置顶。
+    win.setAlwaysOnTop(!full || service().getUiState().pinned, "screen-saver");
     win.focus();
+    notifyWindowState(win);
+  });
+
+  win.on("move", persistBoundsSoon);
+  win.on("resize", persistBoundsSoon);
+  win.on("focus", () => service().setWindowActive(true));
+  win.on("blur", () => service().setWindowActive(false));
+  win.on("show", () => notifyWindowState(win));
+  win.on("hide", () => service().setWindowActive(false));
+
+  win.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    hideChatWindow();
   });
 
   win.on("closed", () => {
     if (chatWindow === win) chatWindow = null;
-    stopPolling();
+    stopResize();
+    service().setWindowActive(false);
   });
 
   loadChatPage(win);
   return win;
 }
 
-function isChatSender(sender: Electron.WebContents): boolean {
-  return Boolean(chatWindow && !chatWindow.isDestroyed() && sender === chatWindow.webContents);
-}
-
-async function handleHistory(): Promise<ChatHistoryResult> {
-  const result = await loadHistory(40);
-  if (!chatWindow || chatWindow.isDestroyed()) return result;
-
-  if (!result.ok) {
-    stopPolling();
-    emitStatus(chatWindow, statusFromResult(result));
-    return result;
+function showChatWindow(anchor: { x: number; y: number } | null): BrowserWindow {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    if (chatWindow.isMinimized()) chatWindow.restore();
+    chatWindow.show();
+    chatWindow.focus();
+    notifyWindowState(chatWindow);
+    return chatWindow;
   }
 
-  pollCursor = Math.max(0, result.data.cursor);
-  emitStatus(chatWindow, onlineStatus(result.data.qqConnected));
-  const config = await readConfig();
-  startPolling(chatWindow, config.chat.pollMs);
-  return result;
+  const mode = service().getUiState().mode;
+  const bounds = targetBounds(mode, anchor);
+  return createChatWindow(mode, bounds);
+}
+
+function rebuildChatWindow(previous: ChatUiMode, next: ChatUiMode): void {
+  const old = chatWindow;
+  if (!old || old.isDestroyed()) {
+    showChatWindow(null);
+    return;
+  }
+
+  stopResize();
+  const oldCard = cardBoundsFromWindow(previous, old.getBounds());
+  void service().updateBounds(previous, oldCard);
+
+  const display = screen.getDisplayNearestPoint({
+    x: oldCard.x + oldCard.width - 1,
+    y: oldCard.y,
+  });
+  const saved = next === "full" ? service().getUiConfig().fullBounds : null;
+  const size =
+    next === "full" && saved
+      ? {
+          width: Math.max(FULL_MIN_WIDTH, saved.width),
+          height: Math.max(FULL_MIN_HEIGHT, saved.height),
+        }
+      : windowSizeForMode(next);
+
+  // 右上角锚定：新窗口的右边贴着旧窗口的右边，再限制在屏幕内。
+  const bounds = clampToArea(
+    {
+      x: oldCard.x + oldCard.width - size.width,
+      y: oldCard.y,
+      width: size.width,
+      height: size.height,
+    },
+    display.workArea,
+  );
+
+  if (boundsTimer) {
+    clearTimeout(boundsTimer);
+    boundsTimer = null;
+  }
+  chatWindow = null;
+  old.destroy();
+  createChatWindow(next, bounds);
+}
+
+export function hideChatWindow(): void {
+  stopResize();
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.hide();
+  }
+  service().setWindowActive(false);
+}
+
+export function openChatWindow(anchor: { x: number; y: number } | null = null): void {
+  showChatWindow(anchor);
+}
+
+export function toggleChatWindow(): void {
+  if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
+    hideChatWindow();
+  } else {
+    showChatWindow(null);
+  }
+}
+
+export function getChatWindow(): BrowserWindow | null {
+  return chatWindow;
+}
+
+export function isChatWindowVisible(): boolean {
+  return Boolean(chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible());
+}
+
+function isChatSender(sender: Electron.WebContents): boolean {
+  return Boolean(
+    chatWindow && !chatWindow.isDestroyed() && sender === chatWindow.webContents,
+  );
 }
 
 export function initChatWindow(): void {
   if (initialized) return;
   initialized = true;
+
+  service().setOpenChatListener(() => showChatWindow(null));
 
   ipcMain.on("chat:open", (event, anchor: unknown) => {
     const sender = BrowserWindow.fromWebContents(event.sender);
@@ -237,36 +468,62 @@ export function initChatWindow(): void {
         y: bounds.y + (anchor as { y: number }).y,
       };
     }
-    resetChatHostCache();
-    createChatWindow(point);
+    showChatWindow(point);
   });
 
   ipcMain.on("chat:close", (event) => {
-    if (isChatSender(event.sender)) {
-      chatWindow?.close();
-    }
+    if (isChatSender(event.sender)) hideChatWindow();
   });
 
-  ipcMain.handle("chat:history", async (event) => {
-    if (!isChatSender(event.sender)) {
-      return {
-        ok: false as const,
-        kind: "unknown" as const,
-        error: "聊天窗口未打开",
-      };
+  ipcMain.on("chat:minimize", (event) => {
+    if (isChatSender(event.sender)) chatWindow?.minimize();
+  });
+
+  ipcMain.on("chat:resize-start", (event, direction: unknown) => {
+    if (!isChatSender(event.sender) || chatWindowMode !== "full") return;
+    if (!isResizeDirection(direction) || !chatWindow || chatWindow.isDestroyed()) return;
+    if (resizeTimer) {
+      clearInterval(resizeTimer);
+      resizeTimer = null;
     }
-    return handleHistory();
+    resizeSession = {
+      windowId: chatWindow.id,
+      direction,
+      startPoint: screen.getCursorScreenPoint(),
+      startBounds: chatWindow.getBounds(),
+    };
+    // 透明窗口里光标移出窗口后渲染层收不到 mousemove，改由主进程采样光标。
+    resizeTimer = setInterval(applyResizeFrame, 16);
+  });
+
+  ipcMain.on("chat:resize-move", (event) => {
+    if (!isChatSender(event.sender)) return;
+    applyResizeFrame();
+  });
+
+  ipcMain.on("chat:resize-end", (event) => {
+    if (!isChatSender(event.sender)) return;
+    stopResize();
+  });
+
+  ipcMain.handle("chat:initial", (event): ChatInitialResult => {
+    if (!isChatSender(event.sender)) {
+      return { ok: false, kind: "unknown", error: "聊天窗口未打开" };
+    }
+    return { ok: true, data: service().getInitial() };
+  });
+
+  ipcMain.handle("chat:load-more", (event, beforeId: unknown, limit: unknown) => {
+    if (!isChatSender(event.sender)) return [] as ChatMessage[];
+    const id = typeof beforeId === "number" && Number.isFinite(beforeId) ? beforeId : 0;
+    const size = typeof limit === "number" && Number.isFinite(limit) ? limit : 200;
+    return service().loadMore(id, size);
   });
 
   ipcMain.handle("chat:send", async (event, payload: unknown): Promise<ChatSendResult> => {
     if (!isChatSender(event.sender)) {
-      return {
-        ok: false,
-        kind: "unknown",
-        error: "聊天窗口未打开",
-      };
+      return { ok: false, kind: "unknown", error: "聊天窗口未打开" };
     }
-
     const record =
       payload && typeof payload === "object"
         ? (payload as Record<string, unknown>)
@@ -275,33 +532,112 @@ export function initChatWindow(): void {
     if (!value) {
       return { ok: false, kind: "unknown", error: "消息不能为空。" };
     }
-    if (value.startsWith("/")) {
-      return { ok: false, kind: "unknown", error: "桌面聊天暂不支持指令。" };
-    }
-
     const capture = record.captureScreen === true;
     const displayId =
       typeof record.displayId === "string" ? record.displayId : undefined;
-    let screen: CapturedScreen | null = null;
-    if (capture) {
-      try {
-        screen = await captureDisplay(displayId);
-      } catch (error) {
-        console.warn("[chat] screen capture failed", error);
-        screen = null;
-      }
+    return service().send(value, { captureScreen: capture, displayId });
+  });
+
+  ipcMain.handle("chat:media", async (event, media: unknown, kind: unknown) => {
+    if (!isChatSender(event.sender)) {
+      return { ok: false, error: "聊天窗口未打开" } satisfies ChatMediaResult;
     }
+    if (typeof media !== "string" || !media) {
+      return { ok: false, error: "图片 id 不正确。" } satisfies ChatMediaResult;
+    }
+    const normalizedKind: ChatMediaKind = kind === "original" ? "original" : "thumb";
+    return service().getMedia(media, normalizedKind);
+  });
 
-    const result = await sendMessage(value, screen?.base64);
-    if (!result.ok) return result;
+  ipcMain.handle("chat:commands", async (event, force: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().getCommands(force === true);
+  });
 
+  ipcMain.handle("chat:status-data", async (event, force: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().getMoodStatus(force === true);
+  });
+
+  ipcMain.handle("chat:set-mode", async (event, mode: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    const next: ChatUiMode = mode === "full" ? "full" : "compact";
+    const previous = service().getUiState().mode;
+    if (next === previous) return service().getUiState();
+    const state = await service().setMode(next);
+    // 先让 IPC 回复走完，再重建窗口，避免渲染进程收到切换失败。
+    setTimeout(() => rebuildChatWindow(previous, next), 60);
+    return state;
+  });
+
+  ipcMain.handle("chat:set-pinned", async (event, pinned: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    const state = await service().setPinned(pinned === true);
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.setAlwaysOnTop(
+        state.mode === "compact" || state.pinned,
+        "screen-saver",
+      );
+    }
+    return state;
+  });
+
+  ipcMain.handle("chat:set-notifications", async (event, enabled: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().setNotifications(enabled === true);
+  });
+
+  ipcMain.handle("chat:mark-read", (event) => {
+    if (!isChatSender(event.sender)) return;
+    service().markRead();
+  });
+
+  ipcMain.handle("chat:retry", async (event) => {
+    if (!isChatSender(event.sender)) return null;
+    await service().bootstrap();
+    return service().getInitial();
+  });
+
+  ipcMain.handle("chat:open-settings", (event) => {
+    if (!isChatSender(event.sender)) return;
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win === chatWindow || win.isDestroyed()) continue;
+      win.webContents.send("pet:open-settings");
+      win.showInactive();
+    }
+  });
+
+  ipcMain.handle("chat:ui-state", (event) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().getUiState();
+  });
+
+  ipcMain.handle("chat:hide", (event) => {
+    if (!isChatSender(event.sender)) return;
+    hideChatWindow();
+  });
+
+  ipcMain.handle("chat:state", (event) => {
+    if (!isChatSender(event.sender)) return null;
     return {
-      ok: true,
-      data: {
-        message: result.data.message,
-        screenImage: screen?.dataUrl ?? null,
-        captureFailed: capture && screen === null,
-      },
+      ui: service().getUiState(),
+      status: service().getInitial().status,
     };
   });
 }
+
+app.on("before-quit", () => {
+  quitting = true;
+  if (resizeTimer) {
+    clearInterval(resizeTimer);
+    resizeTimer = null;
+  }
+  resizeSession = null;
+  if (boundsTimer) {
+    clearTimeout(boundsTimer);
+    boundsTimer = null;
+  }
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    saveWindowBounds(chatWindow, chatWindowMode);
+  }
+});
