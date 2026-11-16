@@ -1,15 +1,24 @@
 import type {
+  ChatAvatarHistoryItem,
   ChatCommandsData,
+  ChatDiagnostics,
+  ChatFontScale,
   ChatInitialData,
   ChatInitialResult,
+  ChatLineHeight,
   ChatMediaKind,
   ChatMediaResult,
   ChatMessage,
+  ChatProfileData,
+  ChatProfileRole,
   ChatResizeDirection,
   ChatSendOptions,
   ChatSendResult,
   ChatStatus,
   ChatStatusData,
+  ChatStorageInfo,
+  ChatStorageResult,
+  ChatTheme,
   ChatUiMode,
   ChatUiState,
   DiaryPayload,
@@ -51,6 +60,37 @@ export type PetApi = {
   chatSetPinned(pinned: boolean): Promise<ChatUiState | null>;
   chatSetNotifications(enabled: boolean): Promise<ChatUiState | null>;
   chatMarkRead(): void;
+  chatProfile(): Promise<ChatProfileData | null>;
+  chatProfileName(
+    role: ChatProfileRole,
+    name: string,
+  ): Promise<ChatProfileData | { error: string } | null>;
+  chatProfileAvatar(
+    role: ChatProfileRole,
+    dataUrl: string,
+  ): Promise<ChatProfileData | { error: string } | null>;
+  chatProfileAvatarSelect(
+    role: ChatProfileRole,
+    id: string | null,
+  ): Promise<ChatProfileData | { error: string } | null>;
+  chatProfileAvatarReset(
+    role: ChatProfileRole,
+  ): Promise<ChatProfileData | { error: string } | null>;
+  chatProfileHistory(role: ChatProfileRole): Promise<ChatAvatarHistoryItem[]>;
+  chatSetTheme(theme: ChatTheme): Promise<ChatUiState | null>;
+  chatSetFontScale(scale: ChatFontScale): Promise<ChatUiState | null>;
+  chatSetLineHeight(height: ChatLineHeight): Promise<ChatUiState | null>;
+  chatSavePreset(
+    name: string,
+    theme: ChatTheme,
+  ): Promise<ChatUiState | { error: string } | null>;
+  chatDeletePreset(id: string): Promise<ChatUiState | { error: string } | null>;
+  chatStorageInfo(): Promise<ChatStorageInfo | null>;
+  chatStorageChoose(): Promise<ChatStorageResult | null>;
+  chatStorageDefault(): Promise<ChatStorageResult | null>;
+  chatStorageClear(): Promise<ChatStorageResult | null>;
+  chatOpenFolder(kind: "cache" | "config" | "profile"): void;
+  chatDiagnostics(): Promise<ChatDiagnostics | null>;
   chatRetry(): Promise<ChatInitialResult | null>;
   chatOpenSettings(): void;
   chatMinimize(): void;

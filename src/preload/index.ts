@@ -1,16 +1,25 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  ChatAvatarHistoryItem,
   ChatCommandsData,
+  ChatDiagnostics,
+  ChatFontScale,
   ChatInitialData,
   ChatInitialResult,
+  ChatLineHeight,
   ChatMediaKind,
   ChatMediaResult,
   ChatMessage,
+  ChatProfileData,
+  ChatProfileRole,
   ChatResizeDirection,
   ChatSendOptions,
   ChatSendResult,
   ChatStatus,
   ChatStatusData,
+  ChatStorageInfo,
+  ChatStorageResult,
+  ChatTheme,
   ChatUiMode,
   ChatUiState,
   DiaryPayload,
@@ -95,6 +104,85 @@ const api = {
   },
   chatMarkRead(): void {
     void ipcRenderer.invoke("chat:mark-read");
+  },
+  chatProfile(): Promise<ChatProfileData | null> {
+    return ipcRenderer.invoke("chat:profile") as Promise<ChatProfileData | null>;
+  },
+  chatProfileName(
+    role: ChatProfileRole,
+    name: string,
+  ): Promise<ChatProfileData | { error: string } | null> {
+    return ipcRenderer.invoke("chat:profile-name", role, name) as Promise<
+      ChatProfileData | { error: string } | null
+    >;
+  },
+  chatProfileAvatar(
+    role: ChatProfileRole,
+    dataUrl: string,
+  ): Promise<ChatProfileData | { error: string } | null> {
+    return ipcRenderer.invoke("chat:profile-avatar", role, dataUrl) as Promise<
+      ChatProfileData | { error: string } | null
+    >;
+  },
+  chatProfileAvatarSelect(
+    role: ChatProfileRole,
+    id: string | null,
+  ): Promise<ChatProfileData | { error: string } | null> {
+    return ipcRenderer.invoke("chat:profile-avatar-select", role, id) as Promise<
+      ChatProfileData | { error: string } | null
+    >;
+  },
+  chatProfileAvatarReset(
+    role: ChatProfileRole,
+  ): Promise<ChatProfileData | { error: string } | null> {
+    return ipcRenderer.invoke("chat:profile-avatar-reset", role) as Promise<
+      ChatProfileData | { error: string } | null
+    >;
+  },
+  chatProfileHistory(role: ChatProfileRole): Promise<ChatAvatarHistoryItem[]> {
+    return ipcRenderer.invoke("chat:profile-history", role) as Promise<
+      ChatAvatarHistoryItem[]
+    >;
+  },
+  chatSetTheme(theme: ChatTheme): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-theme", theme) as Promise<ChatUiState | null>;
+  },
+  chatSetFontScale(scale: ChatFontScale): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-font-scale", scale) as Promise<ChatUiState | null>;
+  },
+  chatSetLineHeight(height: ChatLineHeight): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-line-height", height) as Promise<ChatUiState | null>;
+  },
+  chatSavePreset(
+    name: string,
+    theme: ChatTheme,
+  ): Promise<ChatUiState | { error: string } | null> {
+    return ipcRenderer.invoke("chat:preset-save", name, theme) as Promise<
+      ChatUiState | { error: string } | null
+    >;
+  },
+  chatDeletePreset(id: string): Promise<ChatUiState | { error: string } | null> {
+    return ipcRenderer.invoke("chat:preset-delete", id) as Promise<
+      ChatUiState | { error: string } | null
+    >;
+  },
+  chatStorageInfo(): Promise<ChatStorageInfo | null> {
+    return ipcRenderer.invoke("chat:storage-info") as Promise<ChatStorageInfo | null>;
+  },
+  chatStorageChoose(): Promise<ChatStorageResult | null> {
+    return ipcRenderer.invoke("chat:storage-choose") as Promise<ChatStorageResult | null>;
+  },
+  chatStorageDefault(): Promise<ChatStorageResult | null> {
+    return ipcRenderer.invoke("chat:storage-default") as Promise<ChatStorageResult | null>;
+  },
+  chatStorageClear(): Promise<ChatStorageResult | null> {
+    return ipcRenderer.invoke("chat:storage-clear") as Promise<ChatStorageResult | null>;
+  },
+  chatOpenFolder(kind: "cache" | "config" | "profile"): void {
+    void ipcRenderer.invoke("chat:open-folder", kind);
+  },
+  chatDiagnostics(): Promise<ChatDiagnostics | null> {
+    return ipcRenderer.invoke("chat:diagnostics") as Promise<ChatDiagnostics | null>;
   },
   chatRetry(): Promise<ChatInitialResult | null> {
     return ipcRenderer.invoke("chat:retry") as Promise<ChatInitialResult | null>;

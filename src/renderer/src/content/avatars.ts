@@ -10,3 +10,6 @@ export const HIRO_AVATARS = ["/avatars/hiro/01.jpg"] as const;
 export type HiroAvatar = (typeof HIRO_AVATARS)[number];
 
 export const HIRO_AVATAR: HiroAvatar = HIRO_AVATARS[0];
+
+/** 本机用户的默认头像；用户可以在聊天窗口里右键改成自己的图。 */
+export const ME_DEFAULT_AVATAR = "/avatars/me/default.svg";

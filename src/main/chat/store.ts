@@ -240,12 +240,16 @@ export class ChatStore {
   private savePromise: Promise<void> = Promise.resolve();
   private dirty = false;
 
-  constructor() {
-    const root = join(app.getPath("userData"), CACHE_DIR_NAME);
+  constructor(rootDir?: string) {
+    const root = rootDir ?? ChatStore.defaultDir();
     this.dir = root;
     this.messagesPath = join(root, MESSAGES_FILE);
     this.metaPath = join(root, META_FILE);
     this.thumbsDir = join(root, THUMBS_DIR);
+  }
+
+  static defaultDir(): string {
+    return join(app.getPath("userData"), CACHE_DIR_NAME);
   }
 
   async load(limit: number, maxBytes: number): Promise<void> {
@@ -511,6 +515,22 @@ export class ChatStore {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
+    }
+    await this.save();
+  }
+
+  /** 清空本地聊天记录与缩略图，保留 epoch 和窗口偏好。 */
+  async clear(): Promise<void> {
+    this.messages = [];
+    this.seenIds.clear();
+    this.nextSyntheticId = -1;
+    this.totalBytes = 0;
+    this.dirty = true;
+    try {
+      await fs.rm(this.thumbsDir, { recursive: true, force: true });
+      await fs.mkdir(this.thumbsDir, { recursive: true });
+    } catch (error) {
+      console.warn("[chat-cache] clear thumbs failed", error);
     }
     await this.save();
   }

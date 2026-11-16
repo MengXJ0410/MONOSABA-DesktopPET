@@ -2,7 +2,28 @@ import { app } from "electron";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ChatBounds, ChatUiConfig, PetConfig } from "../shared/types";
+import type {
+  ChatBounds,
+  ChatFontScale,
+  ChatLineHeight,
+  ChatTheme,
+  ChatThemeMode,
+  ChatThemePreset,
+  ChatUiConfig,
+  PetConfig,
+} from "../shared/types";
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+const DEFAULT_THEME: ChatTheme = {
+  mode: "night",
+  accent: "#c8102e",
+  presetId: "hiro",
+};
+
+const DEFAULT_THEME_PRESETS: ChatThemePreset[] = [
+  { id: "hiro", name: "希罗", mode: "night", accent: "#c8102e", builtin: true },
+];
 
 const DEFAULT_CHAT_UI: ChatUiConfig = {
   mode: "compact",
@@ -12,6 +33,11 @@ const DEFAULT_CHAT_UI: ChatUiConfig = {
   notifications: true,
   cacheLimit: 20_000,
   cacheMaxMb: 500,
+  cacheDir: null,
+  theme: DEFAULT_THEME,
+  themePresets: DEFAULT_THEME_PRESETS,
+  fontScale: "md",
+  lineHeight: "normal",
 };
 
 const DEFAULT_CONFIG: PetConfig = {
@@ -66,6 +92,69 @@ function normalizeBounds(value: unknown): ChatBounds | null {
   };
 }
 
+function normalizeThemeMode(value: unknown): ChatThemeMode {
+  return value === "day" ? "day" : "night";
+}
+
+function normalizeAccent(value: unknown, fallback = DEFAULT_THEME.accent): string {
+  return typeof value === "string" && HEX_COLOR.test(value.trim())
+    ? value.trim().toLowerCase()
+    : fallback;
+}
+
+function normalizeTheme(input: unknown): ChatTheme {
+  const theme = isRecord(input) ? input : {};
+  return {
+    mode: normalizeThemeMode(theme.mode),
+    accent: normalizeAccent(theme.accent),
+    presetId:
+      typeof theme.presetId === "string" && theme.presetId.trim()
+        ? theme.presetId.trim()
+        : null,
+  };
+}
+
+function normalizePresets(input: unknown): ChatThemePreset[] {
+  const list = Array.isArray(input) ? input : [];
+  const presets: ChatThemePreset[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (!isRecord(item)) continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    if (!id || !name || seen.has(id)) continue;
+    if (presets.length >= 12) break;
+    seen.add(id);
+    presets.push({
+      id,
+      name: name.slice(0, 12),
+      mode: normalizeThemeMode(item.mode),
+      accent: normalizeAccent(item.accent),
+      builtin: item.builtin === true,
+    });
+  }
+  const builtin = DEFAULT_THEME_PRESETS[0];
+  if (!presets.some((preset) => preset.id === builtin.id)) {
+    presets.unshift({ ...builtin });
+  }
+  const builtinIndex = presets.findIndex((preset) => preset.id === builtin.id);
+  if (builtinIndex > 0) {
+    const [item] = presets.splice(builtinIndex, 1);
+    presets.unshift({ ...item, builtin: true });
+  } else {
+    presets[0] = { ...presets[0], builtin: true };
+  }
+  return presets;
+}
+
+function normalizeFontScale(value: unknown): ChatFontScale {
+  return value === "sm" || value === "lg" ? value : "md";
+}
+
+function normalizeLineHeight(value: unknown): ChatLineHeight {
+  return value === "compact" || value === "loose" ? value : "normal";
+}
+
 function normalizeChatUi(input: unknown): ChatUiConfig {
   const ui = isRecord(input) ? input : {};
   const mode = ui.mode === "full" ? "full" : "compact";
@@ -83,6 +172,14 @@ function normalizeChatUi(input: unknown): ChatUiConfig {
       finiteNumber(ui.cacheMaxMb) !== null
         ? Math.max(50, Math.round(finiteNumber(ui.cacheMaxMb) as number))
         : DEFAULT_CHAT_UI.cacheMaxMb,
+    cacheDir:
+      typeof ui.cacheDir === "string" && ui.cacheDir.trim()
+        ? ui.cacheDir.trim()
+        : null,
+    theme: normalizeTheme(ui.theme),
+    themePresets: normalizePresets(ui.themePresets),
+    fontScale: normalizeFontScale(ui.fontScale),
+    lineHeight: normalizeLineHeight(ui.lineHeight),
   };
 }
 

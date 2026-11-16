@@ -1,20 +1,29 @@
 import { app, BrowserWindow, Notification } from "electron";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, promises as fs, type Dirent } from "node:fs";
+import { join, resolve } from "node:path";
 import type {
+  ChatAppearance,
   ChatCommand,
   ChatCommandsData,
+  ChatFontScale,
   ChatInitialData,
+  ChatLineHeight,
   ChatMessage,
   ChatPollData,
+  ChatProfileData,
   ChatSendData,
   ChatStatus,
   ChatStatusData,
+  ChatStorageInfo,
+  ChatStorageResult,
+  ChatTheme,
+  ChatThemePreset,
   ChatUiConfig,
   ChatUiMode,
   ChatUiState,
 } from "../../shared/types";
 import { readConfig, updateChatUi } from "../config";
+import { profileStore } from "../profile";
 import { captureDisplay } from "./capture";
 import {
   bootstrapChat,
@@ -31,6 +40,21 @@ const CACHE_MAX_BYTES = 500 * 1024 * 1024;
 const STATUS_CACHE_MS = 3000;
 const COMMANDS_CACHE_MS = 10 * 60_000;
 const NOTIFY_DEBOUNCE_MS = 2200;
+
+const DEFAULT_THEME: ChatTheme = { mode: "night", accent: "#c8102e", presetId: "hiro" };
+const DEFAULT_THEME_PRESETS: ChatThemePreset[] = [
+  { id: "hiro", name: "希罗", mode: "night", accent: "#c8102e", builtin: true },
+];
+const DEFAULT_APPEARANCE: ChatAppearance = {
+  theme: DEFAULT_THEME,
+  themePresets: DEFAULT_THEME_PRESETS,
+  fontScale: "md",
+  lineHeight: "normal",
+};
+const DEFAULT_PROFILE: ChatProfileData = {
+  hiro: { role: "hiro", name: "希罗", avatar: null },
+  me: { role: "me", name: "我", avatar: null },
+};
 
 const FALLBACK_COMMANDS: ChatCommand[] = [
   {
@@ -169,6 +193,56 @@ function compactText(messages: ChatMessage[], limit = 180): string {
   return `${text.slice(0, limit)}…`;
 }
 
+function pickAppearance(ui: ChatUiConfig): ChatAppearance {
+  return {
+    theme: ui.theme,
+    themePresets: ui.themePresets,
+    fontScale: ui.fontScale,
+    lineHeight: ui.lineHeight,
+  };
+}
+
+async function fileSize(path: string): Promise<number> {
+  try {
+    const stat = await fs.stat(path);
+    return stat.isFile() ? stat.size : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function dirSize(path: string): Promise<number> {
+  let total = 0;
+  let entries: Dirent[] = [];
+  try {
+    entries = await fs.readdir(path, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) total += await dirSize(child);
+    else total += await fileSize(child);
+  }
+  return total;
+}
+
+async function copyFileIfExists(from: string, to: string): Promise<void> {
+  try {
+    await fs.copyFile(from, to);
+  } catch {
+    // 源文件不存在时跳过。
+  }
+}
+
+async function copyDir(from: string, to: string): Promise<void> {
+  try {
+    await fs.cp(from, to, { recursive: true });
+  } catch {
+    // 缩略图目录不存在时跳过。
+  }
+}
+
 export class ChatService {
   private store: ChatStore | null = null;
   private media: MediaCache | null = null;
@@ -177,7 +251,9 @@ export class ChatService {
     pinned: false,
     unread: 0,
     notifications: true,
+    ...DEFAULT_APPEARANCE,
   };
+  private profile: ChatProfileData = DEFAULT_PROFILE;
   private uiConfig: ChatUiConfig | null = null;
   private status: ChatStatus = { state: "offline", detail: "正在连接……" };
   private commands: ChatCommandsData = {
@@ -213,9 +289,10 @@ export class ChatService {
       pinned: config.chat.ui.fullPinned,
       unread: 0,
       notifications: config.chat.ui.notifications,
+      ...pickAppearance(config.chat.ui),
     };
 
-    this.store = new ChatStore();
+    this.store = new ChatStore(config.chat.ui.cacheDir ?? undefined);
     await this.store.load(
       config.chat.ui.cacheLimit,
       Math.min(config.chat.ui.cacheMaxMb * 1024 * 1024, CACHE_MAX_BYTES),
@@ -223,6 +300,12 @@ export class ChatService {
     this.media = new MediaCache(this.store.thumbsDir);
     this.lastCursor = this.store.getCursor();
     this.lastEpoch = this.store.getEpoch();
+
+    try {
+      this.profile = await profileStore.getData();
+    } catch (error) {
+      console.warn("[chat] load profile failed", error);
+    }
 
     this.pollTimer = setInterval(() => {
       void this.pollOnce();
@@ -454,6 +537,7 @@ export class ChatService {
       ui: this.getUiState(),
       commands: this.commands,
       epoch: this.lastEpoch,
+      profile: this.profile,
     };
   }
 
@@ -594,7 +678,222 @@ export class ChatService {
       notifications: true,
       cacheLimit: 20_000,
       cacheMaxMb: 500,
+      cacheDir: ChatStore.defaultDir(),
+      ...DEFAULT_APPEARANCE,
     };
+  }
+
+  async setTheme(theme: ChatTheme): Promise<ChatUiState> {
+    const next = await updateChatUi({ theme });
+    this.uiConfig = next;
+    this.ui = { ...this.ui, theme: next.theme };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async setFontScale(fontScale: ChatFontScale): Promise<ChatUiState> {
+    const next = await updateChatUi({ fontScale });
+    this.uiConfig = next;
+    this.ui = { ...this.ui, fontScale: next.fontScale };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async setLineHeight(lineHeight: ChatLineHeight): Promise<ChatUiState> {
+    const next = await updateChatUi({ lineHeight });
+    this.uiConfig = next;
+    this.ui = { ...this.ui, lineHeight: next.lineHeight };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async saveThemePreset(name: string, theme: ChatTheme): Promise<ChatUiState> {
+    const label = name.trim().slice(0, 12);
+    if (!label) throw new Error("预设名称不能为空。");
+    const current = this.getUiConfig();
+    const presets = current.themePresets.filter((item) => !item.builtin);
+    if (presets.length >= 11) throw new Error("自定义预设最多 11 个，先删掉一个吧。");
+    const id = `p-${Date.now().toString(36)}`;
+    const preset: ChatThemePreset = {
+      id,
+      name: label,
+      mode: theme.mode,
+      accent: theme.accent,
+    };
+    const builtin = current.themePresets.filter((item) => item.builtin);
+    const next = await updateChatUi({
+      themePresets: [...builtin, preset, ...presets],
+      theme: { ...theme, presetId: id },
+    });
+    this.uiConfig = next;
+    this.ui = {
+      ...this.ui,
+      themePresets: next.themePresets,
+      theme: next.theme,
+    };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async deleteThemePreset(id: string): Promise<ChatUiState> {
+    const current = this.getUiConfig();
+    const preset = current.themePresets.find((item) => item.id === id);
+    if (!preset) throw new Error("这个预设已经不在了。");
+    if (preset.builtin) throw new Error("内置预设不能删除。");
+    const theme =
+      current.theme.presetId === id
+        ? { ...current.theme, presetId: null }
+        : current.theme;
+    const next = await updateChatUi({
+      themePresets: current.themePresets.filter((item) => item.id !== id),
+      theme,
+    });
+    this.uiConfig = next;
+    this.ui = {
+      ...this.ui,
+      themePresets: next.themePresets,
+      theme: next.theme,
+    };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  getProfile(): ChatProfileData {
+    return this.profile;
+  }
+
+  private async applyProfile(
+    action: () => Promise<ChatProfileData>,
+  ): Promise<ChatProfileData> {
+    this.profile = await action();
+    return this.profile;
+  }
+
+  async setProfileName(
+    role: "hiro" | "me",
+    name: string,
+  ): Promise<ChatProfileData> {
+    return this.applyProfile(() => profileStore.setName(role, name));
+  }
+
+  async saveProfileAvatar(
+    role: "hiro" | "me",
+    dataUrl: string,
+  ): Promise<ChatProfileData> {
+    return this.applyProfile(() => profileStore.saveAvatar(role, dataUrl));
+  }
+
+  async selectProfileAvatar(
+    role: "hiro" | "me",
+    id: string | null,
+  ): Promise<ChatProfileData> {
+    return this.applyProfile(() => profileStore.selectAvatar(role, id));
+  }
+
+  async resetProfileAvatar(role: "hiro" | "me"): Promise<ChatProfileData> {
+    return this.applyProfile(() => profileStore.resetAvatar(role));
+  }
+
+  async getProfileHistory(role: "hiro" | "me") {
+    return profileStore.history(role);
+  }
+
+  async getStorageInfo(): Promise<ChatStorageInfo> {
+    const dir = this.store?.dir ?? ChatStore.defaultDir();
+    const messages = await fileSize(join(dir, "messages.jsonl"));
+    const meta = await fileSize(join(dir, "meta.json"));
+    const thumbs = await dirSize(join(dir, "thumbs"));
+    const avatars = await dirSize(profileStore.dir);
+    return {
+      dir,
+      defaultDir: ChatStore.defaultDir(),
+      custom: Boolean(this.uiConfig?.cacheDir),
+      total: this.store?.total() ?? 0,
+      bytes: messages + meta + thumbs + avatars,
+      files: { messages, meta, thumbs, avatars },
+      profileDir: profileStore.dir,
+    };
+  }
+
+  private async switchStore(dir: string): Promise<void> {
+    const limits = this.getUiConfig();
+    await this.store?.flush();
+    const store = new ChatStore(dir);
+    await store.load(
+      limits.cacheLimit,
+      Math.min(limits.cacheMaxMb * 1024 * 1024, CACHE_MAX_BYTES),
+    );
+    this.store = store;
+    this.media = new MediaCache(store.thumbsDir);
+    this.lastCursor = store.getCursor();
+    this.lastEpoch = store.getEpoch();
+    this.bootstrapped = false;
+    broadcast("chat:reset", this.getInitial());
+    void this.bootstrap();
+  }
+
+  async chooseStorageDir(target: string): Promise<ChatStorageResult> {
+    const raw = target.trim();
+    if (!raw) return { ok: false, error: "路径不能为空。" };
+    const dir = resolve(raw);
+    const current = this.store?.dir ?? "";
+    if (current && resolve(current) === dir) {
+      return { ok: false, error: "已经在使用这个目录了。" };
+    }
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      const probe = join(dir, ".monosaba-write-test");
+      await fs.writeFile(probe, "ok", "utf8");
+      await fs.rm(probe, { force: true });
+    } catch {
+      return { ok: false, error: "这个目录写不进去，换一个试试。" };
+    }
+    if (existsSync(join(dir, "messages.jsonl"))) {
+      return {
+        ok: false,
+        error: "目标目录里已经有聊天记录，请换一个空目录。",
+      };
+    }
+    try {
+      if (current) {
+        await copyFileIfExists(join(current, "messages.jsonl"), join(dir, "messages.jsonl"));
+        await copyFileIfExists(join(current, "meta.json"), join(dir, "meta.json"));
+        await copyDir(join(current, "thumbs"), join(dir, "thumbs"));
+      }
+      const next = await updateChatUi({ cacheDir: dir });
+      this.uiConfig = next;
+      await this.switchStore(dir);
+      return { ok: true, info: await this.getStorageInfo() };
+    } catch (error) {
+      console.warn("[chat] switch storage failed", error);
+      return { ok: false, error: "搬迁失败，原目录没有改动。" };
+    }
+  }
+
+  async useDefaultStorageDir(): Promise<ChatStorageResult> {
+    if (!this.uiConfig?.cacheDir) {
+      return { ok: false, error: "现在用的就是默认目录。" };
+    }
+    try {
+      const next = await updateChatUi({ cacheDir: null });
+      this.uiConfig = next;
+      await this.switchStore(ChatStore.defaultDir());
+      return { ok: true, info: await this.getStorageInfo() };
+    } catch (error) {
+      console.warn("[chat] reset storage failed", error);
+      return { ok: false, error: "切回默认目录失败。" };
+    }
+  }
+
+  async clearCache(): Promise<ChatStorageResult> {
+    try {
+      await this.store?.clear();
+      broadcast("chat:reset", this.getInitial());
+      return { ok: true, info: await this.getStorageInfo() };
+    } catch (error) {
+      console.warn("[chat] clear cache failed", error);
+      return { ok: false, error: "清空缓存失败。" };
+    }
   }
 
   async updateBounds(mode: ChatUiMode, bounds: { x: number; y: number; width: number; height: number }): Promise<void> {

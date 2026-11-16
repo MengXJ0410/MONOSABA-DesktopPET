@@ -5,25 +5,36 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import type {
   ChatAttachment,
   ChatCommand,
   ChatCommandsData,
+  ChatDiagnostics,
+  ChatFontScale,
   ChatInitialData,
+  ChatLineHeight,
   ChatMessage,
   ChatMoodEmotion,
+  ChatProfileData,
+  ChatProfileEntry,
+  ChatProfileRole,
   ChatResizeDirection,
   ChatRole,
   ChatStatus,
   ChatStatusData,
+  ChatStorageInfo,
+  ChatTheme,
+  ChatThemePreset,
   ChatUiMode,
   ChatUiState,
   DisplayInfo,
 } from "../../../../shared/types";
-import { HIRO_AVATAR } from "../../content/avatars";
+import { HIRO_AVATAR, ME_DEFAULT_AVATAR } from "../../content/avatars";
 import styles from "./chat-panel.module.css";
 
 const REPLY_TIMEOUT_MS = 90_000;
@@ -34,6 +45,54 @@ const PAGE_SIZE = 200;
 const STATUS_DEBOUNCE_MS = 650;
 const PANEL_STORAGE_KEY = "chat.full.panel";
 const MODE_STORAGE_KEY = "chat.ui.mode";
+
+const DEFAULT_PROFILE: ChatProfileData = {
+  hiro: { role: "hiro", name: "希罗", avatar: null },
+  me: { role: "me", name: "我", avatar: null },
+};
+
+const ACCENT_SWATCHES: { name: string; color: string }[] = [
+  { name: "希罗红", color: "#c8102e" },
+  { name: "绯樱", color: "#e0556d" },
+  { name: "樱花粉", color: "#ff8fb3" },
+  { name: "暖橙", color: "#d9713c" },
+  { name: "琥珀", color: "#c9a227" },
+  { name: "青松", color: "#39a07a" },
+  { name: "海蓝", color: "#3f7fd9" },
+  { name: "紫罗兰", color: "#8b6ce0" },
+  { name: "石墨", color: "#7a7f8c" },
+];
+
+const FONT_SCALE_LABEL: Record<ChatFontScale, string> = {
+  sm: "小",
+  md: "中",
+  lg: "大",
+};
+
+const LINE_HEIGHT_LABEL: Record<ChatLineHeight, string> = {
+  compact: "紧凑",
+  normal: "标准",
+  loose: "宽松",
+};
+
+const AVATAR_SIZE = 272;
+const AVATAR_OUTPUT = 256;
+
+function avatarOf(entry: ChatProfileEntry): string {
+  return entry.avatar ?? (entry.role === "hiro" ? HIRO_AVATAR : ME_DEFAULT_AVATAR);
+}
+
+function profileRoleName(role: ChatProfileRole): string {
+  return role === "hiro" ? "希罗" : "我";
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  if (value < 1024) return `${Math.round(value)} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
 
 const RESIZE_DIRECTIONS: ChatResizeDirection[] = [
   "n",
@@ -370,6 +429,42 @@ const icons = {
       <path d="M20 4v7h-7" />
     </Icon>
   ),
+  edit: (
+    <Icon>
+      <path d="M4 20h4l10-10-4-4L4 16v4z" />
+      <path d="M13.5 6.5l4 4" />
+    </Icon>
+  ),
+  image: (
+    <Icon>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M4 18l5-5 3 3 3-3 5 5" />
+    </Icon>
+  ),
+  sun: (
+    <Icon>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" />
+    </Icon>
+  ),
+  moon: (
+    <Icon>
+      <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" />
+    </Icon>
+  ),
+  trash: (
+    <Icon>
+      <path d="M4 7h16" />
+      <path d="M9 7V5h6v2" />
+      <path d="M6 7l1 13h10l1-13" />
+    </Icon>
+  ),
+  folder: (
+    <Icon>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </Icon>
+  ),
   down: (
     <Icon>
       <path d="M12 5v14M5 12l7 7 7-7" />
@@ -551,15 +646,18 @@ function MessageContent({
 function MessageGroup({
   group,
   full,
+  profile,
   onOpen,
   onOpenDirect,
 }: {
   group: Extract<TimelineItem, { kind: "group" }>;
   full: boolean;
+  profile: ChatProfileData;
   onOpen: (attachment: ChatAttachment, live: boolean) => void;
   onOpenDirect: (url: string) => void;
 }) {
   const assistant = group.role === "assistant";
+  const entry = assistant ? profile.hiro : profile.me;
   return (
     <div
       className={`${styles.group} ${
@@ -567,18 +665,17 @@ function MessageGroup({
       } ${full ? styles.groupFull : styles.groupCompact}`}
     >
       {full ? (
-        assistant ? (
-          <img className={styles.avatar} src={HIRO_AVATAR} alt="希罗" draggable={false} />
-        ) : (
-          <span className={`${styles.avatar} ${styles.userAvatar}`} aria-hidden="true">
-            他
-          </span>
-        )
+        <img
+          className={styles.avatar}
+          src={avatarOf(entry)}
+          alt={entry.name}
+          draggable={false}
+        />
       ) : null}
       <div className={styles.groupBody}>
         {full ? (
           <div className={styles.groupMeta}>
-            <span className={styles.groupName}>{assistant ? "希罗" : "他"}</span>
+            <span className={styles.groupName}>{entry.name}</span>
             <time className={styles.groupTime}>
               {timeLabel(group.ts, group.messages[0]?.approximate)}
             </time>
@@ -823,6 +920,944 @@ function StatusPanel({
   );
 }
 
+function ProfileMenu({
+  role,
+  entry,
+  x,
+  y,
+  onClose,
+  onEditAvatar,
+  onEditName,
+  onResetAvatar,
+  onResetName,
+}: {
+  role: ChatProfileRole;
+  entry: ChatProfileEntry;
+  x: number;
+  y: number;
+  onClose: () => void;
+  onEditAvatar: () => void;
+  onEditName: () => void;
+  onResetAvatar: () => void;
+  onResetName: () => void;
+}) {
+  useEffect(() => {
+    const close = () => onClose();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const left = Math.max(8, Math.min(x, window.innerWidth - 208));
+  const top = Math.max(8, Math.min(y, window.innerHeight - 200));
+  const defaultName = role === "hiro" ? "希罗" : "我";
+
+  return (
+    <div
+      className={styles.profileMenu}
+      style={{ left, top }}
+      role="menu"
+      aria-label={`${profileRoleName(role)}的资料`}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className={styles.profileMenuHead}>
+        <img className={styles.profileMenuAvatar} src={avatarOf(entry)} alt="" draggable={false} />
+        <div>
+          <strong>{entry.name}</strong>
+          <span>{role === "hiro" ? "角色资料" : "本机资料"}</span>
+        </div>
+      </div>
+      <button type="button" role="menuitem" onClick={onEditAvatar}>
+        {icons.image}
+        修改头像
+      </button>
+      <button type="button" role="menuitem" onClick={onEditName}>
+        {icons.edit}
+        修改名称
+      </button>
+      {entry.avatar ? (
+        <button type="button" role="menuitem" onClick={onResetAvatar}>
+          {icons.refresh}
+          恢复默认头像
+        </button>
+      ) : null}
+      {entry.name !== defaultName ? (
+        <button type="button" role="menuitem" onClick={onResetName}>
+          {icons.refresh}
+          恢复默认名称
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function NameEditor({
+  role,
+  entry,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  role: ChatProfileRole;
+  entry: ChatProfileEntry;
+  onClose: () => void;
+  onSaved: (data: ChatProfileData) => void;
+  onError: (message: string) => void;
+}) {
+  const [value, setValue] = useState(entry.name);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const submit = async () => {
+    const name = value.trim();
+    if (!name || busy) return;
+    if (name === entry.name) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await window.petApi.chatProfileName(role, name);
+      if (!result) {
+        onError("改名失败，请稍后再试。");
+        return;
+      }
+      if ("error" in result) {
+        onError(result.error);
+        return;
+      }
+      onSaved(result);
+      onClose();
+    } catch {
+      onError("改名失败，请稍后再试。");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={styles.modalBackdrop} onMouseDown={onClose}>
+      <div
+        className={`${styles.modal} ${styles.editorModal}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chat-name-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h2 id="chat-name-title">修改名称</h2>
+        <p className={styles.editorHint}>
+          输入要新名称，例如“艾玛的专属小笨狗”
+        </p>
+        <input
+          ref={inputRef}
+          className={styles.textInput}
+          value={value}
+          maxLength={16}
+          placeholder="输入新的名称"
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              void submit();
+            }
+          }}
+        />
+        <div className={styles.editorMeta}>
+          <span>{[...value.trim()].length} / 16</span>
+          <span>只影响本机显示</span>
+        </div>
+        <div className={styles.modalActions}>
+          <button type="button" className={styles.modalCancel} onClick={onClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className={styles.modalConfirm}
+            onClick={() => void submit()}
+            disabled={!value.trim() || busy}
+          >
+            {busy ? "保存中" : "保存"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AvatarEditor({
+  role,
+  entry,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  role: ChatProfileRole;
+  entry: ChatProfileEntry;
+  onClose: () => void;
+  onSaved: (data: ChatProfileData) => void;
+  onError: (message: string) => void;
+}) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [history, setHistory] = useState<
+    { id: string; src: string; createdAt: number }[]
+  >([]);
+  const [busy, setBusy] = useState(false);
+  const [empty, setEmpty] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+
+  const baseScale = image
+    ? Math.max(AVATAR_SIZE / image.width, AVATAR_SIZE / image.height)
+    : 1;
+  const scale = baseScale * zoom;
+  const maxX = image ? Math.max(0, (image.width * scale - AVATAR_SIZE) / 2) : 0;
+  const maxY = image ? Math.max(0, (image.height * scale - AVATAR_SIZE) / 2) : 0;
+
+  useEffect(() => {
+    void window.petApi
+      .chatProfileHistory(role)
+      .then((rows) => setHistory(rows))
+      .catch(() => undefined);
+  }, [role]);
+
+  const loadSource = useCallback((src: string) => {
+    const img = new Image();
+    img.onload = () => {
+      setImage(img);
+      setZoom(1);
+      setOffset({ x: 0, y: 0 });
+      setEmpty(false);
+    };
+    img.onerror = () => setEmpty(true);
+    img.src = src;
+  }, []);
+
+  useEffect(() => {
+    loadSource(avatarOf(entry));
+  }, [entry, loadSource]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !image) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const width = image.width * scale;
+    const height = image.height * scale;
+    ctx.clearRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(AVATAR_SIZE / 2, AVATAR_SIZE / 2, AVATAR_SIZE / 2 - 1, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(
+      image,
+      AVATAR_SIZE / 2 + offset.x - width / 2,
+      AVATAR_SIZE / 2 + offset.y - height / 2,
+      width,
+      height,
+    );
+    ctx.restore();
+  }, [image, scale, offset.x, offset.y]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      setZoom((prev) => Math.min(4, Math.max(1, prev - event.deltaY * 0.0012)));
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const clampOffset = (x: number, y: number, nextMaxX = maxX, nextMaxY = maxY) => ({
+    x: Math.max(-nextMaxX, Math.min(nextMaxX, x)),
+    y: Math.max(-nextMaxY, Math.min(nextMaxY, y)),
+  });
+
+  // 缩放变化后把偏移收回到合法范围，避免露出裁剪框外的空白。
+  useEffect(() => {
+    setOffset((prev) => {
+      const next = clampOffset(prev.x, prev.y);
+      return next.x === prev.x && next.y === prev.y ? prev : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxX, maxY]);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      ox: offset.x,
+      oy: offset.y,
+    };
+  };
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setOffset(
+      clampOffset(
+        drag.ox + event.clientX - drag.x,
+        drag.oy + event.clientY - drag.y,
+      ),
+    );
+  };
+
+  const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (dragRef.current) {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // 指针已经释放时忽略。
+      }
+    }
+    dragRef.current = null;
+  };
+
+  const readFile = (file: File | undefined) => {
+    if (!file) return;
+    if (!/^image\//i.test(file.type)) {
+      onError("只能选图片文件。");
+      return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      onError("图片太大了，换一张 12MB 以内的吧。");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") loadSource(reader.result);
+    };
+    reader.onerror = () => onError("读取图片失败。");
+    reader.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    if (!image || busy) return;
+    const output = document.createElement("canvas");
+    output.width = AVATAR_OUTPUT;
+    output.height = AVATAR_OUTPUT;
+    const ctx = output.getContext("2d");
+    if (!ctx) {
+      onError("浏览器不支持裁剪。");
+      return;
+    }
+    const ratio = AVATAR_OUTPUT / AVATAR_SIZE;
+    const width = image.width * scale * ratio;
+    const height = image.height * scale * ratio;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(AVATAR_OUTPUT / 2, AVATAR_OUTPUT / 2, AVATAR_OUTPUT / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(
+      image,
+      (AVATAR_SIZE / 2 + offset.x) * ratio - width / 2,
+      (AVATAR_SIZE / 2 + offset.y) * ratio - height / 2,
+      width,
+      height,
+    );
+    ctx.restore();
+    setBusy(true);
+    try {
+      const result = await window.petApi.chatProfileAvatar(
+        role,
+        output.toDataURL("image/png"),
+      );
+      if (!result) {
+        onError("保存头像失败。");
+        return;
+      }
+      if ("error" in result) {
+        onError(result.error);
+        return;
+      }
+      onSaved(result);
+      onClose();
+    } catch {
+      onError("保存头像失败。");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const useHistory = async (id: string) => {
+    try {
+      const result = await window.petApi.chatProfileAvatarSelect(role, id);
+      if (!result || "error" in result) {
+        onError(result && "error" in result ? result.error : "切换头像失败。");
+        return;
+      }
+      onSaved(result);
+      onClose();
+    } catch {
+      onError("切换头像失败。");
+    }
+  };
+
+  const resetAvatar = async () => {
+    try {
+      const result = await window.petApi.chatProfileAvatarReset(role);
+      if (!result || "error" in result) {
+        onError(result && "error" in result ? result.error : "恢复默认头像失败。");
+        return;
+      }
+      onSaved(result);
+      onClose();
+    } catch {
+      onError("恢复默认头像失败。");
+    }
+  };
+
+  return (
+    <div className={styles.modalBackdrop} onMouseDown={onClose}>
+      <div
+        className={`${styles.modal} ${styles.avatarModal}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chat-avatar-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          readFile(event.dataTransfer.files?.[0]);
+        }}
+      >
+        <h2 id="chat-avatar-title">修改{profileRoleName(role)}的头像</h2>
+        <div className={styles.avatarEditorBody}>
+          <div className={styles.avatarCrop}>
+            <canvas
+              ref={canvasRef}
+              width={AVATAR_SIZE}
+              height={AVATAR_SIZE}
+              className={styles.avatarCanvas}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+              onDoubleClick={() => {
+                setZoom(1);
+                setOffset({ x: 0, y: 0 });
+              }}
+              aria-label="裁剪区域：拖动平移，滚轮缩放"
+            />
+            {empty || !image ? (
+              <span className={styles.avatarEmpty}>拖动图片到这里，或点“选择图片”</span>
+            ) : null}
+          </div>
+          <div className={styles.avatarSide}>
+            <div className={styles.avatarActions}>
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={() => fileRef.current?.click()}
+              >
+                {icons.image}
+                选择图片
+              </button>
+              <button type="button" className={styles.ghostBtn} onClick={() => void resetAvatar()}>
+                恢复默认
+              </button>
+            </div>
+            <p className={styles.avatarHint}>
+              拖动平移，滚轮缩放，双击复位。保存后会裁成 256×256 的圆图。
+            </p>
+            <div className={styles.historyHead}>
+              <span>历史头像</span>
+              <span>{history.length} 张</span>
+            </div>
+            {history.length > 0 ? (
+              <div className={styles.historyGrid}>
+                {history.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={styles.historyItem}
+                    onClick={() => void useHistory(item.id)}
+                    title={new Date(item.createdAt).toLocaleString("zh-CN")}
+                  >
+                    <img src={item.src} alt="" draggable={false} />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.historyEmpty}>还没有历史头像。</p>
+            )}
+          </div>
+        </div>
+        <div className={styles.modalActions}>
+          <button type="button" className={styles.modalCancel} onClick={onClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className={styles.modalConfirm}
+            onClick={() => void save()}
+            disabled={!image || busy}
+          >
+            {busy ? "保存中" : "保存"}
+          </button>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className={styles.hiddenInput}
+          onChange={(event) => {
+            readFile(event.target.files?.[0]);
+            event.target.value = "";
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SettingsPanel({
+  ui,
+  storage,
+  diagnostics,
+  autoLaunch,
+  onClose,
+  onTheme,
+  onFontScale,
+  onLineHeight,
+  onSavePreset,
+  onDeletePreset,
+  onToggleNotifications,
+  onTogglePinned,
+  onToggleAutoLaunch,
+  onChooseStorage,
+  onDefaultStorage,
+  onOpenFolder,
+  onClearStorage,
+  onOpenControlPanel,
+  onToast,
+}: {
+  ui: ChatUiState;
+  storage: ChatStorageInfo | null;
+  diagnostics: ChatDiagnostics | null;
+  autoLaunch: boolean;
+  onClose: () => void;
+  onTheme: (theme: ChatTheme) => void;
+  onFontScale: (scale: ChatFontScale) => void;
+  onLineHeight: (height: ChatLineHeight) => void;
+  onSavePreset: (name: string) => Promise<boolean>;
+  onDeletePreset: (id: string) => void;
+  onToggleNotifications: (enabled: boolean) => void;
+  onTogglePinned: (pinned: boolean) => void;
+  onToggleAutoLaunch: (enabled: boolean) => void;
+  onChooseStorage: () => void;
+  onDefaultStorage: () => void;
+  onOpenFolder: (kind: "cache" | "config" | "profile") => void;
+  onClearStorage: () => void;
+  onOpenControlPanel: () => void;
+  onToast: (message: string) => void;
+}) {
+  const [presetName, setPresetName] = useState("");
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const theme = ui.theme;
+  const apply = (patch: Partial<ChatTheme>) => {
+    onTheme({ ...theme, ...patch, presetId: patch.presetId ?? null });
+  };
+
+  const savePreset = async () => {
+    const name = presetName.trim();
+    if (!name || savingPreset) return;
+    setSavingPreset(true);
+    try {
+      const ok = await onSavePreset(name);
+      if (ok) setPresetName("");
+    } finally {
+      setSavingPreset(false);
+    }
+  };
+
+  const copyDiagnostics = async () => {
+    if (!diagnostics) return;
+    const text = [
+      `桌面版本：${diagnostics.appVersion}`,
+      `Electron ${diagnostics.electron} / Chromium ${diagnostics.chrome}`,
+      `平台：${diagnostics.platform}`,
+      `桥接状态：${STATUS_TEXT[diagnostics.status.state]}${diagnostics.status.detail ? `（${diagnostics.status.detail}）` : ""}`,
+      `服务器：${diagnostics.hosts.join(" / ")}:${diagnostics.port}`,
+      `epoch：${diagnostics.epoch || "—"}`,
+      `cursor：${diagnostics.cursor}`,
+      `存储：${storage?.dir ?? "—"}`,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      onToast("诊断信息已复制");
+    } catch {
+      onToast("复制失败，可以手动截图");
+    }
+  };
+
+  return (
+    <aside className={styles.panel} aria-label="聊天设置">
+      <header className={styles.panelHead}>
+        <div>
+          <h2>设置</h2>
+          <span className={styles.panelUpdated}>外观、通知与本地数据</span>
+        </div>
+        <div className={styles.panelActions}>
+          <button
+            type="button"
+            className={styles.panelIcon}
+            onClick={onClose}
+            aria-label="收起设置面板"
+            title="收起设置面板"
+          >
+            {icons.close}
+          </button>
+        </div>
+      </header>
+
+      <div className={styles.panelScroll}>
+        <section className={styles.panelSection}>
+          <h3>外观</h3>
+          <div className={styles.settingsRow}>
+            <span className={styles.settingsLabel}>明暗</span>
+            <div className={styles.segmented}>
+              <button
+                type="button"
+                data-active={theme.mode === "day" || undefined}
+                onClick={() => apply({ mode: "day" })}
+              >
+                {icons.sun}
+                日间
+              </button>
+              <button
+                type="button"
+                data-active={theme.mode === "night" || undefined}
+                onClick={() => apply({ mode: "night" })}
+              >
+                {icons.moon}
+                夜间
+              </button>
+            </div>
+          </div>
+          <div className={styles.settingsRow}>
+            <span className={styles.settingsLabel}>主题色</span>
+            <span className={styles.accentValue}>{theme.accent}</span>
+          </div>
+          <div className={styles.swatchRow}>
+            {ACCENT_SWATCHES.map((swatch) => (
+              <button
+                key={swatch.color}
+                type="button"
+                className={styles.swatch}
+                style={{ background: swatch.color }}
+                data-active={
+                  swatch.color.toLowerCase() === theme.accent.toLowerCase() || undefined
+                }
+                title={swatch.name}
+                aria-label={swatch.name}
+                onClick={() => apply({ accent: swatch.color })}
+              />
+            ))}
+            <label className={styles.swatchCustom} title="自定义颜色">
+              <input
+                type="color"
+                value={theme.accent}
+                onChange={(event) => apply({ accent: event.target.value })}
+                aria-label="自定义主题色"
+              />
+              <span>+</span>
+            </label>
+          </div>
+
+          <div className={styles.presetHead}>
+            <span>色彩预设</span>
+            <span>日/夜 + 主题色</span>
+          </div>
+          <div className={styles.presetList}>
+            {ui.themePresets.map((preset) => {
+              const active = theme.presetId === preset.id;
+              return (
+                <div
+                  key={preset.id}
+                  className={`${styles.presetItem}${active ? ` ${styles.presetItemActive}` : ""}`}
+                >
+                  <button
+                    type="button"
+                    className={styles.presetApply}
+                    onClick={() =>
+                      onTheme({
+                        mode: preset.mode,
+                        accent: preset.accent,
+                        presetId: preset.id,
+                      })
+                    }
+                  >
+                    <span
+                      className={styles.presetDot}
+                      style={{ background: preset.accent }}
+                      aria-hidden="true"
+                    />
+                    <span className={styles.presetName}>{preset.name}</span>
+                    <span className={styles.presetMeta}>
+                      {preset.mode === "day" ? "日间" : "夜间"}
+                    </span>
+                  </button>
+                  {preset.builtin ? (
+                    <span className={styles.presetLock}>内置</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.presetDelete}
+                      onClick={() => onDeletePreset(preset.id)}
+                      aria-label={`删除预设 ${preset.name}`}
+                      title="删除预设"
+                    >
+                      {icons.trash}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className={styles.presetSave}>
+            <input
+              value={presetName}
+              maxLength={12}
+              placeholder="预设名称，例如 夜樱"
+              onChange={(event) => setPresetName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  void savePreset();
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => void savePreset()}
+              disabled={!presetName.trim() || savingPreset}
+            >
+              {savingPreset ? "保存中" : "存为预设"}
+            </button>
+          </div>
+        </section>
+
+        <section className={styles.panelSection}>
+          <h3>消息</h3>
+          <div className={styles.settingsRow}>
+            <span className={styles.settingsLabel}>字号</span>
+            <div className={styles.segmented}>
+              {(["sm", "md", "lg"] as ChatFontScale[]).map((scale) => (
+                <button
+                  key={scale}
+                  type="button"
+                  data-active={ui.fontScale === scale || undefined}
+                  onClick={() => onFontScale(scale)}
+                >
+                  {FONT_SCALE_LABEL[scale]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className={styles.settingsRow}>
+            <span className={styles.settingsLabel}>行距</span>
+            <div className={styles.segmented}>
+              {(["compact", "normal", "loose"] as ChatLineHeight[]).map((height) => (
+                <button
+                  key={height}
+                  type="button"
+                  data-active={ui.lineHeight === height || undefined}
+                  onClick={() => onLineHeight(height)}
+                >
+                  {LINE_HEIGHT_LABEL[height]}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.panelSection}>
+          <h3>通知与窗口</h3>
+          {[
+            {
+              label: "桌面通知",
+              value: ui.notifications,
+              action: onToggleNotifications,
+            },
+            { label: "完整版置顶", value: ui.pinned, action: onTogglePinned },
+            { label: "开机自启", value: autoLaunch, action: onToggleAutoLaunch },
+          ].map((row) => (
+            <label className={styles.notifyRow} key={row.label}>
+              <span>{row.label}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={row.value}
+                className={`${styles.smallSwitch}${row.value ? ` ${styles.smallSwitchOn}` : ""}`}
+                onClick={() => row.action(!row.value)}
+              >
+                <span className={styles.switchTrack} aria-hidden="true">
+                  <span className={styles.switchThumb} />
+                </span>
+              </button>
+            </label>
+          ))}
+        </section>
+
+        <section className={styles.panelSection}>
+          <h3>数据与存储</h3>
+          {storage ? (
+            <>
+              <p className={styles.storagePath} title={storage.dir}>
+                {storage.dir}
+              </p>
+              <div className={styles.storageStats}>
+                <span>{storage.total} 条消息</span>
+                <span>{formatBytes(storage.bytes)}</span>
+                <span>{storage.custom ? "自定义目录" : "默认目录"}</span>
+              </div>
+              <p className={styles.storageDetail}>
+                消息 {formatBytes(storage.files.messages)} · 缩略图{" "}
+                {formatBytes(storage.files.thumbs)} · 头像{" "}
+                {formatBytes(storage.files.avatars)}
+              </p>
+            </>
+          ) : (
+            <p className={styles.muted}>正在读取存储信息……</p>
+          )}
+          <div className={styles.panelBtnRow}>
+            <button type="button" onClick={onChooseStorage}>
+              {icons.folder}
+              更改路径…
+            </button>
+            <button
+              type="button"
+              onClick={onDefaultStorage}
+              disabled={!storage?.custom}
+            >
+              恢复默认
+            </button>
+          </div>
+          <div className={styles.panelBtnRow}>
+            <button type="button" onClick={() => onOpenFolder("cache")}>
+              打开缓存目录
+            </button>
+            <button type="button" onClick={() => onOpenFolder("profile")}>
+              打开头像目录
+            </button>
+          </div>
+          <div className={styles.panelBtnRow}>
+            <button type="button" onClick={() => onOpenFolder("config")}>
+              打开配置目录
+            </button>
+            {confirmClear ? (
+              <button
+                type="button"
+                className={styles.dangerBtn}
+                onClick={() => {
+                  setConfirmClear(false);
+                  onClearStorage();
+                }}
+              >
+                确认清空
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={styles.dangerBtn}
+                onClick={() => setConfirmClear(true)}
+              >
+                清空本地缓存
+              </button>
+            )}
+          </div>
+          <p className={styles.storageHint}>
+            迁移会先复制到新目录再切换，旧目录保留为备份；头像和设置始终留在配置目录。
+          </p>
+        </section>
+
+        <section className={styles.panelSection}>
+          <h3>关于</h3>
+          <dl className={styles.aboutList}>
+            <div>
+              <dt>桌面版本</dt>
+              <dd>v{diagnostics?.appVersion ?? "—"}</dd>
+            </div>
+            <div>
+              <dt>运行环境</dt>
+              <dd>
+                Electron {diagnostics?.electron ?? "—"} · Chromium{" "}
+                {diagnostics?.chrome ?? "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>桥接</dt>
+              <dd>
+                {diagnostics ? STATUS_TEXT[diagnostics.status.state] : "—"}
+                {diagnostics?.epoch ? ` · ${diagnostics.epoch.slice(0, 8)}` : ""}
+              </dd>
+            </div>
+            <div>
+              <dt>服务器</dt>
+              <dd>
+                {diagnostics ? `${diagnostics.hosts.join(" / ")}:${diagnostics.port}` : "—"}
+              </dd>
+            </div>
+          </dl>
+          <div className={styles.panelBtnRow}>
+            <button type="button" onClick={onOpenControlPanel}>
+              {icons.gear}
+              桌宠控制面板
+            </button>
+            <button type="button" onClick={() => void copyDiagnostics()}>
+              复制诊断
+            </button>
+          </div>
+        </section>
+      </div>
+    </aside>
+  );
+}
+
 export function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [total, setTotal] = useState(0);
@@ -839,7 +1874,28 @@ export function ChatPanel() {
     pinned: false,
     unread: 0,
     notifications: true,
+    theme: { mode: "night", accent: "#c8102e", presetId: "hiro" },
+    themePresets: [
+      { id: "hiro", name: "希罗", mode: "night", accent: "#c8102e", builtin: true },
+    ],
+    fontScale: "md",
+    lineHeight: "normal",
   }));
+  const [profile, setProfile] = useState<ChatProfileData>(DEFAULT_PROFILE);
+  const [selectedPerson, setSelectedPerson] = useState<ChatProfileRole>("hiro");
+  const [profileMenu, setProfileMenu] = useState<{
+    role: ChatProfileRole;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [editor, setEditor] = useState<{
+    kind: "avatar" | "name";
+    role: ChatProfileRole;
+  } | null>(null);
+  const [panelMode, setPanelMode] = useState<"status" | "settings">("status");
+  const [storage, setStorage] = useState<ChatStorageInfo | null>(null);
+  const [diagnostics, setDiagnostics] = useState<ChatDiagnostics | null>(null);
+  const [autoLaunch, setAutoLaunch] = useState(false);
   const [commands, setCommands] = useState<ChatCommandsData | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -877,20 +1933,28 @@ export function ChatPanel() {
   const loadingMoreRef = useRef(false);
   const toastTimerRef = useRef<number | null>(null);
   const statusTimerRef = useRef<number | null>(null);
+  const themeTimerRef = useRef<number | null>(null);
+  const themePendingRef = useRef<ChatTheme | null>(null);
   const viewerTokenRef = useRef(0);
   const uiRef = useRef(ui);
   const panelOpenRef = useRef(panelOpen);
+  const panelModeRef = useRef(panelMode);
   const commandOpenRef = useRef(commandOpen);
   const viewerRef = useRef(viewer);
   const confirmRef = useRef(confirmState);
   const stickRef = useRef(stick);
+  const editorRef = useRef(editor);
+  const profileMenuRef = useRef(profileMenu);
 
   uiRef.current = ui;
   panelOpenRef.current = panelOpen;
+  panelModeRef.current = panelMode;
   commandOpenRef.current = commandOpen;
   viewerRef.current = viewer;
   confirmRef.current = confirmState;
   stickRef.current = stick;
+  editorRef.current = editor;
+  profileMenuRef.current = profileMenu;
   loadedCountRef.current = messages.length;
 
   const full = ui.mode === "full";
@@ -930,7 +1994,14 @@ export function ChatPanel() {
   const hasMore = full && !noMore && messages.length < total;
 
   const applyUiState = useCallback((state: ChatUiState) => {
-    setUi(state);
+    setUi(() => {
+      // 取色器还在合并写盘时，别被其它 ui-state 广播拉回旧主题。
+      const pending = themePendingRef.current;
+      if (pending && themeTimerRef.current) {
+        return { ...state, theme: pending };
+      }
+      return state;
+    });
     window.localStorage.setItem(MODE_STORAGE_KEY, state.mode);
   }, []);
 
@@ -978,6 +2049,7 @@ export function ChatPanel() {
       setTotal(Math.max(data.total ?? merged.length, merged.length));
       setStatus(data.status);
       applyUiState(data.ui);
+      if (data.profile) setProfile(data.profile);
       if (data.commands?.commands?.length) setCommands(data.commands);
       setLoading(false);
       setNoMore(merged.length >= Math.max(data.total ?? merged.length, merged.length));
@@ -1211,6 +2283,11 @@ export function ChatPanel() {
       showToast("查看请切换完整版UI");
       return;
     }
+    if (panelOpenRef.current && panelModeRef.current === "settings") {
+      setPanelMode("status");
+      return;
+    }
+    setPanelMode("status");
     setPanelOpen((prev) => {
       const next = !prev;
       window.localStorage.setItem(PANEL_STORAGE_KEY, next ? "1" : "0");
@@ -1255,9 +2332,203 @@ export function ChatPanel() {
     [applyUiState, showToast],
   );
 
-  const openSettings = useCallback(() => {
+  const openControlPanel = useCallback(() => {
     window.petApi.chatOpenSettings();
   }, []);
+
+  const openSettings = useCallback(() => {
+    if (uiRef.current.mode !== "full") {
+      showToast("查看请切换完整版UI");
+      return;
+    }
+    setPanelMode("settings");
+    setPanelOpen(true);
+    window.localStorage.setItem(PANEL_STORAGE_KEY, "1");
+  }, [showToast]);
+
+  const closePanel = useCallback(() => {
+    setPanelOpen(false);
+    window.localStorage.setItem(PANEL_STORAGE_KEY, "0");
+  }, []);
+
+  const applyProfileResult = useCallback(
+    (result: ChatProfileData | { error: string } | null) => {
+      if (!result) {
+        showToast("操作失败了，请稍后再试。");
+        return;
+      }
+      if ("error" in result) {
+        showToast(result.error);
+        return;
+      }
+      setProfile(result);
+    },
+    [showToast],
+  );
+
+  const openProfileMenu = useCallback(
+    (role: ChatProfileRole, event: { clientX: number; clientY: number }) => {
+      setProfileMenu({ role, x: event.clientX, y: event.clientY });
+    },
+    [],
+  );
+
+  const setTheme = useCallback(
+    (theme: ChatTheme) => {
+      // 取色器拖动时会连发很多次，先即时反馈，再合并写盘。
+      setUi((prev) => ({ ...prev, theme }));
+      themePendingRef.current = theme;
+      if (themeTimerRef.current) return;
+      themeTimerRef.current = window.setTimeout(() => {
+        themeTimerRef.current = null;
+        const next = themePendingRef.current;
+        themePendingRef.current = null;
+        if (!next) return;
+        void window.petApi
+          .chatSetTheme(next)
+          .then((state) => {
+            if (state) applyUiState(state);
+          })
+          .catch(() => showToast("切换主题失败。"));
+      }, 180);
+    },
+    [applyUiState, showToast],
+  );
+
+  const setFontScale = useCallback(
+    async (scale: ChatFontScale) => {
+      try {
+        const state = await window.petApi.chatSetFontScale(scale);
+        if (state) applyUiState(state);
+      } catch {
+        showToast("调整字号失败。");
+      }
+    },
+    [applyUiState, showToast],
+  );
+
+  const setLineHeight = useCallback(
+    async (height: ChatLineHeight) => {
+      try {
+        const state = await window.petApi.chatSetLineHeight(height);
+        if (state) applyUiState(state);
+      } catch {
+        showToast("调整行距失败。");
+      }
+    },
+    [applyUiState, showToast],
+  );
+
+  const savePreset = useCallback(
+    async (name: string): Promise<boolean> => {
+      try {
+        const result = await window.petApi.chatSavePreset(name, uiRef.current.theme);
+        if (!result) return false;
+        if ("error" in result) {
+          showToast(result.error);
+          return false;
+        }
+        applyUiState(result);
+        showToast("预设已保存");
+        return true;
+      } catch {
+        showToast("保存预设失败。");
+        return false;
+      }
+    },
+    [applyUiState, showToast],
+  );
+
+  const deletePreset = useCallback(
+    async (id: string) => {
+      try {
+        const result = await window.petApi.chatDeletePreset(id);
+        if (!result) return;
+        if ("error" in result) {
+          showToast(result.error);
+          return;
+        }
+        applyUiState(result);
+      } catch {
+        showToast("删除预设失败。");
+      }
+    },
+    [applyUiState, showToast],
+  );
+
+  const toggleAutoLaunch = useCallback(
+    async (enabled: boolean) => {
+      try {
+        const value = await window.petApi.setAutoLaunch(enabled);
+        setAutoLaunch(value);
+        showToast(value ? "已开启开机自启" : "已关闭开机自启");
+      } catch {
+        showToast("设置开机自启失败。");
+      }
+    },
+    [showToast],
+  );
+
+  const refreshStorage = useCallback(async () => {
+    try {
+      const [info, diag] = await Promise.all([
+        window.petApi.chatStorageInfo(),
+        window.petApi.chatDiagnostics(),
+      ]);
+      setStorage(info);
+      if (diag) setDiagnostics(diag);
+    } catch {
+      // 设置面板读取失败时保留上一次数据。
+    }
+  }, []);
+
+  const chooseStorage = useCallback(async () => {
+    try {
+      const result = await window.petApi.chatStorageChoose();
+      if (!result) return;
+      if (!result.ok) {
+        if (result.error) showToast(result.error);
+        return;
+      }
+      setStorage(result.info);
+      showToast("已切换到新目录，正在重新载入…");
+    } catch {
+      showToast("更改存储路径失败。");
+    }
+  }, [showToast]);
+
+  const defaultStorage = useCallback(async () => {
+    try {
+      const result = await window.petApi.chatStorageDefault();
+      if (!result) return;
+      if (!result.ok) {
+        if (result.error) showToast(result.error);
+        return;
+      }
+      setStorage(result.info);
+      showToast("已切回默认目录");
+    } catch {
+      showToast("切换默认目录失败。");
+    }
+  }, [showToast]);
+
+  const clearStorage = useCallback(async () => {
+    try {
+      const result = await window.petApi.chatStorageClear();
+      if (!result) return;
+      if (!result.ok) {
+        showToast(result.error);
+        return;
+      }
+      setStorage(result.info);
+      setMessages([]);
+      setTotal(0);
+      setNoMore(true);
+      showToast("本地聊天缓存已清空");
+    } catch {
+      showToast("清空缓存失败。");
+    }
+  }, [showToast]);
 
   const submitConfirmed = useCallback(() => {
     if (!confirmState) return;
@@ -1408,6 +2679,18 @@ export function ChatPanel() {
   }, []);
 
   useEffect(() => {
+    void window.petApi
+      .getAutoLaunch()
+      .then((enabled) => setAutoLaunch(enabled))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!full || !panelOpen || panelMode !== "settings") return;
+    void refreshStorage();
+  }, [full, panelOpen, panelMode, refreshStorage]);
+
+  useEffect(() => {
     if (!full || !panelOpen) return;
     void refreshStatus(false);
   }, [full, panelOpen, refreshStatus]);
@@ -1477,6 +2760,16 @@ export function ChatPanel() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (editorRef.current) {
+        event.preventDefault();
+        setEditor(null);
+        return;
+      }
+      if (profileMenuRef.current) {
+        event.preventDefault();
+        setProfileMenu(null);
+        return;
+      }
       if (viewerRef.current) {
         event.preventDefault();
         closeViewer();
@@ -1507,6 +2800,7 @@ export function ChatPanel() {
     return () => {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
       if (statusTimerRef.current) window.clearTimeout(statusTimerRef.current);
+      if (themeTimerRef.current) window.clearTimeout(themeTimerRef.current);
     };
   }, []);
 
@@ -1529,7 +2823,13 @@ export function ChatPanel() {
   }, []);
 
   return (
-    <div className={`${styles.shell} ${full ? styles.shellFull : ""}`}>
+    <div
+      className={`${styles.shell} ${full ? styles.shellFull : ""}`}
+      data-mode={ui.theme.mode}
+      data-font={ui.fontScale}
+      data-leading={ui.lineHeight}
+      style={{ "--accent": ui.theme.accent } as CSSProperties}
+    >
       {full ? (
         <div className={styles.resizeLayer}>
           {RESIZE_DIRECTIONS.map((direction) => (
@@ -1559,7 +2859,7 @@ export function ChatPanel() {
           {full ? (
             <>
               <div className={styles.headInfo}>
-                <span className={styles.title}>希罗</span>
+                <span className={styles.title}>{profile.hiro.name}</span>
                 <span
                   className={`${styles.dot} ${dotClass}`}
                   role="status"
@@ -1613,11 +2913,15 @@ export function ChatPanel() {
             <>
               <img
                 className={styles.miniAvatar}
-                src={HIRO_AVATAR}
-                alt=""
+                src={avatarOf(profile.hiro)}
+                alt={profile.hiro.name}
                 draggable={false}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  openProfileMenu("hiro", event);
+                }}
               />
-              <span className={styles.title}>希罗</span>
+              <span className={styles.title}>{profile.hiro.name}</span>
               <span
                 className={`${styles.dot} ${dotClass}`}
                 role="status"
@@ -1650,15 +2954,49 @@ export function ChatPanel() {
         <div className={`${styles.body} ${full ? styles.bodyFull : styles.bodyCompact}`}>
           {full ? (
             <aside className={styles.rail} aria-label="聊天导航">
-              <div className={styles.railTop}>
-                <img
-                  className={styles.railAvatar}
-                  src={HIRO_AVATAR}
-                  alt="希罗"
-                  draggable={false}
-                />
-                <span className={styles.railName}>希罗</span>
-                <span className={`${styles.railDot} ${dotClass}`} />
+              <div className={styles.railPeople}>
+                <button
+                  type="button"
+                  className={`${styles.railPerson}${selectedPerson === "hiro" ? ` ${styles.railPersonActive}` : ""}`}
+                  onClick={() => {
+                    setSelectedPerson("hiro");
+                    inputRef.current?.focus();
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setSelectedPerson("hiro");
+                    openProfileMenu("hiro", event);
+                  }}
+                  title={`${profile.hiro.name}（右键修改资料）`}
+                >
+                  <img
+                    className={styles.railAvatar}
+                    src={avatarOf(profile.hiro)}
+                    alt={profile.hiro.name}
+                    draggable={false}
+                  />
+                  <span className={styles.railName}>{profile.hiro.name}</span>
+                  <span className={`${styles.railDot} ${dotClass}`} />
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.railPerson}${selectedPerson === "me" ? ` ${styles.railPersonActive}` : ""}`}
+                  onClick={() => setSelectedPerson("me")}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setSelectedPerson("me");
+                    openProfileMenu("me", event);
+                  }}
+                  title={`${profile.me.name}（右键修改资料）`}
+                >
+                  <img
+                    className={styles.railAvatar}
+                    src={avatarOf(profile.me)}
+                    alt={profile.me.name}
+                    draggable={false}
+                  />
+                  <span className={styles.railName}>{profile.me.name}</span>
+                </button>
               </div>
               <nav className={styles.railNav}>
                 <button
@@ -1672,16 +3010,21 @@ export function ChatPanel() {
                 </button>
                 <button
                   type="button"
-                  className={`${styles.railButton}${panelOpen ? ` ${styles.railActive}` : ""}`}
+                  className={`${styles.railButton}${panelOpen && panelMode === "status" ? ` ${styles.railActive}` : ""}`}
                   onClick={togglePanel}
-                  aria-pressed={panelOpen}
+                  aria-pressed={panelOpen && panelMode === "status"}
                 >
                   {icons.heart}
                   <span>心情</span>
                 </button>
               </nav>
               <div className={styles.railFoot}>
-                <button type="button" className={styles.railButton} onClick={openSettings}>
+                <button
+                  type="button"
+                  className={`${styles.railButton}${panelOpen && panelMode === "settings" ? ` ${styles.railActive}` : ""}`}
+                  onClick={openSettings}
+                  aria-pressed={panelOpen && panelMode === "settings"}
+                >
                   {icons.gear}
                   <span>设置</span>
                 </button>
@@ -1782,6 +3125,7 @@ export function ChatPanel() {
                       key={item.key}
                       group={item}
                       full={full}
+                      profile={profile}
                       onOpen={openAttachment}
                       onOpenDirect={openDirect}
                     />
@@ -1879,15 +3223,41 @@ export function ChatPanel() {
           </div>
 
           {full && panelOpen ? (
-            <StatusPanel
-              data={statusData}
-              loading={statusLoading}
-              notifications={ui.notifications}
-              onToggleNotifications={(enabled) => void toggleNotifications(enabled)}
-              onRefresh={() => void refreshStatus(true)}
-              onClose={togglePanel}
-              onOpenSettings={openSettings}
-            />
+            panelMode === "settings" ? (
+              <SettingsPanel
+                ui={ui}
+                storage={storage}
+                diagnostics={diagnostics}
+                autoLaunch={autoLaunch}
+                onClose={closePanel}
+                onTheme={(theme) => void setTheme(theme)}
+                onFontScale={(scale) => void setFontScale(scale)}
+                onLineHeight={(height) => void setLineHeight(height)}
+                onSavePreset={savePreset}
+                onDeletePreset={(id) => void deletePreset(id)}
+                onToggleNotifications={(enabled) => void toggleNotifications(enabled)}
+                onTogglePinned={(pinned) => {
+                  if (pinned !== uiRef.current.pinned) void togglePin();
+                }}
+                onToggleAutoLaunch={(enabled) => void toggleAutoLaunch(enabled)}
+                onChooseStorage={() => void chooseStorage()}
+                onDefaultStorage={() => void defaultStorage()}
+                onOpenFolder={(kind) => window.petApi.chatOpenFolder(kind)}
+                onClearStorage={() => void clearStorage()}
+                onOpenControlPanel={openControlPanel}
+                onToast={showToast}
+              />
+            ) : (
+              <StatusPanel
+                data={statusData}
+                loading={statusLoading}
+                notifications={ui.notifications}
+                onToggleNotifications={(enabled) => void toggleNotifications(enabled)}
+                onRefresh={() => void refreshStatus(true)}
+                onClose={closePanel}
+                onOpenSettings={openControlPanel}
+              />
+            )
           ) : null}
         </div>
 
@@ -1982,6 +3352,60 @@ export function ChatPanel() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {profileMenu ? (
+        <ProfileMenu
+          role={profileMenu.role}
+          entry={profileMenu.role === "hiro" ? profile.hiro : profile.me}
+          x={profileMenu.x}
+          y={profileMenu.y}
+          onClose={() => setProfileMenu(null)}
+          onEditAvatar={() => {
+            setEditor({ kind: "avatar", role: profileMenu.role });
+            setProfileMenu(null);
+          }}
+          onEditName={() => {
+            setEditor({ kind: "name", role: profileMenu.role });
+            setProfileMenu(null);
+          }}
+          onResetAvatar={() => {
+            const role = profileMenu.role;
+            setProfileMenu(null);
+            void window.petApi
+              .chatProfileAvatarReset(role)
+              .then(applyProfileResult)
+              .catch(() => showToast("恢复默认头像失败。"));
+          }}
+          onResetName={() => {
+            const role = profileMenu.role;
+            setProfileMenu(null);
+            void window.petApi
+              .chatProfileName(role, role === "hiro" ? "希罗" : "我")
+              .then(applyProfileResult)
+              .catch(() => showToast("恢复默认名称失败。"));
+          }}
+        />
+      ) : null}
+
+      {editor?.kind === "name" ? (
+        <NameEditor
+          role={editor.role}
+          entry={editor.role === "hiro" ? profile.hiro : profile.me}
+          onClose={() => setEditor(null)}
+          onSaved={(data) => setProfile(data)}
+          onError={showToast}
+        />
+      ) : null}
+
+      {editor?.kind === "avatar" ? (
+        <AvatarEditor
+          role={editor.role}
+          entry={editor.role === "hiro" ? profile.hiro : profile.me}
+          onClose={() => setEditor(null)}
+          onSaved={(data) => setProfile(data)}
+          onError={showToast}
+        />
       ) : null}
     </div>
   );

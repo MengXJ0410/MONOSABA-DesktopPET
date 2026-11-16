@@ -113,7 +113,38 @@ export type ChatConfig = {
   ui: ChatUiConfig;
 };
 
-export type ChatUiConfig = {
+export type ChatThemeMode = "night" | "day";
+
+export type ChatFontScale = "sm" | "md" | "lg";
+
+export type ChatLineHeight = "compact" | "normal" | "loose";
+
+export type ChatTheme = {
+  mode: ChatThemeMode;
+  /** 主题色，`#rrggbb`。 */
+  accent: string;
+  /** 当前套用的预设 id；手动调整后为 null。 */
+  presetId: string | null;
+};
+
+export type ChatThemePreset = {
+  id: string;
+  name: string;
+  mode: ChatThemeMode;
+  accent: string;
+  /** 内置预设（希罗）不允许删除。 */
+  builtin?: boolean;
+};
+
+/** 聊天窗口的外观设置，配置与运行态共用。 */
+export type ChatAppearance = {
+  theme: ChatTheme;
+  themePresets: ChatThemePreset[];
+  fontScale: ChatFontScale;
+  lineHeight: ChatLineHeight;
+};
+
+export type ChatUiConfig = ChatAppearance & {
   /** 上次使用的界面模式。 */
   mode: ChatUiMode;
   /** 小窗卡片位置与尺寸（窗口 bounds 去掉 8px 留白）。 */
@@ -128,6 +159,62 @@ export type ChatUiConfig = {
   cacheLimit: number;
   /** 本地缓存 / 缩略图最多占用多少 MB。 */
   cacheMaxMb: number;
+  /** 自定义聊天记录目录；null 表示使用 userData/chat-cache。 */
+  cacheDir: string | null;
+};
+
+export type ChatProfileRole = "hiro" | "me";
+
+export type ChatProfileEntry = {
+  role: ChatProfileRole;
+  name: string;
+  /** 自定义头像 data URL；null 表示内置默认头像。 */
+  avatar: string | null;
+};
+
+export type ChatProfileData = {
+  hiro: ChatProfileEntry;
+  me: ChatProfileEntry;
+};
+
+export type ChatAvatarHistoryItem = {
+  id: string;
+  src: string;
+  createdAt: number;
+};
+
+export type ChatStorageInfo = {
+  dir: string;
+  defaultDir: string;
+  custom: boolean;
+  /** 本地缓存的聊天条数。 */
+  total: number;
+  /** 消息 / 缩略图 / 头像合计占用字节。 */
+  bytes: number;
+  files: {
+    messages: number;
+    meta: number;
+    thumbs: number;
+    avatars: number;
+  };
+  profileDir: string;
+};
+
+export type ChatStorageResult =
+  | { ok: true; info: ChatStorageInfo }
+  | { ok: false; error: string };
+
+/** 设置面板「关于」里显示的排障信息。 */
+export type ChatDiagnostics = {
+  appVersion: string;
+  electron: string;
+  chrome: string;
+  platform: string;
+  status: ChatStatus;
+  epoch: string;
+  cursor: number;
+  hosts: string[];
+  port: number;
 };
 
 export type ChatRole = "user" | "assistant";
@@ -298,7 +385,7 @@ export type ChatMediaResult =
   | { ok: true; dataUrl: string; mime: string }
   | { ok: false; error: string };
 
-export type ChatUiState = {
+export type ChatUiState = ChatAppearance & {
   mode: ChatUiMode;
   pinned: boolean;
   unread: number;
@@ -314,6 +401,7 @@ export type ChatInitialData = {
   ui: ChatUiState;
   commands: ChatCommandsData;
   epoch: string;
+  profile: ChatProfileData;
 };
 
 export type ChatInitialResult = ChatResult<ChatInitialData>;

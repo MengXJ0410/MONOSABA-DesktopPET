@@ -1,17 +1,25 @@
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from "electron";
 import { join } from "node:path";
 import type {
+  ChatAvatarHistoryItem,
+  ChatDiagnostics,
+  ChatFontScale,
   ChatInitialResult,
+  ChatLineHeight,
   ChatMediaKind,
   ChatMediaResult,
   ChatMessage,
+  ChatProfileData,
   ChatResizeDirection,
   ChatSendResult,
+  ChatStorageResult,
+  ChatTheme,
   ChatUiMode,
   ChatUiState,
   Rect,
 } from "../shared/types";
 import { appEntryUrl } from "./app-protocol";
+import { readConfig } from "./config";
 import {
   chatService,
   type ChatService,
@@ -622,6 +630,177 @@ export function initChatWindow(): void {
     return {
       ui: service().getUiState(),
       status: service().getInitial().status,
+    };
+  });
+
+  ipcMain.handle("chat:profile", (event): ChatProfileData | null => {
+    if (!isChatSender(event.sender)) return null;
+    return service().getProfile();
+  });
+
+  ipcMain.handle("chat:profile-name", async (event, role: unknown, name: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    if (role !== "hiro" && role !== "me") return null;
+    try {
+      return await service().setProfileName(role, typeof name === "string" ? name : "");
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "改名失败。" };
+    }
+  });
+
+  ipcMain.handle("chat:profile-avatar", async (event, role: unknown, dataUrl: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    if (role !== "hiro" && role !== "me") return null;
+    try {
+      return await service().saveProfileAvatar(
+        role,
+        typeof dataUrl === "string" ? dataUrl : "",
+      );
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "保存头像失败。" };
+    }
+  });
+
+  ipcMain.handle("chat:profile-avatar-select", async (event, role: unknown, id: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    if (role !== "hiro" && role !== "me") return null;
+    try {
+      return await service().selectProfileAvatar(
+        role,
+        typeof id === "string" && id ? id : null,
+      );
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "切换头像失败。" };
+    }
+  });
+
+  ipcMain.handle("chat:profile-avatar-reset", async (event, role: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    if (role !== "hiro" && role !== "me") return null;
+    try {
+      return await service().resetProfileAvatar(role);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "恢复默认头像失败。" };
+    }
+  });
+
+  ipcMain.handle("chat:profile-history", async (event, role: unknown) => {
+    if (!isChatSender(event.sender)) return [] as ChatAvatarHistoryItem[];
+    if (role !== "hiro" && role !== "me") return [] as ChatAvatarHistoryItem[];
+    return service().getProfileHistory(role);
+  });
+
+  ipcMain.handle("chat:set-theme", async (event, theme: unknown) => {
+    if (!isChatSender(event.sender) || !theme || typeof theme !== "object") return null;
+    const record = theme as Record<string, unknown>;
+    const mode = record.mode === "day" ? "day" : "night";
+    const accent = typeof record.accent === "string" ? record.accent : "#c8102e";
+    const presetId =
+      typeof record.presetId === "string" && record.presetId ? record.presetId : null;
+    return service().setTheme({ mode, accent, presetId });
+  });
+
+  ipcMain.handle("chat:set-font-scale", async (event, value: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    const scale: ChatFontScale =
+      value === "sm" || value === "lg" ? value : "md";
+    return service().setFontScale(scale);
+  });
+
+  ipcMain.handle("chat:set-line-height", async (event, value: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    const height: ChatLineHeight =
+      value === "compact" || value === "loose" ? value : "normal";
+    return service().setLineHeight(height);
+  });
+
+  ipcMain.handle(
+    "chat:preset-save",
+    async (event, name: unknown, theme: unknown): Promise<ChatUiState | { error: string }> => {
+      if (!isChatSender(event.sender)) return { error: "聊天窗口未打开" };
+      if (!theme || typeof theme !== "object") return { error: "主题数据不正确。" };
+      const record = theme as Record<string, unknown>;
+      try {
+        return await service().saveThemePreset(
+          typeof name === "string" ? name : "",
+          {
+            mode: record.mode === "day" ? "day" : "night",
+            accent: typeof record.accent === "string" ? record.accent : "#c8102e",
+            presetId: null,
+          } satisfies ChatTheme,
+        );
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : "保存预设失败。" };
+      }
+    },
+  );
+
+  ipcMain.handle("chat:preset-delete", async (event, id: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    if (typeof id !== "string" || !id) return null;
+    try {
+      return await service().deleteThemePreset(id);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "删除预设失败。" };
+    }
+  });
+
+  ipcMain.handle("chat:storage-info", async (event) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().getStorageInfo();
+  });
+
+  ipcMain.handle("chat:storage-choose", async (event): Promise<ChatStorageResult | null> => {
+    if (!isChatSender(event.sender)) return null;
+    const options: Electron.OpenDialogOptions = {
+      title: "选择聊天记录的存放目录",
+      properties: ["openDirectory", "createDirectory"],
+      buttonLabel: "用这个目录",
+    };
+    const result =
+      chatWindow && !chatWindow.isDestroyed()
+        ? await dialog.showOpenDialog(chatWindow, options)
+        : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false, error: "" };
+    }
+    return service().chooseStorageDir(result.filePaths[0]);
+  });
+
+  ipcMain.handle("chat:storage-default", async (event) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().useDefaultStorageDir();
+  });
+
+  ipcMain.handle("chat:storage-clear", async (event) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().clearCache();
+  });
+
+  ipcMain.handle("chat:open-folder", async (event, kind: unknown) => {
+    if (!isChatSender(event.sender)) return;
+    if (kind === "config") {
+      await shell.openPath(app.getPath("userData"));
+      return;
+    }
+    const info = await service().getStorageInfo();
+    await shell.openPath(kind === "profile" ? info.profileDir : info.dir);
+  });
+
+  ipcMain.handle("chat:diagnostics", async (event): Promise<ChatDiagnostics | null> => {
+    if (!isChatSender(event.sender)) return null;
+    const config = await readConfig();
+    const initial = service().getInitial();
+    return {
+      appVersion: app.getVersion(),
+      electron: process.versions.electron ?? "",
+      chrome: process.versions.chrome ?? "",
+      platform: `${process.platform} ${process.arch}`,
+      status: initial.status,
+      epoch: initial.epoch,
+      cursor: initial.cursor,
+      hosts: config.chat.hosts,
+      port: config.chat.port,
     };
   });
 }
