@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   ChatAvatarHistoryItem,
+  ChatBackgroundPatch,
+  ChatBackgroundUploadResult,
   ChatCommandsData,
   ChatDiagnostics,
   ChatFontScale,
@@ -152,6 +154,18 @@ const api = {
   },
   chatSetLineHeight(height: ChatLineHeight): Promise<ChatUiState | null> {
     return ipcRenderer.invoke("chat:set-line-height", height) as Promise<ChatUiState | null>;
+  },
+  chatSetBackground(patch: ChatBackgroundPatch): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-background", patch) as Promise<ChatUiState | null>;
+  },
+  chatBackgroundGet(): Promise<string | null> {
+    return ipcRenderer.invoke("chat:background-get") as Promise<string | null>;
+  },
+  chatBackgroundUpload(dataUrl: string): Promise<ChatBackgroundUploadResult> {
+    return ipcRenderer.invoke("chat:background-upload", dataUrl) as Promise<ChatBackgroundUploadResult>;
+  },
+  chatBackgroundReset(): Promise<boolean> {
+    return ipcRenderer.invoke("chat:background-reset") as Promise<boolean>;
   },
   chatSavePreset(
     name: string,

@@ -12,6 +12,7 @@ import {
 } from "react";
 import type {
   ChatAttachment,
+  ChatBackgroundPatch,
   ChatCommand,
   ChatCommandsData,
   ChatDiagnostics,
@@ -92,6 +93,24 @@ function formatBytes(value: number): string {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("load failed"));
+    image.src = src;
+  });
 }
 
 const RESIZE_DIRECTIONS: ChatResizeDirection[] = [
@@ -1459,10 +1478,14 @@ function SettingsPanel({
   storage,
   diagnostics,
   autoLaunch,
+  backgroundImage,
   onClose,
   onTheme,
   onFontScale,
   onLineHeight,
+  onBackground,
+  onUploadBackground,
+  onClearBackground,
   onSavePreset,
   onDeletePreset,
   onToggleNotifications,
@@ -1479,10 +1502,14 @@ function SettingsPanel({
   storage: ChatStorageInfo | null;
   diagnostics: ChatDiagnostics | null;
   autoLaunch: boolean;
+  backgroundImage: string | null;
   onClose: () => void;
   onTheme: (theme: ChatTheme) => void;
   onFontScale: (scale: ChatFontScale) => void;
   onLineHeight: (height: ChatLineHeight) => void;
+  onBackground: (patch: ChatBackgroundPatch) => void;
+  onUploadBackground: (file: File) => void;
+  onClearBackground: () => void;
   onSavePreset: (name: string) => Promise<boolean>;
   onDeletePreset: (id: string) => void;
   onToggleNotifications: (enabled: boolean) => void;
@@ -1498,8 +1525,10 @@ function SettingsPanel({
   const [presetName, setPresetName] = useState("");
   const [savingPreset, setSavingPreset] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const backgroundFileRef = useRef<HTMLInputElement | null>(null);
 
   const theme = ui.theme;
+  const chatOpacity = ui.background.chatOpacity ?? 60;
   const apply = (patch: Partial<ChatTheme>) => {
     onTheme({ ...theme, ...patch, presetId: patch.presetId ?? null });
   };
@@ -1681,6 +1710,102 @@ function SettingsPanel({
               {savingPreset ? "保存中" : "存为预设"}
             </button>
           </div>
+        </section>
+
+        <section className={styles.panelSection}>
+          <h3>背景</h3>
+          <div className={styles.sliderRow}>
+            <span className={styles.settingsLabel}>聊天背景不透明度</span>
+            <span className={styles.sliderValue}>{chatOpacity}%</span>
+          </div>
+          <input
+            type="range"
+            className={styles.range}
+            min={0}
+            max={100}
+            step={1}
+            value={chatOpacity}
+            onChange={(event) =>
+              onBackground({ chatOpacity: Number(event.target.value) })
+            }
+            aria-label="聊天背景不透明度"
+          />
+          <div className={styles.sliderRow}>
+            <span className={styles.settingsLabel}>面板背景不透明度</span>
+            <span className={styles.sliderValue}>{ui.background.panelOpacity}%</span>
+          </div>
+          <input
+            type="range"
+            className={styles.range}
+            min={0}
+            max={100}
+            step={1}
+            value={ui.background.panelOpacity}
+            onChange={(event) =>
+              onBackground({ panelOpacity: Number(event.target.value) })
+            }
+            aria-label="面板背景不透明度"
+          />
+
+          <div className={styles.bgHead}>
+            <span>自定义背景</span>
+            <span>{backgroundImage ? "已设置" : "未设置"}</span>
+          </div>
+          <div className={styles.panelBtnRow}>
+            <button
+              type="button"
+              onClick={() => backgroundFileRef.current?.click()}
+            >
+              {icons.image}
+              {backgroundImage ? "更换图片" : "选择图片"}
+            </button>
+            {backgroundImage ? (
+              <button type="button" onClick={onClearBackground}>
+                清除背景
+              </button>
+            ) : null}
+          </div>
+          {backgroundImage ? (
+            <img
+              className={styles.bgPreview}
+              src={backgroundImage}
+              alt="自定义背景预览"
+              draggable={false}
+            />
+          ) : (
+            <p className={styles.historyEmpty}>
+              选一张图作为聊天区背景；不透明度越低，图片越明显。
+            </p>
+          )}
+          <label className={styles.notifyRow}>
+            <span>拓展到全部</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={ui.background.extend}
+              disabled={!backgroundImage}
+              className={`${styles.smallSwitch}${ui.background.extend ? ` ${styles.smallSwitchOn}` : ""}`}
+              onClick={() => onBackground({ extend: !ui.background.extend })}
+            >
+              <span className={styles.switchTrack} aria-hidden="true">
+                <span className={styles.switchThumb} />
+              </span>
+            </button>
+          </label>
+          <p className={styles.storageHint}>
+            关闭时只铺聊天区；打开后铺满标题栏、左栏、右侧面板和输入区，主题暗层仍按两个滑块叠加。
+          </p>
+          <input
+            ref={backgroundFileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className={styles.hiddenInput}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onUploadBackground(file);
+              event.target.value = "";
+            }}
+          />
         </section>
 
         <section className={styles.panelSection}>
@@ -1882,8 +2007,10 @@ export function ChatPanel() {
     ],
     fontScale: "md",
     lineHeight: "normal",
+    background: { chatOpacity: null, panelOpacity: 92, extend: false },
   }));
   const [profile, setProfile] = useState<ChatProfileData>(DEFAULT_PROFILE);
+  const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<ChatProfileRole>("hiro");
   const [profileMenu, setProfileMenu] = useState<{
     role: ChatProfileRole;
@@ -1937,6 +2064,8 @@ export function ChatPanel() {
   const statusTimerRef = useRef<number | null>(null);
   const themeTimerRef = useRef<number | null>(null);
   const themePendingRef = useRef<ChatTheme | null>(null);
+  const backgroundTimerRef = useRef<number | null>(null);
+  const backgroundPendingRef = useRef<ChatBackgroundPatch | null>(null);
   /** 已上屏但还没被桥接确认的消息，等真实消息回来时按文本对账。 */
   const optimisticRef = useRef<{ id: number; text: string }[]>([]);
   const viewerTokenRef = useRef(0);
@@ -1999,12 +2128,20 @@ export function ChatPanel() {
 
   const applyUiState = useCallback((state: ChatUiState) => {
     setUi(() => {
-      // 取色器还在合并写盘时，别被其它 ui-state 广播拉回旧主题。
-      const pending = themePendingRef.current;
-      if (pending && themeTimerRef.current) {
-        return { ...state, theme: pending };
+      let next = state;
+      // 取色器 / 背景滑块还在合并写盘时，别被其它 ui-state 广播拉回旧值。
+      const pendingTheme = themePendingRef.current;
+      if (pendingTheme && themeTimerRef.current) {
+        next = { ...next, theme: pendingTheme };
       }
-      return state;
+      const pendingBackground = backgroundPendingRef.current;
+      if (pendingBackground) {
+        next = {
+          ...next,
+          background: { ...next.background, ...pendingBackground },
+        };
+      }
+      return next;
     });
     window.localStorage.setItem(MODE_STORAGE_KEY, state.mode);
   }, []);
@@ -2054,6 +2191,7 @@ export function ChatPanel() {
       setStatus(data.status);
       applyUiState(data.ui);
       if (data.profile) setProfile(data.profile);
+      setBackgroundImage(data.backgroundImage ?? null);
       if (data.commands?.commands?.length) setCommands(data.commands);
       setLoading(false);
       setNoMore(merged.length >= Math.max(data.total ?? merged.length, merged.length));
@@ -2472,6 +2610,87 @@ export function ChatPanel() {
     [applyUiState, showToast],
   );
 
+  const setBackgroundAppearance = useCallback(
+    (patch: ChatBackgroundPatch) => {
+      // 滑块拖动会连发很多次：先即时生效，再合并写盘。
+      setUi((prev) => ({
+        ...prev,
+        background: { ...prev.background, ...patch },
+      }));
+      backgroundPendingRef.current = {
+        ...(backgroundPendingRef.current ?? {}),
+        ...patch,
+      };
+      if (backgroundTimerRef.current) return;
+      backgroundTimerRef.current = window.setTimeout(() => {
+        backgroundTimerRef.current = null;
+        const pending = backgroundPendingRef.current;
+        backgroundPendingRef.current = null;
+        if (!pending) return;
+        void window.petApi
+          .chatSetBackground(pending)
+          .then((state) => {
+            if (state) applyUiState(state);
+          })
+          .catch(() => showToast("调整背景失败。"));
+      }, 180);
+    },
+    [applyUiState, showToast],
+  );
+
+  const uploadBackground = useCallback(
+    async (file: File) => {
+      if (!/^image\//i.test(file.type)) {
+        showToast("只能选图片文件。");
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        showToast("图片太大了，换一张 20MB 以内的吧。");
+        return;
+      }
+      try {
+        const raw = await readFileAsDataUrl(file);
+        const image = await loadImage(raw);
+        const maxSide = 1920;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const width = Math.max(1, Math.round(image.width * scale));
+        const height = Math.max(1, Math.round(image.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("canvas unavailable");
+        ctx.drawImage(image, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/webp", 0.9);
+        const result = await window.petApi.chatBackgroundUpload(dataUrl);
+        if (!result) return;
+        if (!result.ok) {
+          showToast(result.error);
+          return;
+        }
+        setBackgroundImage(result.dataUrl);
+        showToast("背景已更新");
+      } catch {
+        showToast("处理背景图失败，请换一张试试。");
+      }
+    },
+    [showToast],
+  );
+
+  const clearBackground = useCallback(async () => {
+    try {
+      const ok = await window.petApi.chatBackgroundReset();
+      if (!ok) {
+        showToast("清除背景失败。");
+        return;
+      }
+      setBackgroundImage(null);
+      showToast("已清除自定义背景");
+    } catch {
+      showToast("清除背景失败。");
+    }
+  }, [showToast]);
+
   const savePreset = useCallback(
     async (name: string): Promise<boolean> => {
       try {
@@ -2854,6 +3073,7 @@ export function ChatPanel() {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
       if (statusTimerRef.current) window.clearTimeout(statusTimerRef.current);
       if (themeTimerRef.current) window.clearTimeout(themeTimerRef.current);
+      if (backgroundTimerRef.current) window.clearTimeout(backgroundTimerRef.current);
     };
   }, []);
 
@@ -2875,13 +3095,27 @@ export function ChatPanel() {
     };
   }, []);
 
+  const chatBackgroundOpacity = ui.background.chatOpacity ?? (full ? 60 : 85);
+  const backgroundUrl = backgroundImage ? `url("${backgroundImage}")` : "none";
+  const showCardBackground =
+    Boolean(backgroundImage) && (!full || ui.background.extend);
+  const showChatBackground =
+    Boolean(backgroundImage) && full && !ui.background.extend;
+  const shellVariables = {
+    "--accent": ui.theme.accent,
+    "--chat-bg-alpha": `${chatBackgroundOpacity}%`,
+    "--panel-bg-alpha": `${ui.background.panelOpacity}%`,
+    "--card-bg-image": showCardBackground ? backgroundUrl : "none",
+    "--chat-bg-image": showChatBackground ? backgroundUrl : "none",
+  } as CSSProperties;
+
   return (
     <div
       className={`${styles.shell} ${full ? styles.shellFull : ""}`}
       data-mode={ui.theme.mode}
       data-font={ui.fontScale}
       data-leading={ui.lineHeight}
-      style={{ "--accent": ui.theme.accent } as CSSProperties}
+      style={shellVariables}
     >
       {full ? (
         <div className={styles.resizeLayer}>
@@ -3287,10 +3521,14 @@ export function ChatPanel() {
                 storage={storage}
                 diagnostics={diagnostics}
                 autoLaunch={autoLaunch}
+                backgroundImage={backgroundImage}
                 onClose={closePanel}
                 onTheme={(theme) => void setTheme(theme)}
                 onFontScale={(scale) => void setFontScale(scale)}
                 onLineHeight={(height) => void setLineHeight(height)}
+                onBackground={setBackgroundAppearance}
+                onUploadBackground={(file) => void uploadBackground(file)}
+                onClearBackground={() => void clearBackground()}
                 onSavePreset={savePreset}
                 onDeletePreset={(id) => void deletePreset(id)}
                 onToggleNotifications={(enabled) => void toggleNotifications(enabled)}

@@ -22,6 +22,8 @@
   --on-accent: #fff8f9;
   --chat-font-scale: 1;
   --chat-leading: 1.66;
+  --chat-bg-alpha: 60%;
+  --panel-bg-alpha: 92%;
   --pet-bubble-bg: color-mix(in srgb, var(--bg-base) 90%, transparent);
   --pet-bubble-border: color-mix(in srgb, var(--accent) 50%, transparent);
   --pet-bubble-text: var(--ink);
@@ -170,7 +172,17 @@
 .cardCompact {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   border-radius: 12px;
-  background: linear-gradient(150deg, color-mix(in srgb, var(--bg-base) 85%, transparent), color-mix(in srgb, var(--bg-deep) 85%, transparent));
+  background-color: transparent;
+  background-image:
+    linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--bg-base) var(--chat-bg-alpha), transparent),
+      color-mix(in srgb, var(--bg-deep) var(--chat-bg-alpha), transparent)
+    ),
+    var(--card-bg-image, none);
+  background-size: auto, cover;
+  background-position: center, center;
+  background-repeat: repeat, no-repeat;
   box-shadow:
     0 18px 52px rgba(0, 0, 0, 0.58),
     0 0 26px color-mix(in srgb, var(--accent) 18%, transparent);
@@ -180,7 +192,11 @@
 .cardFull {
   border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
   border-radius: 12px;
-  background: transparent;
+  background-color: transparent;
+  background-image: var(--card-bg-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
 }
 
@@ -218,7 +234,7 @@
 .headerFull {
   gap: 10px;
   padding: 11px 12px 10px 16px;
-  background: color-mix(in srgb, var(--bg-deep) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) var(--panel-bg-alpha), transparent);
 }
 
 .headInfo {
@@ -411,7 +427,7 @@
   width: 76px;
   padding: 16px 8px 12px;
   border-right: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-  background: color-mix(in srgb, var(--bg-deep) 94%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) var(--panel-bg-alpha), transparent);
 }
 
 .railTop {
@@ -564,7 +580,7 @@
 
 .toolbarFull {
   padding: 7px 18px;
-  background: color-mix(in srgb, var(--bg-deep) 90%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) var(--panel-bg-alpha), transparent);
 }
 
 .captureToggle {
@@ -730,7 +746,16 @@
 .listFull {
   gap: 14px;
   padding: 16px 22px 14px;
-  background: color-mix(in srgb, var(--bg-deep) 60%, transparent);
+  background-color: transparent;
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--bg-deep) var(--chat-bg-alpha), transparent),
+      color-mix(in srgb, var(--bg-deep) var(--chat-bg-alpha), transparent)
+    ),
+    var(--chat-bg-image, none);
+  background-size: auto, cover;
+  background-position: center, center;
+  background-repeat: repeat, no-repeat;
 }
 
 .list::-webkit-scrollbar {
@@ -1336,7 +1361,7 @@
 
 .bodyFull .composer {
   padding: 11px 18px 14px;
-  background: color-mix(in srgb, var(--bg-deep) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) var(--panel-bg-alpha), transparent);
 }
 
 .composer textarea {
@@ -1412,7 +1437,7 @@
   min-width: 250px;
   max-width: 34%;
   border-left: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
-  background: color-mix(in srgb, var(--bg-deep) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) var(--panel-bg-alpha), transparent);
 }
 
 .panelHead {
@@ -1871,7 +1896,7 @@
   height: 28px;
   padding: 0 14px;
   border-top: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  background: color-mix(in srgb, var(--bg-deep) 94%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) var(--panel-bg-alpha), transparent);
   color: color-mix(in srgb, var(--ink) 36%, transparent);
   font-size: 10px;
   letter-spacing: 0.02em;
@@ -2486,6 +2511,65 @@
   font-family: ui-monospace, "Cascadia Code", monospace;
   font-size: 10.5px;
   letter-spacing: 0.04em;
+}
+
+.sliderRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0 1px;
+}
+
+.sliderValue {
+  color: var(--ink);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.range {
+  width: 100%;
+  height: 20px;
+  margin: 0 0 5px;
+  accent-color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+}
+
+.range:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.bgHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  font-size: 10.5px;
+}
+
+.bgHead span:last-child {
+  color: color-mix(in srgb, var(--ink) 32%, transparent);
+  font-size: 9.5px;
+}
+
+.bgPreview {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.smallSwitch:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .segmented {

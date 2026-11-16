@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
+  ChatBackgroundConfig,
   ChatBounds,
   ChatFontScale,
   ChatLineHeight,
@@ -38,6 +39,12 @@ const DEFAULT_CHAT_UI: ChatUiConfig = {
   themePresets: DEFAULT_THEME_PRESETS,
   fontScale: "md",
   lineHeight: "normal",
+  background: {
+    chatOpacity: null,
+    panelOpacity: 92,
+    extend: false,
+    image: null,
+  },
 };
 
 const DEFAULT_CONFIG: PetConfig = {
@@ -155,6 +162,28 @@ function normalizeLineHeight(value: unknown): ChatLineHeight {
   return value === "compact" || value === "loose" ? value : "normal";
 }
 
+function normalizeOpacity(value: unknown, fallback: number): number {
+  const parsed = finiteNumber(value);
+  if (parsed === null) return fallback;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
+function normalizeBackground(input: unknown): ChatBackgroundConfig {
+  const background = isRecord(input) ? input : {};
+  const chat = finiteNumber(background.chatOpacity);
+  const image =
+    typeof background.image === "string" &&
+    /^background\.(png|jpe?g|webp)$/i.test(background.image.trim())
+      ? background.image.trim()
+      : null;
+  return {
+    chatOpacity: chat === null ? null : Math.max(0, Math.min(100, Math.round(chat))),
+    panelOpacity: normalizeOpacity(background.panelOpacity, 92),
+    extend: background.extend === true,
+    image,
+  };
+}
+
 function normalizeChatUi(input: unknown): ChatUiConfig {
   const ui = isRecord(input) ? input : {};
   const mode = ui.mode === "full" ? "full" : "compact";
@@ -180,6 +209,7 @@ function normalizeChatUi(input: unknown): ChatUiConfig {
     themePresets: normalizePresets(ui.themePresets),
     fontScale: normalizeFontScale(ui.fontScale),
     lineHeight: normalizeLineHeight(ui.lineHeight),
+    background: normalizeBackground(ui.background),
   };
 }
 

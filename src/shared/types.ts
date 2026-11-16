@@ -144,7 +144,29 @@ export type ChatAppearance = {
   lineHeight: ChatLineHeight;
 };
 
+export type ChatBackground = {
+  /** 聊天区不透明度 0–100；null = 按模式默认（完整版 60 / 小窗 85）。 */
+  chatOpacity: number | null;
+  /** 面板（标题栏 / 左栏 / 右侧面板 / 输入区 / 状态栏）不透明度 0–100。 */
+  panelOpacity: number;
+  /** 自定义背景是否铺满整张卡片。 */
+  extend: boolean;
+};
+
+export type ChatBackgroundConfig = ChatBackground & {
+  /** 背景图文件名（userData/background/ 下）；null 表示没有自定义背景。 */
+  image: string | null;
+};
+
+export type ChatBackgroundPatch = Partial<ChatBackground>;
+
+export type ChatBackgroundUploadResult =
+  | { ok: true; dataUrl: string }
+  | { ok: false; error: string };
+
 export type ChatUiConfig = ChatAppearance & {
+  /** 背景透明度与自定义背景图。 */
+  background: ChatBackgroundConfig;
   /** 上次使用的界面模式。 */
   mode: ChatUiMode;
   /** 小窗卡片位置与尺寸（窗口 bounds 去掉 8px 留白）。 */
@@ -392,6 +414,7 @@ export type ChatUiState = ChatAppearance & {
   pinned: boolean;
   unread: number;
   notifications: boolean;
+  background: ChatBackground;
 };
 
 export type ChatInitialData = {
@@ -404,6 +427,8 @@ export type ChatInitialData = {
   commands: ChatCommandsData;
   epoch: string;
   profile: ChatProfileData;
+  /** 自定义背景图 data URL；没有时是 null。 */
+  backgroundImage: string | null;
 };
 
 export type ChatInitialResult = ChatResult<ChatInitialData>;

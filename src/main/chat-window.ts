@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type {
   ChatAvatarHistoryItem,
+  ChatBackgroundPatch,
+  ChatBackgroundUploadResult,
   ChatDiagnostics,
   ChatFontScale,
   ChatInitialResult,
@@ -751,6 +753,56 @@ export function initChatWindow(): void {
     const height: ChatLineHeight =
       value === "compact" || value === "loose" ? value : "normal";
     return service().setLineHeight(height);
+  });
+
+  ipcMain.handle("chat:set-background", async (event, patch: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    const record =
+      patch && typeof patch === "object"
+        ? (patch as Record<string, unknown>)
+        : {};
+    const next: ChatBackgroundPatch = {};
+    if (record.chatOpacity === null) next.chatOpacity = null;
+    else if (typeof record.chatOpacity === "number" && Number.isFinite(record.chatOpacity)) {
+      next.chatOpacity = Math.max(0, Math.min(100, Math.round(record.chatOpacity)));
+    }
+    if (typeof record.panelOpacity === "number" && Number.isFinite(record.panelOpacity)) {
+      next.panelOpacity = Math.max(0, Math.min(100, Math.round(record.panelOpacity)));
+    }
+    if (typeof record.extend === "boolean") next.extend = record.extend;
+    return service().setBackground(next);
+  });
+
+  ipcMain.handle("chat:background-get", async (event) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().getInitial().backgroundImage;
+  });
+
+  ipcMain.handle(
+    "chat:background-upload",
+    async (event, dataUrl: unknown): Promise<ChatBackgroundUploadResult> => {
+      if (!isChatSender(event.sender)) {
+        return { ok: false, error: "聊天窗口未打开" };
+      }
+      if (typeof dataUrl !== "string" || !dataUrl) {
+        return { ok: false, error: "背景图数据不正确。" };
+      }
+      try {
+        const saved = await service().saveBackground(dataUrl);
+        return { ok: true, dataUrl: saved };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "保存背景图失败。",
+        };
+      }
+    },
+  );
+
+  ipcMain.handle("chat:background-reset", async (event) => {
+    if (!isChatSender(event.sender)) return false;
+    await service().clearBackground();
+    return true;
   });
 
   ipcMain.handle(

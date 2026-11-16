@@ -3,6 +3,9 @@ import { existsSync, promises as fs, type Dirent } from "node:fs";
 import { join, resolve } from "node:path";
 import type {
   ChatAppearance,
+  ChatBackground,
+  ChatBackgroundConfig,
+  ChatBackgroundPatch,
   ChatCommand,
   ChatCommandsData,
   ChatFontScale,
@@ -24,6 +27,7 @@ import type {
 } from "../../shared/types";
 import { readConfig, updateChatUi } from "../config";
 import { profileStore } from "../profile";
+import { backgroundStore } from "./background";
 import { captureDisplay } from "./capture";
 import {
   bootstrapChat,
@@ -50,6 +54,11 @@ const DEFAULT_APPEARANCE: ChatAppearance = {
   themePresets: DEFAULT_THEME_PRESETS,
   fontScale: "md",
   lineHeight: "normal",
+};
+const DEFAULT_BACKGROUND: ChatBackground = {
+  chatOpacity: null,
+  panelOpacity: 92,
+  extend: false,
 };
 const DEFAULT_PROFILE: ChatProfileData = {
   hiro: { role: "hiro", name: "希罗", avatar: null },
@@ -202,6 +211,14 @@ function pickAppearance(ui: ChatUiConfig): ChatAppearance {
   };
 }
 
+function toBackground(config: ChatBackgroundConfig): ChatBackground {
+  return {
+    chatOpacity: config.chatOpacity,
+    panelOpacity: config.panelOpacity,
+    extend: config.extend,
+  };
+}
+
 async function fileSize(path: string): Promise<number> {
   try {
     const stat = await fs.stat(path);
@@ -252,8 +269,10 @@ export class ChatService {
     unread: 0,
     notifications: true,
     ...DEFAULT_APPEARANCE,
+    background: DEFAULT_BACKGROUND,
   };
   private profile: ChatProfileData = DEFAULT_PROFILE;
+  private backgroundImage: string | null = null;
   private uiConfig: ChatUiConfig | null = null;
   private status: ChatStatus = { state: "offline", detail: "正在连接……" };
   private commands: ChatCommandsData = {
@@ -290,6 +309,7 @@ export class ChatService {
       unread: 0,
       notifications: config.chat.ui.notifications,
       ...pickAppearance(config.chat.ui),
+      background: toBackground(config.chat.ui.background),
     };
 
     this.store = new ChatStore(config.chat.ui.cacheDir ?? undefined);
@@ -305,6 +325,11 @@ export class ChatService {
       this.profile = await profileStore.getData();
     } catch (error) {
       console.warn("[chat] load profile failed", error);
+    }
+    try {
+      this.backgroundImage = await backgroundStore.load();
+    } catch (error) {
+      console.warn("[chat] load background failed", error);
     }
 
     this.pollTimer = setInterval(() => {
@@ -538,6 +563,7 @@ export class ChatService {
       commands: this.commands,
       epoch: this.lastEpoch,
       profile: this.profile,
+      backgroundImage: this.backgroundImage,
     };
   }
 
@@ -680,6 +706,7 @@ export class ChatService {
       cacheMaxMb: 500,
       cacheDir: ChatStore.defaultDir(),
       ...DEFAULT_APPEARANCE,
+      background: { ...DEFAULT_BACKGROUND, image: null },
     };
   }
 
@@ -705,6 +732,38 @@ export class ChatService {
     this.ui = { ...this.ui, lineHeight: next.lineHeight };
     broadcast("chat:ui-state", this.getUiState());
     return this.getUiState();
+  }
+
+  async setBackground(patch: ChatBackgroundPatch): Promise<ChatUiState> {
+    const current = this.getUiConfig();
+    const next = await updateChatUi({
+      background: { ...current.background, ...patch },
+    });
+    this.uiConfig = next;
+    this.ui = { ...this.ui, background: toBackground(next.background) };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async saveBackground(dataUrl: string): Promise<string> {
+    const saved = await backgroundStore.save(dataUrl);
+    const current = this.getUiConfig();
+    const next = await updateChatUi({
+      background: { ...current.background, image: saved.image },
+    });
+    this.uiConfig = next;
+    this.backgroundImage = saved.dataUrl;
+    return saved.dataUrl;
+  }
+
+  async clearBackground(): Promise<void> {
+    await backgroundStore.clear();
+    const current = this.getUiConfig();
+    const next = await updateChatUi({
+      background: { ...current.background, image: null },
+    });
+    this.uiConfig = next;
+    this.backgroundImage = null;
   }
 
   async saveThemePreset(name: string, theme: ChatTheme): Promise<ChatUiState> {

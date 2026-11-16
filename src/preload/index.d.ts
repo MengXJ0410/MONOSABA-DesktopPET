@@ -1,5 +1,7 @@
 import type {
   ChatAvatarHistoryItem,
+  ChatBackgroundPatch,
+  ChatBackgroundUploadResult,
   ChatCommandsData,
   ChatDiagnostics,
   ChatFontScale,
@@ -80,6 +82,10 @@ export type PetApi = {
   chatSetTheme(theme: ChatTheme): Promise<ChatUiState | null>;
   chatSetFontScale(scale: ChatFontScale): Promise<ChatUiState | null>;
   chatSetLineHeight(height: ChatLineHeight): Promise<ChatUiState | null>;
+  chatSetBackground(patch: ChatBackgroundPatch): Promise<ChatUiState | null>;
+  chatBackgroundGet(): Promise<string | null>;
+  chatBackgroundUpload(dataUrl: string): Promise<ChatBackgroundUploadResult>;
+  chatBackgroundReset(): Promise<boolean>;
   chatSavePreset(
     name: string,
     theme: ChatTheme,
