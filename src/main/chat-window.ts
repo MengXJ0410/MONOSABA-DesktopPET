@@ -46,6 +46,17 @@ type ResizeSession = {
   startBounds: Rect;
 };
 
+/**
+ * 窗口图标。打包后 `build/` 不在 app.asar 里，必须从 extraResources 读，
+ * 否则路径无效，Windows 会退回默认图标。
+ */
+function chatWindowIcon(): string {
+  const dir = app.isPackaged
+    ? process.resourcesPath
+    : join(app.getAppPath(), "build");
+  return join(dir, "icon-chat.png");
+}
+
 let resizeSession: ResizeSession | null = null;
 let resizeTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -298,7 +309,7 @@ function createChatWindow(mode: ChatUiMode, bounds: Rect): BrowserWindow {
     skipTaskbar: !full,
     alwaysOnTop: !full || service().getUiState().pinned,
     title: "希罗",
-    icon: join(app.getAppPath(), "build", "icon.png"),
+    icon: chatWindowIcon(),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,

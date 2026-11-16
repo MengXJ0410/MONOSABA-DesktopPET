@@ -15,7 +15,19 @@ order: 110
 
 按时间倒序记录桌面端的实际变化。时间以提交和打包产物为准，时区 `Asia/Shanghai`。
 
-当前版本：**0.2.0**（便携版 `MONOSABA-DesktopPET-0.2.0-portable.exe`）；服务器桥接插件：**0.3.1**。
+当前版本：**0.2.1**（便携版 `MONOSABA-DesktopPET-0.2.1-portable.exe`）；服务器桥接插件：**0.3.1**。
+
+## 2026-11-16 · 0.2.1：任务栏图标修复
+
+| 变化 | 说明 |
+| --- | --- |
+| 任务栏图标 | 完整版聊天窗口的图标改成希罗聊天头像（`build/icon-chat.png`） |
+| 修复 | 打包后任务栏图标变成默认图标 |
+| 产物 | `MONOSABA-DesktopPET-0.2.1-portable.exe` |
+
+根因不复杂但很典型：窗口 `icon` 写的是 `app.getAppPath()/build/icon.png`，开发模式指向项目根目录没问题；打包后 `app.getAppPath()` 是 `resources/app.asar`，而 electron-builder 的 `files` 只包含 `out/**` 和 `package.json`，`build/` 根本不在 asar 里。路径无效，Windows 就退回默认图标。
+
+现在图标文件通过 `extraResources` 输出到 `resources/icon-chat.png`，主进程按 `app.isPackaged` 分别取 `process.resourcesPath` 和项目 `build/`。托盘图标和通知图标本来就走同一套解析，所以只有聊天窗口受影响。
 
 ## 2026-11-16 · 0.2.0：聊天个性化与稳定性
 

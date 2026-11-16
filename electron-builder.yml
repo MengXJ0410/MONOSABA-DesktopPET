@@ -19,6 +19,8 @@ extraResources:
     to: icon-ema.png
   - from: build/icon-unread.png
     to: icon-unread.png
+  - from: build/icon-chat.png
+    to: icon-chat.png
 
 win:
   target:
