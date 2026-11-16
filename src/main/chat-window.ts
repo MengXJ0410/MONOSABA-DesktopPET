@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, shell } from "electron";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type {
   ChatAvatarHistoryItem,
@@ -49,12 +50,23 @@ type ResizeSession = {
 /**
  * 窗口图标。打包后 `build/` 不在 app.asar 里，必须从 extraResources 读，
  * 否则路径无效，Windows 会退回默认图标。
+ *
+ * Windows 任务栏默认按 AppUserModelID 合并按钮，只设 BrowserWindow.icon
+ * 通常只在标题栏 / Alt+Tab 生效；优先用 ICO，并在创建后单独设置 AUMID。
  */
 function chatWindowIcon(): string {
   const dir = app.isPackaged
     ? process.resourcesPath
     : join(app.getAppPath(), "build");
+  const ico = join(dir, "icon-chat.ico");
+  if (existsSync(ico)) return ico;
   return join(dir, "icon-chat.png");
+}
+
+function relaunchCommand(): string {
+  const portable = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (portable && existsSync(portable)) return portable;
+  return process.execPath;
 }
 
 let resizeSession: ResizeSession | null = null;
@@ -322,6 +334,22 @@ function createChatWindow(mode: ChatUiMode, bounds: Rect): BrowserWindow {
 
   chatWindow = win;
   chatWindowMode = mode;
+  const icon = chatWindowIcon();
+  try {
+    win.setIcon(icon);
+    if (process.platform === "win32") {
+      // 单独的任务栏身份，避免被合并进进程默认图标（Windows 11 默认合并按钮）。
+      win.setAppDetails({
+        appId: "com.mengxj.monosaba.chat",
+        appIconPath: icon,
+        appIconIndex: 0,
+        relaunchCommand: relaunchCommand(),
+        relaunchDisplayName: "希罗",
+      });
+    }
+  } catch (error) {
+    console.warn("[chat] set taskbar icon failed", error);
+  }
   if (resizeTimer) {
     clearInterval(resizeTimer);
     resizeTimer = null;

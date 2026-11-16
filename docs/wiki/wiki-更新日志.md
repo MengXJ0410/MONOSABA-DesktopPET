@@ -15,7 +15,20 @@ order: 110
 
 按时间倒序记录桌面端的实际变化。时间以提交和打包产物为准，时区 `Asia/Shanghai`。
 
-当前版本：**0.2.1**（便携版 `MONOSABA-DesktopPET-0.2.1-portable.exe`）；服务器桥接插件：**0.3.1**。
+当前版本：**0.2.2**（便携版 `MONOSABA-DesktopPET-0.2.2-portable.exe`）；服务器桥接插件：**0.3.1**。
+
+## 2026-11-16 · 0.2.2：任务栏图标最终修复
+
+| 变化 | 说明 |
+| --- | --- |
+| 图标格式 | 窗口图标改用 `icon-chat.ico`，并显式 `win.setIcon()` |
+| 任务栏身份 | 聊天窗口单独设置 AUMID `com.mengxj.monosaba.chat` |
+| relaunch 图标 | `win.setAppDetails({ appIconPath, appIconIndex, … })` 指向聊天头像 |
+| 产物 | `MONOSABA-DesktopPET-0.2.2-portable.exe` |
+
+Windows 11 默认「合并任务栏按钮」，按钮显示的是 **AppUserModelID 的图标**，不是窗口自己的 `icon`。所以只改 `BrowserWindow.icon` 只能影响标题栏和 Alt+Tab；0.2.1 修好路径后任务栏仍然是进程默认图标。
+
+这次的解法是给聊天窗口一个独立的 AppUserModelID，并把该身份的 relaunch 图标指向 ICO。`appIconPath` 必须是 `appId` 同时设置才会生效，`relaunchCommand` / `relaunchDisplayName` 也要成对出现。
 
 ## 2026-11-16 · 0.2.1：任务栏图标修复
 

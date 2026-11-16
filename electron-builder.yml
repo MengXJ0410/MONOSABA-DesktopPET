@@ -21,6 +21,8 @@ extraResources:
     to: icon-unread.png
   - from: build/icon-chat.png
     to: icon-chat.png
+  - from: build/icon-chat.ico
+    to: icon-chat.ico
 
 win:
   target:
