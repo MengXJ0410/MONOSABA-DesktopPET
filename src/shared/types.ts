@@ -436,4 +436,6 @@ export type ChatInitialResult = ChatResult<ChatInitialData>;
 export type PetConfig = {
   diary: DiaryConfig;
   chat: ChatConfig;
+  /** 用户是否开启过开机自启；升级换代后用它把自启路径修到当前 exe。 */
+  autoLaunch: boolean;
 };

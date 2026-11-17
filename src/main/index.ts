@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, screen, shell } from "electron";
 import { join } from "node:path";
 import { registerAppProtocol, registerAppScheme } from "./app-protocol";
-import { getAutoLaunchEnabled, setAutoLaunchEnabled } from "./auto-launch";
+import { getAutoLaunchEnabled, ensureAutoLaunch, setAutoLaunchEnabled } from "./auto-launch";
 import { ensureConfig } from "./config";
 import { listDisplays, selectDisplay, setForceTop, syncWindowToDisplay, disposeForceTop } from "./display";
 import {
@@ -43,6 +43,7 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
     await ensureConfig();
+    await ensureAutoLaunch();
     registerAppProtocol();
     initDiaryWindow();
     initChatWindow();
@@ -127,9 +128,9 @@ if (!gotLock) {
     });
 
     ipcMain.handle("app:get-auto-launch", () => getAutoLaunchEnabled());
-    ipcMain.handle("app:set-auto-launch", (_event, enabled: unknown) => {
+    ipcMain.handle("app:set-auto-launch", async (_event, enabled: unknown) => {
       try {
-        return setAutoLaunchEnabled(Boolean(enabled));
+        return await setAutoLaunchEnabled(Boolean(enabled));
       } catch (error) {
         console.warn("[auto-launch] write failed", error);
         return getAutoLaunchEnabled();

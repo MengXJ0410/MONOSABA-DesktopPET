@@ -48,6 +48,7 @@ const DEFAULT_CHAT_UI: ChatUiConfig = {
 };
 
 const DEFAULT_CONFIG: PetConfig = {
+  autoLaunch: false,
   diary: {
     hosts: ["10.144.144.1", "192.168.124.47", "192.168.124.48"],
     port: 22,
@@ -227,6 +228,7 @@ function normalizeConfig(input: unknown): PetConfig {
     : normalizedHosts;
 
   return {
+    autoLaunch: isRecord(input) && input.autoLaunch === true,
     diary: {
       hosts: normalizedHosts,
       port:
@@ -330,4 +332,10 @@ export async function updateChatUi(
     },
   });
   return next;
+}
+
+/** 记录用户是否开启过开机自启；升级后据此把自启路径修到当前 exe。 */
+export async function updateAutoLaunch(enabled: boolean): Promise<void> {
+  const raw = await readRawConfig();
+  await writeRawConfig({ ...raw, autoLaunch: enabled });
 }
