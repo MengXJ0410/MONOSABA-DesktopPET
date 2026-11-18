@@ -676,6 +676,7 @@ export function Live2DCompanion() {
   // 画面连续多轮没变化时，主进程暂停点评；这里只提示一次。
   useEffect(() => {
     return window.petApi.onCommentaryPaused((text) => {
+      if (!commentaryRef.current.enabled) return;
       showBubble(text || "屏幕一直没变，我先不点评了。", 9000);
     });
   }, [showBubble]);
