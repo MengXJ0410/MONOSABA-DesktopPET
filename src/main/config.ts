@@ -373,6 +373,15 @@ function normalizeBackground(input: unknown): ChatBackgroundConfig {
 function normalizeChatUi(input: unknown): ChatUiConfig {
   const ui = isRecord(input) ? input : {};
   const mode = ui.mode === "full" ? "full" : "compact";
+  const theme = normalizeTheme(ui.theme);
+  const themePresets = normalizePresets(ui.themePresets);
+  // 导入 / 删除后 presetId 可能指向不存在的预设，置空并保留当前颜色。
+  if (
+    theme.presetId &&
+    !themePresets.some((preset) => preset.id === theme.presetId)
+  ) {
+    theme.presetId = null;
+  }
   return {
     mode,
     compactBounds: normalizeBounds(ui.compactBounds),
@@ -391,8 +400,8 @@ function normalizeChatUi(input: unknown): ChatUiConfig {
       typeof ui.cacheDir === "string" && ui.cacheDir.trim()
         ? ui.cacheDir.trim()
         : null,
-    theme: normalizeTheme(ui.theme),
-    themePresets: normalizePresets(ui.themePresets),
+    theme,
+    themePresets,
     fontScale: normalizeFontScale(ui.fontScale),
     lineHeight: normalizeLineHeight(ui.lineHeight),
     messageFont: normalizeMessageFont(ui.messageFont, DEFAULT_MESSAGE_FONT),

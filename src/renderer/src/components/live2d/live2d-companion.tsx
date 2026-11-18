@@ -1511,6 +1511,11 @@ export function Live2DCompanion() {
     if (commentaryRounds.length === 0) autoChoiceRef.current = null;
   }, [commentaryRounds.length]);
 
+  // 修改位置 / 最大宽度后重新选择，让「自动」立即生效。
+  useEffect(() => {
+    autoChoiceRef.current = null;
+  }, [bubbleSettings.maxWidth, bubbleSettings.position]);
+
   const resolvedPosition = useMemo<ResolvedBubblePosition>(() => {
     if (bubbleSettings.position !== "auto") return bubbleSettings.position;
     if (!characterBox || !layout) return "top";

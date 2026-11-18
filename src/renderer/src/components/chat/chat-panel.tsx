@@ -686,17 +686,22 @@ function TypewriterText({
       setShown(text);
       return;
     }
-    let index = 0;
+    let shown = 0;
+    let accumulated = 0;
+    // 50ms 一跳，按字/秒累加，低速时不会退化成固定 25 字/秒。
+    const tickMs = 50;
+    const perTick = charsPerSecond / (1000 / tickMs);
     setShown("");
     setTyping(true);
-    // 40ms 一跳，25 跳/秒；按速度换算每跳显示几个字。
-    const step = Math.max(1, Math.round(charsPerSecond / 25));
     timerRef.current = window.setInterval(() => {
-      index = Math.min(text.length, index + step);
-      setShown(text.slice(0, index));
+      accumulated += perTick;
+      const next = Math.min(text.length, Math.floor(accumulated));
+      if (next <= shown) return;
+      shown = next;
+      setShown(text.slice(0, shown));
       onTickRef.current?.();
-      if (index >= text.length) stop();
-    }, 40);
+      if (shown >= text.length) stop();
+    }, tickMs);
     return stop;
   }, [animate, charsPerSecond, id, stop, text]);
 
@@ -2366,7 +2371,7 @@ function SettingsPanel({
       <header className={styles.panelHead}>
         <div>
           <h2>设置</h2>
-          <span className={styles.panelUpdated}>外观、通知与本地数据</span>
+          <span className={styles.panelUpdated}>外观、气泡、字体与本地数据</span>
         </div>
         <div className={styles.panelActions}>
           <button
