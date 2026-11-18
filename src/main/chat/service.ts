@@ -725,10 +725,13 @@ export class ChatService {
       if (value.startsWith("【希罗现在的心情")) return;
       if (!isCommentarySameReply(message.text)) {
         this.silentReplyIds.add(message.id);
+        parts.push(message.text);
+        const segment = normalizeCommentary(message.text);
+        if (segment) emit(segment, segmentIndex++, false);
+      } else {
+        // 隐藏标记只用于判断画面没变，不生成气泡。
+        parts.push(message.text);
       }
-      parts.push(message.text);
-      const segment = normalizeCommentary(message.text);
-      if (segment) emit(segment, segmentIndex++, false);
       if (quietTimer) clearTimeout(quietTimer);
       quietTimer = setTimeout(() => finish(parts.join("").trim() || null), quietMs);
     };

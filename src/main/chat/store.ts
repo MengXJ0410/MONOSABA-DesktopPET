@@ -4,7 +4,6 @@ import { dirname, join } from "node:path";
 import type {
   ChatAttachment,
   ChatMessage,
-  ChatRole,
 } from "../../shared/types";
 import { isCommentarySameReply } from "../commentary-marker";
 
@@ -290,7 +289,12 @@ export class ChatStore {
         if (!line.trim()) continue;
         try {
           const message = normalizeMessage(JSON.parse(line) as unknown);
-          if (message) loaded.push(message);
+          if (
+            message &&
+            !(message.role === "assistant" && isCommentarySameReply(message.text))
+          ) {
+            loaded.push(message);
+          }
         } catch {
           // 损坏的一行跳过，不影响其它缓存。
         }

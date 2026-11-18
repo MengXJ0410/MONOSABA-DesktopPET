@@ -31,7 +31,6 @@ import type {
   ChatStatusData,
   ChatStorageInfo,
   ChatTheme,
-  ChatThemePreset,
   ChatTypewriterSettings,
   ChatUiMode,
   ChatUiState,
@@ -3083,6 +3082,7 @@ export function ChatPanel() {
       const merged = mergeUnique(data.messages ?? [], pendingRef.current);
       pendingRef.current = [];
       freshMessageIdsRef.current.clear();
+      typedMessageIds.clear();
       initializedRef.current = true;
       knownIdsRef.current = new Set(
         merged.filter((message) => message.id !== 0).map((message) => message.id),

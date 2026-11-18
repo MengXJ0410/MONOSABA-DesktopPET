@@ -28,11 +28,6 @@ const THUMB_EXTS = ["webp", "png", "jpg", "gif"];
 
 type CachedData = { dataUrl: string; mime: string };
 
-function mimeFromName(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  return MIME_BY_EXT[ext] ?? "image/webp";
-}
-
 function thumbStem(media: string): string {
   return media.replace(/\.[a-z0-9]{2,5}$/i, "");
 }
