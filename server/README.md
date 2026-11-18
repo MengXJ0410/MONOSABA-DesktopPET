@@ -2,7 +2,7 @@
 
 `astrbot_plugin_desktoppet_bridge` 让 MONOSABA DesktopPET 的聊天窗口和手机 QQ 私聊共用同一个 AstrBot 会话。
 
-当前版本 **0.3.4**：点评整轮跳过心情 / 好感；睡着时只回 `zzZ`，不注入模型回合。
+当前版本 **0.3.4**：点评整轮跳过心情 / 好感；睡着时只回 `zzZ`，不注入模型回合。配套 mood 1.5.0、sleep 0.1.4、life 0.1.9。
 
 - 桌面消息注入 `Hiro:FriendMessage:1955272576`，走完整管线（人格 / 记忆 / 会话）。
 - 注入事件使用假 bot，希罗对桌面消息的回复不会发到 QQ。
