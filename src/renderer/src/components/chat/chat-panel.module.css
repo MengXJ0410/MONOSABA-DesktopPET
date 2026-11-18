@@ -3040,6 +3040,23 @@
   gap: 2px;
 }
 
+.fontReset {
+  justify-self: start;
+  margin-top: 4px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.fontReset:hover {
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  color: var(--accent-soft);
+}
+
 .subHeading {
   margin: 12px 0 4px;
   color: color-mix(in srgb, var(--ink) 88%, transparent);

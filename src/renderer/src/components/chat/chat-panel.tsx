@@ -1723,9 +1723,11 @@ function ColorRow({
 function FontControls({
   font,
   onChange,
+  onReset,
 }: {
   font: MessageFont;
   onChange: (patch: Partial<MessageFont>) => void;
+  onReset?: () => void;
 }) {
   return (
     <div className={styles.fontControls}>
@@ -1816,6 +1818,11 @@ function FontControls({
         </>
       ) : null}
       <p className={styles.storageHint}>字体统一使用微软雅黑 / 黑体。</p>
+      {onReset ? (
+        <button type="button" className={styles.fontReset} onClick={onReset}>
+          恢复默认字体
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1941,6 +1948,7 @@ function BubbleSection({
       <FontControls
         font={bubble.font}
         onChange={(font) => onChange({ font })}
+        onReset={() => onChange({ font: { ...DEFAULT_BUBBLE.font } })}
       />
     </>
   );
@@ -2676,7 +2684,11 @@ function SettingsPanel({
               </span>
             </span>
           </div>
-          <FontControls font={ui.messageFont} onChange={onMessageFont} />
+          <FontControls
+            font={ui.messageFont}
+            onChange={onMessageFont}
+            onReset={() => onMessageFont(DEFAULT_MESSAGE_FONT)}
+          />
           <p className={styles.storageHint}>
             文字颜色对希罗和我的气泡同时生效，自定义时注意对比度；留「自动」则跟随原配色。
           </p>

@@ -74,6 +74,7 @@ import {
 } from "@/content/bubble";
 import type {
   BubbleSettings,
+  CommentaryRunResult,
   CommentarySettings,
   DisplayInfo,
   Rect,
@@ -672,6 +673,13 @@ export function Live2DCompanion() {
     }, duration);
   }, []);
 
+  // 画面连续多轮没变化时，主进程暂停点评；这里只提示一次。
+  useEffect(() => {
+    return window.petApi.onCommentaryPaused((text) => {
+      showBubble(text || "屏幕一直没变，我先不点评了。", 9000);
+    });
+  }, [showBubble]);
+
   /** 点评气泡按轮次归并：同一轮的分段追加到同一条气泡里。 */
   const pushCommentary = useCallback(
     (roundId: string, text: string, final: boolean) => {
@@ -1151,13 +1159,16 @@ export function Live2DCompanion() {
     let cancelled = false;
     let timer: number | null = null;
     const runCharacter = character;
-    const schedule = () => {
+    const schedule = (nextDelayMs?: number) => {
       const min = Math.max(30, commentary.minSeconds);
       const max = Math.max(min, commentary.maxSeconds);
-      const delay = Math.min(
-        (min + Math.random() * (max - min)) * 1000,
-        LIVE2D_COMMENTARY_MAX_SECONDS * 1000,
-      );
+      const delay =
+        nextDelayMs !== undefined
+          ? nextDelayMs
+          : Math.min(
+              (min + Math.random() * (max - min)) * 1000,
+              LIVE2D_COMMENTARY_MAX_SECONDS * 1000,
+            );
       timer = window.setTimeout(async () => {
         timer = null;
         if (cancelled) return;
@@ -1165,13 +1176,20 @@ export function Live2DCompanion() {
           schedule();
           return;
         }
+        let result: CommentaryRunResult | null = null;
         try {
           // 气泡由主进程的 chat:commentary 事件负责；这里只等一轮结束再排下一轮。
-          await window.petApi.runCommentary(runCharacter);
+          result = await window.petApi.runCommentary(runCharacter);
         } catch {
           // 失败就等下一轮。
         }
-        if (!cancelled) schedule();
+        if (cancelled) return;
+        // 内容连续多轮没变化时，主进程会暂停点评；30 秒后再看一次画面 / 鼠标。
+        const shouldProbe =
+          result !== null &&
+          ((result.ok === false && result.reason === "stalled") ||
+            (result.ok === true && result.paused === true));
+        schedule(shouldProbe ? 30_000 : undefined);
       }, delay);
     };
     schedule();

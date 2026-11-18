@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { registerAppProtocol, registerAppScheme } from "./app-protocol";
 import { getAutoLaunchEnabled, ensureAutoLaunch, setAutoLaunchEnabled } from "./auto-launch";
 import { ensureConfig, readConfig, updateBubble, updateCommentary } from "./config";
-import { runCommentary } from "./commentary";
+import { resetCommentaryWatch, runCommentary } from "./commentary";
 import type {
   BubbleSettings,
   CommentarySettings,
@@ -176,6 +176,7 @@ if (!gotLock) {
         next.maxSeconds = record.maxSeconds;
       }
       const settings = await updateCommentary(next);
+      resetCommentaryWatch();
       broadcastToAll("pet:commentary", settings);
       return settings;
     });

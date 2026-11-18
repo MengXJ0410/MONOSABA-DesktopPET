@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ChatRole,
 } from "../../shared/types";
+import { isCommentarySameReply } from "../commentary-marker";
 
 const CACHE_DIR_NAME = "chat-cache";
 const MESSAGES_FILE = "messages.jsonl";
@@ -126,8 +127,20 @@ export function mergeHistoryAndLog(
   history: ChatMessage[],
   log: ChatMessage[],
 ): ChatMessage[] {
-  const hist = dedupeAdjacent(history.map((item) => ({ ...item })));
-  const entries = dedupeAdjacent(log.map((item) => ({ ...item })));
+  const hist = dedupeAdjacent(
+    history
+      .filter(
+        (item) => !(item.role === "assistant" && isCommentarySameReply(item.text)),
+      )
+      .map((item) => ({ ...item })),
+  );
+  const entries = dedupeAdjacent(
+    log
+      .filter(
+        (item) => !(item.role === "assistant" && isCommentarySameReply(item.text)),
+      )
+      .map((item) => ({ ...item })),
+  );
   if (hist.length === 0) return sortMessages(entries);
   if (entries.length === 0) {
     return sortMessages(withApproximateTimes(hist, Date.now()));

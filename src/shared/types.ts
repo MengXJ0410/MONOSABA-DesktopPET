@@ -550,8 +550,21 @@ export type CommentarySettings = {
 };
 
 export type CommentaryRunResult =
-  | { ok: true; text: string }
-  | { ok: false; skipped?: boolean; error?: string };
+  | {
+      ok: true;
+      text: string;
+      /** 这一轮之后进入了暂停（连续 3 轮点评内容接近）。 */
+      paused?: boolean;
+    }
+  | {
+      ok: false;
+      skipped?: boolean;
+      error?: string;
+      /** stalled = 已经暂停，画面还没变化；same = 这一轮画面没变但还没到暂停阈值。 */
+      reason?: "stalled" | "busy" | "same";
+      /** 这一次是否刚好进入暂停（用于只提示一次）。 */
+      paused?: boolean;
+    };
 
 /**
  * 主进程收到一段点评回复就广播一次，气泡与聊天窗口同步出现；

@@ -25,6 +25,7 @@ import type {
 } from "../shared/types";
 import { appEntryUrl } from "./app-protocol";
 import { readConfig } from "./config";
+import { resetCommentaryWatch } from "./commentary";
 import {
   exportChatSettings,
   importChatSettings,
@@ -849,6 +850,7 @@ export function initChatWindow(): void {
     );
     if (result.ok) {
       await service().reloadUi();
+      resetCommentaryWatch();
       const config = await readConfig();
       broadcastToWindows("pet:bubble", config.bubble);
       broadcastToWindows("pet:commentary", config.commentary);

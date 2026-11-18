@@ -344,6 +344,15 @@ const api = {
       ipcRenderer.removeListener("pet:commentary", listener);
     };
   },
+  onCommentaryPaused(handler: (text: string) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, text: unknown) => {
+      handler(typeof text === "string" ? text : "");
+    };
+    ipcRenderer.on("pet:commentary-paused", listener);
+    return () => {
+      ipcRenderer.removeListener("pet:commentary-paused", listener);
+    };
+  },
   runCommentary(character?: string): Promise<CommentaryRunResult> {
     return ipcRenderer.invoke("pet:run-commentary", character) as Promise<CommentaryRunResult>;
   },

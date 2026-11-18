@@ -144,6 +144,7 @@ export type PetApi = {
   getCommentary(): Promise<CommentarySettings>;
   setCommentary(patch: Partial<CommentarySettings>): Promise<CommentarySettings>;
   onCommentary(handler: (settings: CommentarySettings) => void): () => void;
+  onCommentaryPaused(handler: (text: string) => void): () => void;
   runCommentary(character?: string): Promise<CommentaryRunResult>;
   onCommentaryReply(handler: (event: CommentaryReplyEvent) => void): () => void;
   getBubble(): Promise<BubbleSettings>;

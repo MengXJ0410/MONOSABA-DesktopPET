@@ -30,6 +30,7 @@ import type {
   MessageFont,
 } from "../../shared/types";
 import { readConfig, updateBubble, updateChatUi } from "../config";
+import { isCommentarySameReply } from "../commentary-marker";
 import { normalizeCommentary } from "../commentary-text";
 import { profileStore } from "../profile";
 import { backgroundStore } from "./background";
@@ -479,7 +480,24 @@ export class ChatService {
     const normalized = messages
       .map((item) => normalizeMessage(item))
       .filter((item): item is ChatMessage => item !== null);
-    const hadNew = normalized.length > 0;
+
+    // 点评的隐藏 [[SAME]] 标记也要通知等待器，但不进入聊天 / 缓存。
+    for (const message of normalized) {
+      if (message.role !== "assistant") continue;
+      for (const listener of this.replyListeners) {
+        try {
+          listener(message);
+        } catch (error) {
+          console.warn("[chat] reply listener failed", error);
+        }
+      }
+    }
+    const displayable = normalized.filter(
+      (message) =>
+        !(message.role === "assistant" && isCommentarySameReply(message.text)),
+    );
+
+    const hadNew = displayable.length > 0;
     this.lastCursor = Math.max(this.lastCursor, data.cursor ?? 0);
     if (epoch) this.lastEpoch = epoch;
     this.lastQqConnected = data.qqConnected === true;
@@ -491,20 +509,10 @@ export class ChatService {
     }
 
     void this.store
-      ?.append(normalized)
+      ?.append(displayable)
       .then((added) => {
         if (added.length === 0) return;
         this.invalidateMood();
-        for (const message of added) {
-          if (message.role !== "assistant") continue;
-          for (const listener of this.replyListeners) {
-            try {
-              listener(message);
-            } catch (error) {
-              console.warn("[chat] reply listener failed", error);
-            }
-          }
-        }
         broadcast("chat:messages", added);
         this.handleUnread(added);
       })
@@ -715,7 +723,9 @@ export class ChatService {
       if (!value) return;
       // 心情插件的主动报告不算点评回复。
       if (value.startsWith("【希罗现在的心情")) return;
-      this.silentReplyIds.add(message.id);
+      if (!isCommentarySameReply(message.text)) {
+        this.silentReplyIds.add(message.id);
+      }
       parts.push(message.text);
       const segment = normalizeCommentary(message.text);
       if (segment) emit(segment, segmentIndex++, false);
