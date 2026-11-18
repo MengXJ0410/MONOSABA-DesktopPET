@@ -1,4 +1,6 @@
 import type {
+  BubblePreviewEvent,
+  BubbleSettings,
   ChatAvatarHistoryItem,
   ChatBackgroundPatch,
   ChatBackgroundUploadResult,
@@ -23,6 +25,7 @@ import type {
   ChatTheme,
   ChatUiMode,
   ChatUiState,
+  ChatTypewriterSettings,
   CommentaryRunResult,
   CommentaryReplyEvent,
   CommentarySettings,
@@ -32,6 +35,7 @@ import type {
   MemoryPayload,
   MemoryUpdateInput,
   MemoryWriteResult,
+  MessageFont,
 } from "../shared/types";
 
 export type DiaryResult =
@@ -85,6 +89,10 @@ export type PetApi = {
   chatSetTheme(theme: ChatTheme): Promise<ChatUiState | null>;
   chatSetFontScale(scale: ChatFontScale): Promise<ChatUiState | null>;
   chatSetLineHeight(height: ChatLineHeight): Promise<ChatUiState | null>;
+  chatSetMessageFont(patch: Partial<MessageFont>): Promise<ChatUiState | null>;
+  chatSetTypewriter(
+    patch: Partial<ChatTypewriterSettings>,
+  ): Promise<ChatUiState | null>;
   chatSetBackground(patch: ChatBackgroundPatch): Promise<ChatUiState | null>;
   chatBackgroundGet(): Promise<string | null>;
   chatBackgroundUpload(dataUrl: string): Promise<ChatBackgroundUploadResult>;
@@ -125,6 +133,13 @@ export type PetApi = {
   onCommentary(handler: (settings: CommentarySettings) => void): () => void;
   runCommentary(character?: string): Promise<CommentaryRunResult>;
   onCommentaryReply(handler: (event: CommentaryReplyEvent) => void): () => void;
+  getBubble(): Promise<BubbleSettings>;
+  setBubble(
+    patch: Partial<Omit<BubbleSettings, "font">> & { font?: Partial<MessageFont> },
+  ): Promise<BubbleSettings>;
+  onBubble(handler: (settings: BubbleSettings) => void): () => void;
+  previewBubble(text: string, ttlMs?: number): void;
+  onBubblePreview(handler: (event: BubblePreviewEvent) => void): () => void;
   listDisplays(): Promise<DisplayInfo[]>;
   setDisplay(displayId: string): Promise<DisplayInfo | null>;
   setForceTop(enabled: boolean): Promise<boolean>;

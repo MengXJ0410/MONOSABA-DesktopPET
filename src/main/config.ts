@@ -3,6 +3,8 @@ import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
+  BubblePosition,
+  BubbleSettings,
   ChatBackgroundConfig,
   ChatBounds,
   ChatFontScale,
@@ -10,8 +12,10 @@ import type {
   ChatTheme,
   ChatThemeMode,
   ChatThemePreset,
+  ChatTypewriterSettings,
   ChatUiConfig,
   CommentarySettings,
+  MessageFont,
   PetConfig,
 } from "../shared/types";
 
@@ -19,6 +23,40 @@ const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const COMMENTARY_MIN_SECONDS = 30;
 /** setTimeout 的上限约 24.8 天，超过这个值没有实际意义。 */
 const COMMENTARY_MAX_SECONDS = 2_147_483;
+
+/** 两套字体配置共用同一套默认值；气泡默认带一点阴影保证浅色桌面可读。 */
+const DEFAULT_MESSAGE_FONT: MessageFont = {
+  bold: false,
+  color: "",
+  stroke: false,
+  strokeWidth: 1,
+  strokeColor: "#000000",
+  shadow: false,
+  shadowBlur: 4,
+  shadowColor: "#000000",
+};
+
+const DEFAULT_BUBBLE_FONT: MessageFont = {
+  ...DEFAULT_MESSAGE_FONT,
+  shadow: true,
+  shadowBlur: 6,
+};
+
+const DEFAULT_TYPEWRITER: ChatTypewriterSettings = {
+  enabled: true,
+  charsPerSecond: 25,
+};
+
+const DEFAULT_BUBBLE: BubbleSettings = {
+  fontSize: 13,
+  opacity: 84,
+  position: "top",
+  maxWidth: 260,
+  plainText: false,
+  autoHideSeconds: 0,
+  rounds: 3,
+  font: DEFAULT_BUBBLE_FONT,
+};
 
 const DEFAULT_THEME: ChatTheme = {
   mode: "night",
@@ -43,6 +81,8 @@ const DEFAULT_CHAT_UI: ChatUiConfig = {
   themePresets: DEFAULT_THEME_PRESETS,
   fontScale: "md",
   lineHeight: "normal",
+  messageFont: DEFAULT_MESSAGE_FONT,
+  typewriter: DEFAULT_TYPEWRITER,
   background: {
     chatOpacity: null,
     panelOpacity: 92,
@@ -58,6 +98,7 @@ const DEFAULT_CONFIG: PetConfig = {
     minSeconds: 30,
     maxSeconds: 300,
   },
+  bubble: DEFAULT_BUBBLE,
   diary: {
     hosts: ["10.144.144.1", "192.168.124.47", "192.168.124.48"],
     port: 22,
@@ -178,6 +219,81 @@ function normalizeOpacity(value: unknown, fallback: number): number {
   return Math.max(0, Math.min(100, Math.round(parsed)));
 }
 
+function normalizeColor(value: unknown, fallback: string, allowAuto = false): string {
+  if (allowAuto && value === "") return "";
+  return typeof value === "string" && HEX_COLOR.test(value.trim())
+    ? value.trim().toLowerCase()
+    : fallback;
+}
+
+function normalizeMessageFont(input: unknown, defaults: MessageFont): MessageFont {
+  const font = isRecord(input) ? input : {};
+  const strokeWidth = finiteNumber(font.strokeWidth);
+  const shadowBlur = finiteNumber(font.shadowBlur);
+  return {
+    bold: typeof font.bold === "boolean" ? font.bold : defaults.bold,
+    color: normalizeColor(font.color, defaults.color, true),
+    stroke: typeof font.stroke === "boolean" ? font.stroke : defaults.stroke,
+    strokeWidth:
+      strokeWidth === null
+        ? defaults.strokeWidth
+        : Math.max(0, Math.min(4, Math.round(strokeWidth * 10) / 10)),
+    strokeColor: normalizeColor(font.strokeColor, defaults.strokeColor),
+    shadow: typeof font.shadow === "boolean" ? font.shadow : defaults.shadow,
+    shadowBlur:
+      shadowBlur === null
+        ? defaults.shadowBlur
+        : Math.max(0, Math.min(16, Math.round(shadowBlur))),
+    shadowColor: normalizeColor(font.shadowColor, defaults.shadowColor),
+  };
+}
+
+function normalizeTypewriter(input: unknown): ChatTypewriterSettings {
+  const row = isRecord(input) ? input : {};
+  const speed = finiteNumber(row.charsPerSecond);
+  return {
+    enabled: row.enabled !== false,
+    charsPerSecond:
+      speed === null ? DEFAULT_TYPEWRITER.charsPerSecond : Math.max(5, Math.min(60, Math.round(speed))),
+  };
+}
+
+function normalizeBubblePosition(value: unknown): BubblePosition {
+  return value === "left" || value === "right" ? value : "top";
+}
+
+function normalizeBubble(input: unknown): BubbleSettings {
+  const row = isRecord(input) ? input : {};
+  const fontSize = finiteNumber(row.fontSize);
+  const opacity = finiteNumber(row.opacity);
+  const maxWidth = finiteNumber(row.maxWidth);
+  const autoHide = finiteNumber(row.autoHideSeconds);
+  const rounds = finiteNumber(row.rounds);
+  return {
+    fontSize:
+      fontSize === null
+        ? DEFAULT_BUBBLE.fontSize
+        : Math.max(12, Math.min(24, Math.round(fontSize))),
+    opacity:
+      opacity === null
+        ? DEFAULT_BUBBLE.opacity
+        : Math.max(20, Math.min(100, Math.round(opacity))),
+    position: normalizeBubblePosition(row.position),
+    maxWidth:
+      maxWidth === null
+        ? DEFAULT_BUBBLE.maxWidth
+        : Math.max(180, Math.min(420, Math.round(maxWidth))),
+    plainText: row.plainText === true,
+    autoHideSeconds:
+      autoHide === null
+        ? DEFAULT_BUBBLE.autoHideSeconds
+        : Math.max(0, Math.min(300, Math.round(autoHide))),
+    rounds:
+      rounds === null ? DEFAULT_BUBBLE.rounds : Math.max(1, Math.min(5, Math.round(rounds))),
+    font: normalizeMessageFont(row.font, DEFAULT_BUBBLE_FONT),
+  };
+}
+
 function normalizeCommentary(input: unknown): CommentarySettings {
   const row = isRecord(input) ? input : {};
   const rawMin = finiteNumber(row.minSeconds) ?? 30;
@@ -238,6 +354,8 @@ function normalizeChatUi(input: unknown): ChatUiConfig {
     themePresets: normalizePresets(ui.themePresets),
     fontScale: normalizeFontScale(ui.fontScale),
     lineHeight: normalizeLineHeight(ui.lineHeight),
+    messageFont: normalizeMessageFont(ui.messageFont, DEFAULT_MESSAGE_FONT),
+    typewriter: normalizeTypewriter(ui.typewriter),
     background: normalizeBackground(ui.background),
   };
 }
@@ -258,6 +376,7 @@ function normalizeConfig(input: unknown): PetConfig {
   return {
     autoLaunch: isRecord(input) && input.autoLaunch === true,
     commentary: normalizeCommentary(isRecord(input) ? input.commentary : null),
+    bubble: normalizeBubble(isRecord(input) ? input.bubble : null),
     diary: {
       hosts: normalizedHosts,
       port:
@@ -376,5 +495,20 @@ export async function updateCommentary(
   const current = normalizeCommentary(raw.commentary);
   const next = normalizeCommentary({ ...current, ...patch });
   await writeRawConfig({ ...raw, commentary: next });
+  return next;
+}
+
+export async function updateBubble(
+  patch: Partial<Omit<BubbleSettings, "font">> & { font?: Partial<MessageFont> },
+): Promise<BubbleSettings> {
+  const raw = await readRawConfig();
+  const current = normalizeBubble(raw.bubble);
+  const { font, ...rest } = patch;
+  const next = normalizeBubble({
+    ...current,
+    ...rest,
+    font: font ? { ...current.font, ...font } : current.font,
+  });
+  await writeRawConfig({ ...raw, bubble: next });
   return next;
 }

@@ -283,26 +283,28 @@ export function Live2DSettingsPanel({
         >
           自动轮换
         </button>
-        <button
-          ref={commentaryButtonRef}
-          type="button"
-          className={`appearance-choice appearance-system appearance-wide${commentaryEnabled ? " is-on" : ""}`}
-          aria-pressed={commentaryEnabled}
-          aria-label={`随机点评，当前${commentaryEnabled ? "已开启" : "已关闭"}，悬停可设置间隔`}
-          title={
-            commentaryEnabled
-              ? "随机点评已开启，悬停设置间隔，点击关闭"
-              : "随机点评已关闭，悬停设置间隔，点击开启"
-          }
-          onClick={onToggleCommentary}
-          onPointerEnter={(event) => {
-            if (event.pointerType === "mouse") openPopover("commentary");
-          }}
-          onPointerLeave={() => scheduleClosePopover()}
-          onFocus={() => openPopover("commentary")}
-        >
-          随机点评
-        </button>
+        {character === "hiro" ? (
+          <button
+            ref={commentaryButtonRef}
+            type="button"
+            className={`appearance-choice appearance-system appearance-wide${commentaryEnabled ? " is-on" : ""}`}
+            aria-pressed={commentaryEnabled}
+            aria-label={`随机点评，当前${commentaryEnabled ? "已开启" : "已关闭"}，悬停可设置间隔`}
+            title={
+              commentaryEnabled
+                ? "随机点评已开启，悬停设置间隔，点击关闭"
+                : "随机点评已关闭，悬停设置间隔，点击开启"
+            }
+            onClick={onToggleCommentary}
+            onPointerEnter={(event) => {
+              if (event.pointerType === "mouse") openPopover("commentary");
+            }}
+            onPointerLeave={() => scheduleClosePopover()}
+            onFocus={() => openPopover("commentary")}
+          >
+            随机点评
+          </button>
+        ) : null}
         <button
           type="button"
           className={`appearance-choice appearance-system appearance-wide${forceTop ? " is-on" : ""}`}
@@ -374,7 +376,7 @@ export function Live2DSettingsPanel({
           onPointerUp={handlePopoverPointerUp}
         />
       ) : null}
-      {activePopover?.kind === "commentary" ? (
+      {activePopover?.kind === "commentary" && character === "hiro" ? (
         <Live2DCommentaryPopover
           anchor={activePopover.anchor}
           panel={activePopover.panel}

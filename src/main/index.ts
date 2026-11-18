@@ -2,12 +2,14 @@ import { app, BrowserWindow, ipcMain, Menu, screen, shell } from "electron";
 import { join } from "node:path";
 import { registerAppProtocol, registerAppScheme } from "./app-protocol";
 import { getAutoLaunchEnabled, ensureAutoLaunch, setAutoLaunchEnabled } from "./auto-launch";
-import { ensureConfig, readConfig, updateCommentary } from "./config";
+import { ensureConfig, readConfig, updateBubble, updateCommentary } from "./config";
 import { runCommentary } from "./commentary";
 import type {
+  BubbleSettings,
   CommentarySettings,
   MemoryDeleteInput,
   MemoryUpdateInput,
+  MessageFont,
 } from "../shared/types";
 import { listDisplays, selectDisplay, setForceTop, syncWindowToDisplay, disposeForceTop } from "./display";
 import {
@@ -180,6 +182,38 @@ if (!gotLock) {
     ipcMain.handle("pet:run-commentary", async (_event, character: unknown) =>
       runCommentary(typeof character === "string" ? character : undefined),
     );
+
+    ipcMain.handle("bubble:get", async () => (await readConfig()).bubble);
+    ipcMain.handle("bubble:set", async (_event, patch: unknown) => {
+      const record =
+        patch && typeof patch === "object"
+          ? (patch as Record<string, unknown>)
+          : {};
+      const { font, ...rest } = record;
+      const next = await updateBubble({
+        ...(rest as Partial<Omit<BubbleSettings, "font">>),
+        font:
+          font && typeof font === "object"
+            ? (font as Partial<MessageFont>)
+            : undefined,
+      });
+      broadcastToAll("pet:bubble", next);
+      return next;
+    });
+    ipcMain.on("bubble:preview", (_event, payload: unknown) => {
+      const record =
+        payload && typeof payload === "object"
+          ? (payload as Record<string, unknown>)
+          : {};
+      const text = typeof record.text === "string" ? record.text.slice(0, 200) : "";
+      if (!text) return;
+      const ttl =
+        typeof record.ttlMs === "number" && Number.isFinite(record.ttlMs)
+          ? Math.max(400, Math.min(5000, Math.round(record.ttlMs)))
+          : 1500;
+      // 只影响桌宠气泡的临时预览，不写聊天记录、不触发通知。
+      broadcastToAll("pet:bubble-preview", { text, ttlMs: ttl });
+    });
 
     ipcMain.on("app:quit", () => app.quit());
     ipcMain.on("app:open-config", () => {

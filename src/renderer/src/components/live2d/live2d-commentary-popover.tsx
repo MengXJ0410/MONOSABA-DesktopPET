@@ -172,6 +172,9 @@ export function Live2DCommentaryPopover({
       <p className="appearance-rotate-hint">
         开启后停用待机闲谈；滑块到 600 秒，数值框可填任意 ≥30 秒的值。
       </p>
+      <p className="appearance-rotate-hint">
+        字号、字体和气泡样式请在聊天设置 → 桌宠气泡里调整。
+      </p>
     </Live2DHoverPopover>
   );
 }

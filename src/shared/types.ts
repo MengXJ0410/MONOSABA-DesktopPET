@@ -136,12 +136,56 @@ export type ChatThemePreset = {
   builtin?: boolean;
 };
 
+/** 消息文字样式。聊天消息和桌宠气泡各存一份，互不影响。 */
+export type MessageFont = {
+  bold: boolean;
+  /** `#rrggbb`；空字符串表示跟随原有配色。 */
+  color: string;
+  stroke: boolean;
+  /** 描边宽度（px），0–4。 */
+  strokeWidth: number;
+  strokeColor: string;
+  shadow: boolean;
+  /** 阴影模糊半径（px），0–16。 */
+  shadowBlur: number;
+  shadowColor: string;
+};
+
+/** 聊天消息逐字输出。 */
+export type ChatTypewriterSettings = {
+  enabled: boolean;
+  /** 每秒显示多少个字，5–60。 */
+  charsPerSecond: number;
+};
+
 /** 聊天窗口的外观设置，配置与运行态共用。 */
 export type ChatAppearance = {
   theme: ChatTheme;
   themePresets: ChatThemePreset[];
   fontScale: ChatFontScale;
   lineHeight: ChatLineHeight;
+  messageFont: MessageFont;
+  typewriter: ChatTypewriterSettings;
+};
+
+export type BubblePosition = "top" | "left" | "right";
+
+/** 桌宠气泡的外观设置；桌宠和聊天设置共用同一份。 */
+export type BubbleSettings = {
+  /** 字号（px），12–24。 */
+  fontSize: number;
+  /** 背景不透明度（%），20–100；纯文字模式下不生效。 */
+  opacity: number;
+  position: BubblePosition;
+  /** 气泡最大宽度（px），180–420。 */
+  maxWidth: number;
+  /** 无气泡纯文字：去掉底色和边框。 */
+  plainText: boolean;
+  /** 最后一段到达后自动隐藏（秒），0 = 不自动隐藏。 */
+  autoHideSeconds: number;
+  /** 点评气泡保留多少轮，1–5。 */
+  rounds: number;
+  font: MessageFont;
 };
 
 export type ChatBackground = {
@@ -440,6 +484,8 @@ export type PetConfig = {
   autoLaunch: boolean;
   /** 随机屏幕点评。 */
   commentary: CommentarySettings;
+  /** 桌宠气泡外观（位置、字号、字体、透明度）。 */
+  bubble: BubbleSettings;
 };
 
 export type CommentarySettings = {
@@ -454,8 +500,22 @@ export type CommentaryRunResult =
   | { ok: true; text: string }
   | { ok: false; skipped?: boolean; error?: string };
 
-/** 主进程收齐一轮点评后广播给桌宠渲染层；气泡只认这个事件。 */
+/**
+ * 主进程收到一段点评回复就广播一次，气泡与聊天窗口同步出现；
+ * `final` 只表示这一轮已经收齐，渲染层不用等它才能上屏。
+ */
 export type CommentaryReplyEvent = {
   text: string;
   character?: string;
+  roundId: string;
+  /** 本轮第几段，从 0 开始。 */
+  seq: number;
+  final: boolean;
+};
+
+/** 聊天设置里调整气泡时，让桌宠立刻显示一句预览。 */
+export type BubblePreviewEvent = {
+  text: string;
+  /** 毫秒；到点自动收起预览。 */
+  ttlMs: number;
 };

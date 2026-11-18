@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -67,7 +68,16 @@ import { advanceIdleGaze, createIdleGaze, type IdleGazeState } from "@/lib/live2
 import { shouldPlayClickSound } from "@/lib/live2d/click-sound";
 import { repelPanel } from "@/lib/live2d/panel-placement";
 import { Live2DSettingsPanel } from "@/components/live2d/live2d-settings-panel";
-import type { CommentarySettings, DisplayInfo, Rect } from "../../../../shared/types";
+import {
+  DEFAULT_BUBBLE,
+  messageFontVars,
+} from "@/content/bubble";
+import type {
+  BubbleSettings,
+  CommentarySettings,
+  DisplayInfo,
+  Rect,
+} from "../../../../shared/types";
 import styles from "./live2d-companion.module.css";
 
 type CompanionStatus = "idle" | "loading" | "ready" | "error";
@@ -172,6 +182,49 @@ function computePanelPlacement(
     bounds,
   );
   return { left: placed.left, top: placed.top, width };
+}
+
+type BubblePlacement = { left: number; top: number };
+
+/** 按设置把气泡放到人物正上方 / 左侧 / 右侧，并夹在屏幕内。 */
+function computeBubblePlacement(
+  characterBox: CharacterBox,
+  layout: StageLayout,
+  viewport: { width: number; height: number },
+  size: { width: number; height: number },
+  position: BubbleSettings["position"],
+  gap = 10,
+  edge = 8,
+): BubblePlacement {
+  const width = Math.max(48, size.width || 220);
+  const height = Math.max(24, size.height || 40);
+  const boxLeft = layout.left + characterBox.x;
+  const boxTop = layout.top + characterBox.y;
+  const boxRight = boxLeft + characterBox.width;
+  const boxBottom = boxTop + characterBox.height;
+  const centerX = boxLeft + characterBox.width / 2;
+  const centerY = boxTop + characterBox.height / 2;
+
+  let left: number;
+  let top: number;
+  if (position === "left" || position === "right") {
+    top = centerY - height / 2;
+    left = position === "left" ? boxLeft - width - 12 : boxRight + 12;
+    // 这一侧放不下就翻到另一侧。
+    if (position === "left" && left < edge) left = boxRight + 12;
+    if (position === "right" && left + width > viewport.width - edge) {
+      left = boxLeft - width - 12;
+    }
+  } else {
+    left = centerX - width / 2;
+    top = boxTop - height - gap;
+    // 头顶空间不够时改到人物下方，避免盖在脸上。
+    if (top < edge) top = boxBottom + gap;
+  }
+
+  left = clamp(left, edge, Math.max(edge, viewport.width - width - edge));
+  top = clamp(top, edge, Math.max(edge, viewport.height - height - edge));
+  return { left: left - layout.left, top: top - layout.top };
 }
 
 function loadCubismCore(): Promise<void> {
@@ -442,7 +495,18 @@ export function Live2DCompanion() {
   }>({ characterBox: null, layout: null, viewport: { width: 0, height: 0 }, anchor: { x: 12, y: 12 } });
   const [status, setStatus] = useState<CompanionStatus>("idle");
   const [bubble, setBubble] = useState<string | null>(null);
-  const [commentaryRounds, setCommentaryRounds] = useState<string[]>([]);
+  const [commentaryRounds, setCommentaryRounds] = useState<
+    { id: string; segments: string[] }[]
+  >([]);
+  const [bubbleSettings, setBubbleSettings] = useState<BubbleSettings>(DEFAULT_BUBBLE);
+  const [bubblePreview, setBubblePreview] = useState<string | null>(null);
+  const [commentaryHidden, setCommentaryHidden] = useState(false);
+  const [bubbleSize, setBubbleSize] = useState({ width: 0, height: 0 });
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
+  const bubblePreviewTimerRef = useRef<number | null>(null);
+  const commentaryHideTimerRef = useRef<number | null>(null);
+  const bubbleSettingsRef = useRef(bubbleSettings);
+  bubbleSettingsRef.current = bubbleSettings;
   const [iconFailed, setIconFailed] = useState(false);
   const iconRef = useRef<HTMLImageElement>(null);
   const appRef = useRef<Application | null>(null);
@@ -488,6 +552,45 @@ export function Live2DCompanion() {
     };
   }, []);
 
+  // 气泡外观由 config.json 的 bubble 统一管理，聊天设置改完立即同步到桌宠。
+  useEffect(() => {
+    let cancelled = false;
+    void window.petApi
+      .getBubble()
+      .then((next) => {
+        if (!cancelled) setBubbleSettings(next);
+      })
+      .catch(() => undefined);
+    const off = window.petApi.onBubble((next) => setBubbleSettings(next));
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+
+  // 聊天设置里拖字号 / 透明度时，让真实气泡临时显示一句预览。
+  useEffect(() => {
+    const off = window.petApi.onBubblePreview((event) => {
+      const text = typeof event?.text === "string" ? event.text : "";
+      if (!text) return;
+      if (bubblePreviewTimerRef.current) {
+        window.clearTimeout(bubblePreviewTimerRef.current);
+      }
+      setBubblePreview(text);
+      bubblePreviewTimerRef.current = window.setTimeout(() => {
+        bubblePreviewTimerRef.current = null;
+        setBubblePreview(null);
+      }, Math.max(400, event.ttlMs || 1500));
+    });
+    return () => {
+      off();
+      if (bubblePreviewTimerRef.current) {
+        window.clearTimeout(bubblePreviewTimerRef.current);
+        bubblePreviewTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const showBubble = useCallback((text: string, duration = 6200) => {
     if (bubbleTimerRef.current) window.clearTimeout(bubbleTimerRef.current);
     setBubble(text);
@@ -497,29 +600,84 @@ export function Live2DCompanion() {
     }, duration);
   }, []);
 
-  /** 点评气泡常驻，最多保留最近 3 轮；普通台词临时盖在上面。 */
-  const pushCommentary = useCallback((text: string) => {
-    setCommentaryRounds((current) => [...current, text].slice(-3));
-  }, []);
+  /** 点评气泡按轮次归并：同一轮的分段追加到同一条气泡里。 */
+  const pushCommentary = useCallback(
+    (roundId: string, text: string, final: boolean) => {
+      if (final && !text) {
+        // 收尾事件只用来结束这一轮，不需要改动内容。
+        return;
+      }
+      setCommentaryRounds((current) => {
+        const index = current.findIndex((round) => round.id === roundId);
+        let next: { id: string; segments: string[] }[];
+        if (index === -1) {
+          if (!text) return current;
+          next = [...current, { id: roundId, segments: [text] }];
+        } else if (!text) {
+          next = current;
+        } else {
+          next = current.map((round, i) =>
+            i === index ? { ...round, segments: [...round.segments, text] } : round,
+          );
+        }
+        const limit = Math.max(1, Math.min(5, bubbleSettingsRef.current.rounds));
+        return next.length > limit ? next.slice(next.length - limit) : next;
+      });
+      if (text) {
+        setCommentaryHidden(false);
+        if (commentaryHideTimerRef.current) {
+          window.clearTimeout(commentaryHideTimerRef.current);
+          commentaryHideTimerRef.current = null;
+        }
+        const seconds = bubbleSettingsRef.current.autoHideSeconds;
+        if (seconds > 0) {
+          commentaryHideTimerRef.current = window.setTimeout(() => {
+            commentaryHideTimerRef.current = null;
+            setCommentaryHidden(true);
+          }, seconds * 1000);
+        }
+      }
+    },
+    [],
+  );
 
-  // 气泡只认主进程收齐一轮后发的 chat:commentary，不再依赖 runCommentary 的返回值。
+  // 每段回复到达就上屏；final 只表示这一轮结束，不影响显示时机。
   useEffect(() => {
     return window.petApi.onCommentaryReply((event) => {
       const text = typeof event?.text === "string" ? event.text.trim() : "";
-      if (!text) return;
+      if (!text && !event?.final) return;
       if (!commentaryRef.current.enabled) return;
       if (event.character && event.character !== characterRef.current) return;
-      pushCommentary(text);
+      const roundId = typeof event.roundId === "string" && event.roundId
+        ? event.roundId
+        : `legacy-${event.seq ?? 0}`;
+      pushCommentary(roundId, text, event.final === true);
     });
   }, [pushCommentary]);
 
   useEffect(() => {
-    if (!commentary.enabled) setCommentaryRounds([]);
+    if (!commentary.enabled) {
+      setCommentaryRounds([]);
+      setCommentaryHidden(false);
+    }
   }, [commentary.enabled]);
 
   useEffect(() => {
     setCommentaryRounds([]);
-  }, [character]);
+    setCommentaryHidden(false);
+    if (commentaryHideTimerRef.current) {
+      window.clearTimeout(commentaryHideTimerRef.current);
+      commentaryHideTimerRef.current = null;
+    }
+  }, [character, commentary.enabled]);
+
+  // 保留轮数调小后立刻裁掉多余轮次。
+  useEffect(() => {
+    const limit = Math.max(1, Math.min(5, bubbleSettings.rounds));
+    setCommentaryRounds((current) =>
+      current.length > limit ? current.slice(current.length - limit) : current,
+    );
+  }, [bubbleSettings.rounds]);
 
   const clearBubble = useCallback(() => {
     if (bubbleTimerRef.current) {
@@ -912,7 +1070,9 @@ export function Live2DCompanion() {
 
   // 随机点评：每次先随机一个间隔，到点截取鼠标所在屏幕并让希罗点评。
   // 聊天窗口聚焦时由主进程跳过；这里负责人物隐藏、面板打开和模型未就绪时暂停。
+  // 艾玛没有接入聊天与点评：切到艾玛后不再调度，切回希罗自动恢复原来的开关。
   useEffect(() => {
+    if (character !== "hiro") return;
     if (!commentary.enabled) return;
     if (!visible || !summoned || settingsOpen) return;
     if (status !== "ready") return;
@@ -1244,6 +1404,63 @@ export function Live2DCompanion() {
       : defaultTop;
     return { left, top, width, height };
   }, [characterBox, position, scale, viewport]);
+
+  /** 当前气泡内容：临时台词 > 设置预览 > 常驻点评。 */
+  const bubbleMode: "preview" | "plain" | "commentary" | null = !visible
+    ? null
+    : bubble
+      ? "plain"
+      : bubblePreview
+        ? "preview"
+        : commentaryRounds.length > 0 && !commentaryHidden
+          ? "commentary"
+          : null;
+
+  const bubblePlacement = useMemo(() => {
+    if (!bubbleMode || !characterBox || !layout) return null;
+    return computeBubblePlacement(
+      characterBox,
+      layout,
+      viewport,
+      bubbleSize,
+      bubbleSettings.position,
+    );
+  }, [
+    bubbleMode,
+    bubbleSettings.position,
+    bubbleSize,
+    characterBox,
+    layout,
+    viewport,
+  ]);
+
+  useLayoutEffect(() => {
+    const element = bubbleRef.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    if (
+      Math.abs(rect.width - bubbleSize.width) > 0.5 ||
+      Math.abs(rect.height - bubbleSize.height) > 0.5
+    ) {
+      setBubbleSize({ width: rect.width, height: rect.height });
+    }
+  });
+
+  const bubbleStyle = useMemo(() => {
+    const vars: Record<string, string> = {
+      ...messageFontVars(bubbleSettings.font, "bubble"),
+      "--bubble-alpha": `${bubbleSettings.opacity}%`,
+      "--bubble-font-size": `${bubbleSettings.fontSize}px`,
+      "--bubble-max-width": `${bubbleSettings.maxWidth}px`,
+    };
+    if (bubblePlacement) {
+      vars.left = `${Math.round(bubblePlacement.left)}px`;
+      vars.top = `${Math.round(bubblePlacement.top)}px`;
+      vars.right = "auto";
+      vars.bottom = "auto";
+    }
+    return vars as CSSProperties;
+  }, [bubblePlacement, bubbleSettings]);
 
   const stackLayout = useMemo(() => {
     if (!panelPosition) return null;
@@ -2067,10 +2284,30 @@ export function Live2DCompanion() {
             height: layout.height,
           }}
         >
-          {visible && (bubble || commentaryRounds.length > 0) ? (
-            <p className={styles.bubble} role="status" aria-live="polite">
-              {bubble ?? commentaryRounds.join("\n\n")}
-            </p>
+          {bubbleMode ? (
+            <div
+              ref={bubbleRef}
+              className={`${styles.bubble}${bubbleSettings.plainText ? ` ${styles.bubblePlain}` : ""}${bubblePlacement ? ` ${styles.bubbleAnchored}` : ""}`}
+              style={bubbleStyle}
+              role="status"
+              aria-live="polite"
+            >
+              {bubbleMode === "plain" ? (
+                bubble
+              ) : bubbleMode === "preview" ? (
+                bubblePreview
+              ) : (
+                commentaryRounds.map((round) => (
+                  <div className={styles.commentaryRound} key={round.id}>
+                    {round.segments.map((segment, index) => (
+                      <p className={styles.commentarySegment} key={`${round.id}-${index}`}>
+                        {segment}
+                      </p>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
           ) : null}
           <div
             ref={mountRef}

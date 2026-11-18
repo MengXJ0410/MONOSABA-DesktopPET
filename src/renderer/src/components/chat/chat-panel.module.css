@@ -68,6 +68,7 @@
   height: 100%;
   padding: 8px;
   background: transparent;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", SimHei, "Heiti SC", sans-serif;
 }
 
 .shellFull {
@@ -986,6 +987,35 @@
 .bubbleText {
   display: block;
   min-width: 0;
+  color: var(--msg-color, inherit);
+  font-weight: var(--msg-weight, inherit);
+  -webkit-text-stroke: var(--msg-stroke, 0 transparent);
+  paint-order: stroke fill;
+  text-shadow: var(--msg-shadow, none);
+}
+
+/* 逐字输出时在末尾显示一个跳动的光标。 */
+.typingText {
+  cursor: pointer;
+}
+
+.typingText::after {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--accent-soft, currentColor);
+  content: "▍";
+  animation: typing-caret 1s steps(2, start) infinite;
+}
+
+@keyframes typing-caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 /* ---- 贴纸 / 图片 ---- */
@@ -2937,5 +2967,175 @@
 
   .historyGrid {
     grid-template-columns: repeat(6, 44px);
+  }
+}
+
+/* ---- 桌宠气泡 / 消息字体设置 ---- */
+
+.sliderRow {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  font-size: 11px;
+}
+
+.sliderLabel {
+  white-space: nowrap;
+}
+
+.sliderRow input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.sliderValue {
+  min-width: 44px;
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sliderDisabled {
+  opacity: 0.45;
+}
+
+.colorPickRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.autoColor {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.autoColor[data-active] {
+  border-color: color-mix(in srgb, var(--accent) 68%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent-soft);
+}
+
+.colorInput {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.fontControls {
+  display: grid;
+  gap: 2px;
+}
+
+.subHeading {
+  margin: 12px 0 4px;
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.bubblePreviewStage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 14px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 26%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-deep) 40%, transparent);
+}
+
+.bubblePreview {
+  display: block;
+  max-width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: 14px;
+  background: color-mix(
+    in srgb,
+    var(--bg-base) var(--bubble-alpha, 84%),
+    transparent
+  );
+  color: var(--bubble-color, var(--ink));
+  font-weight: var(--bubble-weight, 400);
+  -webkit-text-stroke: var(--bubble-stroke, 0 transparent);
+  paint-order: stroke fill;
+  text-shadow: var(--bubble-shadow, none);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubblePreviewPlain {
+  padding: 0.15rem 0.3rem;
+  border-color: transparent;
+  background: transparent;
+}
+
+.previewReplay {
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-soft);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.fontPreviewStage {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 6px;
+  padding: 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 10px;
+}
+
+.fontPreviewBubble {
+  display: block;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.fontPreviewAssistant {
+  justify-self: start;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--bg-base) 88%, transparent);
+  border-top-left-radius: 4px;
+}
+
+.fontPreviewUser {
+  justify-self: end;
+  border: 1px solid #1fbbbb;
+  background: #ffffff;
+  color: #141414;
+  border-top-right-radius: 4px;
+}
+
+.fontPreviewBubble .bubbleText {
+  display: inline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typingText::after {
+    animation: none;
   }
 }

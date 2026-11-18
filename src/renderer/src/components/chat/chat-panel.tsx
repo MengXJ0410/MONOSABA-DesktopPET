@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  BubbleSettings,
   ChatAttachment,
   ChatBackgroundPatch,
   ChatCommand,
@@ -31,12 +32,31 @@ import type {
   ChatStorageInfo,
   ChatTheme,
   ChatThemePreset,
+  ChatTypewriterSettings,
   ChatUiMode,
   ChatUiState,
   CommentarySettings,
   DisplayInfo,
+  MessageFont,
 } from "../../../../shared/types";
 import { HIRO_AVATAR, ME_DEFAULT_AVATAR } from "../../content/avatars";
+import {
+  BUBBLE_AUTOHIDE_MAX,
+  BUBBLE_FONT_MAX,
+  BUBBLE_FONT_MIN,
+  BUBBLE_OPACITY_MIN,
+  BUBBLE_POSITION_LABEL,
+  BUBBLE_ROUNDS_MAX,
+  BUBBLE_ROUNDS_MIN,
+  BUBBLE_WIDTH_MAX,
+  BUBBLE_WIDTH_MIN,
+  DEFAULT_BUBBLE,
+  DEFAULT_MESSAGE_FONT,
+  MESSAGE_FONT_STACK,
+  TYPEWRITER_MAX_CPS,
+  TYPEWRITER_MIN_CPS,
+  messageFontVars,
+} from "../../content/bubble";
 import styles from "./chat-panel.module.css";
 
 const REPLY_TIMEOUT_MS = 90_000;
@@ -609,14 +629,93 @@ function AttachmentImage({
   );
 }
 
+/** 已经逐字播放过的消息；切换小窗/完整版时不重复播放。 */
+const typedMessageIds = new Set<number>();
+
+function TypewriterText({
+  id,
+  text,
+  animate,
+  charsPerSecond,
+  onTick,
+}: {
+  id: number;
+  text: string;
+  animate: boolean;
+  charsPerSecond: number;
+  onTick?: () => void;
+}) {
+  const [shown, setShown] = useState(animate ? "" : text);
+  const [typing, setTyping] = useState(false);
+  const timerRef = useRef<number | null>(null);
+  const onTickRef = useRef(onTick);
+  onTickRef.current = onTick;
+
+  const stop = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setTyping(false);
+  }, []);
+
+  useEffect(() => {
+    stop();
+    if (!animate || !text || typedMessageIds.has(id)) {
+      setShown(text);
+      return;
+    }
+    typedMessageIds.add(id);
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || document.visibilityState === "hidden") {
+      setShown(text);
+      return;
+    }
+    let index = 0;
+    setShown("");
+    setTyping(true);
+    // 40ms 一跳，25 跳/秒；按速度换算每跳显示几个字。
+    const step = Math.max(1, Math.round(charsPerSecond / 25));
+    timerRef.current = window.setInterval(() => {
+      index = Math.min(text.length, index + step);
+      setShown(text.slice(0, index));
+      onTickRef.current?.();
+      if (index >= text.length) stop();
+    }, 40);
+    return stop;
+  }, [animate, charsPerSecond, id, stop, text]);
+
+  const skip = () => {
+    if (!typing) return;
+    stop();
+    setShown(text);
+  };
+
+  return (
+    <span
+      className={`${styles.bubbleText}${typing ? ` ${styles.typingText}` : ""}`}
+      onClick={skip}
+      title={typing ? "点击立即显示全文" : undefined}
+    >
+      {shown}
+    </span>
+  );
+}
+
 function MessageContent({
   message,
   full,
+  typewriter,
+  animate,
+  onTypingTick,
   onOpen,
   onOpenDirect,
 }: {
   message: ChatMessage;
   full: boolean;
+  typewriter: ChatTypewriterSettings;
+  animate: boolean;
+  onTypingTick?: () => void;
   onOpen: (attachment: ChatAttachment, live: boolean) => void;
   onOpenDirect: (url: string) => void;
 }) {
@@ -625,6 +724,10 @@ function MessageContent({
   const sticker = isStickerMessage(message);
   const text = sticker ? "" : message.text;
   const directImage = attachments.length === 0 ? message.image : null;
+  // 关闭逐字输出时先把这批消息记成“已展示”，之后再打开也不会让旧消息一起重播。
+  if (!typewriter.enabled && assistant && animate) {
+    typedMessageIds.add(message.id);
+  }
 
   if (sticker) {
     return (
@@ -650,7 +753,19 @@ function MessageContent({
         message.pending ? ` ${styles.bubblePending}` : ""
       }`}
     >
-      {text ? <span className={styles.bubbleText}>{text}</span> : null}
+      {text ? (
+        assistant && typewriter.enabled && animate ? (
+          <TypewriterText
+            id={message.id}
+            text={text}
+            animate
+            charsPerSecond={typewriter.charsPerSecond}
+            onTick={onTypingTick}
+          />
+        ) : (
+          <span className={styles.bubbleText}>{text}</span>
+        )
+      ) : null}
       {directImage ? (
         <button
           type="button"
@@ -691,12 +806,18 @@ function MessageGroup({
   group,
   full,
   profile,
+  typewriter,
+  freshIds,
+  onTypingTick,
   onOpen,
   onOpenDirect,
 }: {
   group: Extract<TimelineItem, { kind: "group" }>;
   full: boolean;
   profile: ChatProfileData;
+  typewriter: ChatTypewriterSettings;
+  freshIds: Set<number>;
+  onTypingTick?: () => void;
   onOpen: (attachment: ChatAttachment, live: boolean) => void;
   onOpenDirect: (url: string) => void;
 }) {
@@ -735,6 +856,9 @@ function MessageGroup({
             <MessageContent
               message={message}
               full={full}
+              typewriter={typewriter}
+              animate={assistant && freshIds.has(message.id)}
+              onTypingTick={onTypingTick}
               onOpen={onOpen}
               onOpenDirect={onOpenDirect}
             />
@@ -1496,6 +1620,367 @@ function AvatarEditor({
   );
 }
 
+type BubblePatch = Partial<Omit<BubbleSettings, "font">> & {
+  font?: Partial<MessageFont>;
+};
+
+function SliderRow({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  suffix,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  suffix?: string;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className={`${styles.sliderRow}${disabled ? ` ${styles.sliderDisabled}` : ""}`}>
+      <span className={styles.sliderLabel}>{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <span className={styles.sliderValue}>
+        {value}
+        {suffix ?? ""}
+      </span>
+    </label>
+  );
+}
+
+function ColorRow({
+  label,
+  value,
+  fallback,
+  allowAuto,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  fallback: string;
+  allowAuto?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className={styles.settingsRow}>
+      <span className={styles.settingsLabel}>{label}</span>
+      <div className={styles.colorPickRow}>
+        {allowAuto ? (
+          <button
+            type="button"
+            className={styles.autoColor}
+            data-active={!value || undefined}
+            onClick={() => onChange("")}
+          >
+            自动
+          </button>
+        ) : null}
+        <input
+          type="color"
+          className={styles.colorInput}
+          value={value || fallback}
+          aria-label={label}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** 聊天消息和桌宠气泡共用的字体设置项。 */
+function FontControls({
+  font,
+  onChange,
+}: {
+  font: MessageFont;
+  onChange: (patch: Partial<MessageFont>) => void;
+}) {
+  return (
+    <div className={styles.fontControls}>
+      <label className={styles.notifyRow}>
+        <span>加粗</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={font.bold}
+          className={`${styles.smallSwitch}${font.bold ? ` ${styles.smallSwitchOn}` : ""}`}
+          onClick={() => onChange({ bold: !font.bold })}
+        >
+          <span className={styles.switchTrack} aria-hidden="true">
+            <span className={styles.switchThumb} />
+          </span>
+        </button>
+      </label>
+      <ColorRow
+        label="颜色"
+        value={font.color}
+        fallback="#ffffff"
+        allowAuto
+        onChange={(color) => onChange({ color })}
+      />
+      <label className={styles.notifyRow}>
+        <span>文字描边</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={font.stroke}
+          className={`${styles.smallSwitch}${font.stroke ? ` ${styles.smallSwitchOn}` : ""}`}
+          onClick={() => onChange({ stroke: !font.stroke })}
+        >
+          <span className={styles.switchTrack} aria-hidden="true">
+            <span className={styles.switchThumb} />
+          </span>
+        </button>
+      </label>
+      {font.stroke ? (
+        <>
+          <SliderRow
+            label="描边粗细"
+            value={font.strokeWidth}
+            min={0}
+            max={4}
+            step={0.5}
+            suffix="px"
+            onChange={(strokeWidth) => onChange({ strokeWidth })}
+          />
+          <ColorRow
+            label="描边颜色"
+            value={font.strokeColor}
+            fallback="#000000"
+            onChange={(strokeColor) => onChange({ strokeColor })}
+          />
+        </>
+      ) : null}
+      <label className={styles.notifyRow}>
+        <span>文字阴影</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={font.shadow}
+          className={`${styles.smallSwitch}${font.shadow ? ` ${styles.smallSwitchOn}` : ""}`}
+          onClick={() => onChange({ shadow: !font.shadow })}
+        >
+          <span className={styles.switchTrack} aria-hidden="true">
+            <span className={styles.switchThumb} />
+          </span>
+        </button>
+      </label>
+      {font.shadow ? (
+        <>
+          <SliderRow
+            label="阴影模糊"
+            value={font.shadowBlur}
+            min={0}
+            max={16}
+            suffix="px"
+            onChange={(shadowBlur) => onChange({ shadowBlur })}
+          />
+          <ColorRow
+            label="阴影颜色"
+            value={font.shadowColor}
+            fallback="#000000"
+            onChange={(shadowColor) => onChange({ shadowColor })}
+          />
+        </>
+      ) : null}
+      <p className={styles.storageHint}>字体统一使用微软雅黑 / 黑体。</p>
+    </div>
+  );
+}
+
+/** 桌宠气泡的外观设置：位置、字号、透明度、宽度、纯文字、字体。 */
+function BubbleSection({
+  bubble,
+  onChange,
+}: {
+  bubble: BubbleSettings;
+  onChange: (patch: BubblePatch) => void;
+}) {
+  const previewStyle = {
+    fontSize: `${bubble.fontSize}px`,
+    maxWidth: `min(${bubble.maxWidth}px, 100%)`,
+    fontFamily: MESSAGE_FONT_STACK,
+    "--bubble-alpha": `${bubble.opacity}%`,
+    ...messageFontVars(bubble.font, "bubble"),
+  } as CSSProperties;
+
+  return (
+    <section className={styles.panelSection}>
+      <h3>桌宠气泡</h3>
+      <div className={styles.settingsRow}>
+        <span className={styles.settingsLabel}>位置</span>
+        <div className={styles.segmented}>
+          {(["top", "left", "right"] as const).map((position) => (
+            <button
+              key={position}
+              type="button"
+              data-active={bubble.position === position || undefined}
+              onClick={() => onChange({ position })}
+            >
+              {BUBBLE_POSITION_LABEL[position]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <SliderRow
+        label="字号"
+        value={bubble.fontSize}
+        min={BUBBLE_FONT_MIN}
+        max={BUBBLE_FONT_MAX}
+        suffix="px"
+        onChange={(fontSize) => onChange({ fontSize })}
+      />
+      <SliderRow
+        label="背景不透明度"
+        value={bubble.opacity}
+        min={BUBBLE_OPACITY_MIN}
+        max={100}
+        suffix="%"
+        disabled={bubble.plainText}
+        onChange={(opacity) => onChange({ opacity })}
+      />
+      <SliderRow
+        label="最大宽度"
+        value={bubble.maxWidth}
+        min={BUBBLE_WIDTH_MIN}
+        max={BUBBLE_WIDTH_MAX}
+        step={10}
+        suffix="px"
+        onChange={(maxWidth) => onChange({ maxWidth })}
+      />
+      <label className={styles.notifyRow}>
+        <span>无气泡纯文字</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={bubble.plainText}
+          className={`${styles.smallSwitch}${bubble.plainText ? ` ${styles.smallSwitchOn}` : ""}`}
+          onClick={() => onChange({ plainText: !bubble.plainText })}
+        >
+          <span className={styles.switchTrack} aria-hidden="true">
+            <span className={styles.switchThumb} />
+          </span>
+        </button>
+      </label>
+      <p className={styles.storageHint}>
+        纯文字模式去掉底色和边框，只保留文字；不透明度在这个模式下不生效。
+      </p>
+      <SliderRow
+        label="自动隐藏"
+        value={bubble.autoHideSeconds}
+        min={0}
+        max={BUBBLE_AUTOHIDE_MAX}
+        step={5}
+        suffix="秒"
+        onChange={(autoHideSeconds) => onChange({ autoHideSeconds })}
+      />
+      <SliderRow
+        label="保留轮数"
+        value={bubble.rounds}
+        min={BUBBLE_ROUNDS_MIN}
+        max={BUBBLE_ROUNDS_MAX}
+        suffix="轮"
+        onChange={(rounds) => onChange({ rounds })}
+      />
+      <p className={styles.storageHint}>自动隐藏填 0 表示不隐藏。</p>
+      <div className={styles.bubblePreviewStage}>
+        <span
+          className={`${styles.bubblePreview}${bubble.plainText ? ` ${styles.bubblePreviewPlain}` : ""}`}
+          style={previewStyle}
+        >
+          这个大小合适吗？
+        </span>
+      </div>
+      <h4 className={styles.subHeading}>气泡字体</h4>
+      <FontControls
+        font={bubble.font}
+        onChange={(font) => onChange({ font })}
+      />
+    </section>
+  );
+}
+
+function TypewriterSection({
+  typewriter,
+  onChange,
+}: {
+  typewriter: ChatTypewriterSettings;
+  onChange: (patch: Partial<ChatTypewriterSettings>) => void;
+}) {
+  const [replay, setReplay] = useState(0);
+  return (
+    <section className={styles.panelSection}>
+      <h3>逐字输出</h3>
+      <label className={styles.notifyRow}>
+        <span>希罗的消息逐字出现</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={typewriter.enabled}
+          className={`${styles.smallSwitch}${typewriter.enabled ? ` ${styles.smallSwitchOn}` : ""}`}
+          onClick={() => onChange({ enabled: !typewriter.enabled })}
+        >
+          <span className={styles.switchTrack} aria-hidden="true">
+            <span className={styles.switchThumb} />
+          </span>
+        </button>
+      </label>
+      <SliderRow
+        label="速度"
+        value={typewriter.charsPerSecond}
+        min={TYPEWRITER_MIN_CPS}
+        max={TYPEWRITER_MAX_CPS}
+        suffix="字/秒"
+        disabled={!typewriter.enabled}
+        onChange={(charsPerSecond) => {
+          onChange({ charsPerSecond });
+          setReplay((value) => value + 1);
+        }}
+      />
+      <p className={styles.storageHint}>
+        只对希罗的新消息生效；点击正在打字的气泡可以立即显示全文。向上翻历史时不会被强行拉回底部。
+      </p>
+      <div className={styles.bubblePreviewStage}>
+        <span className={styles.bubblePreview} style={{ fontFamily: MESSAGE_FONT_STACK }}>
+          {typewriter.enabled ? (
+            <TypewriterText
+              id={-1000 - replay}
+              text="这个速度看起来舒服吗？"
+              animate
+              charsPerSecond={typewriter.charsPerSecond}
+            />
+          ) : (
+            "这个速度看起来舒服吗？"
+          )}
+        </span>
+        <button
+          type="button"
+          className={styles.previewReplay}
+          onClick={() => setReplay((value) => value + 1)}
+        >
+          再试一次
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function CommentarySection({
   commentary,
   onChange,
@@ -1602,10 +2087,14 @@ function SettingsPanel({
   autoLaunch,
   backgroundImage,
   commentary,
+  bubble,
   onClose,
   onTheme,
   onFontScale,
   onLineHeight,
+  onMessageFont,
+  onTypewriter,
+  onBubble,
   onBackground,
   onUploadBackground,
   onClearBackground,
@@ -1628,10 +2117,14 @@ function SettingsPanel({
   autoLaunch: boolean;
   backgroundImage: string | null;
   commentary: CommentarySettings;
+  bubble: BubbleSettings;
   onClose: () => void;
   onTheme: (theme: ChatTheme) => void;
   onFontScale: (scale: ChatFontScale) => void;
   onLineHeight: (height: ChatLineHeight) => void;
+  onMessageFont: (patch: Partial<MessageFont>) => void;
+  onTypewriter: (patch: Partial<ChatTypewriterSettings>) => void;
+  onBubble: (patch: BubblePatch) => void;
   onBackground: (patch: ChatBackgroundPatch) => void;
   onUploadBackground: (file: File) => void;
   onClearBackground: () => void;
@@ -1934,7 +2427,7 @@ function SettingsPanel({
           />
         </section>
 
-        <CommentarySection commentary={commentary} onChange={onCommentary} />
+        <BubbleSection bubble={bubble} onChange={onBubble} />
 
         <section className={styles.panelSection}>
           <h3>消息</h3>
@@ -1968,7 +2461,46 @@ function SettingsPanel({
               ))}
             </div>
           </div>
+          <h4 className={styles.subHeading}>消息字体</h4>
+          <div className={styles.fontPreviewStage}>
+            <span
+              className={`${styles.fontPreviewBubble} ${styles.fontPreviewAssistant}`}
+            >
+              <span
+                className={styles.bubbleText}
+                style={
+                  {
+                    fontFamily: MESSAGE_FONT_STACK,
+                    ...messageFontVars(ui.messageFont, "msg"),
+                  } as CSSProperties
+                }
+              >
+                希罗的消息会显示成这样。
+              </span>
+            </span>
+            <span className={`${styles.fontPreviewBubble} ${styles.fontPreviewUser}`}>
+              <span
+                className={styles.bubbleText}
+                style={
+                  {
+                    fontFamily: MESSAGE_FONT_STACK,
+                    ...messageFontVars(ui.messageFont, "msg"),
+                  } as CSSProperties
+                }
+              >
+                我的消息也用同一套字体。
+              </span>
+            </span>
+          </div>
+          <FontControls font={ui.messageFont} onChange={onMessageFont} />
+          <p className={styles.storageHint}>
+            文字颜色对希罗和我的气泡同时生效，自定义时注意对比度；留「自动」则跟随原配色。
+          </p>
         </section>
+
+        <TypewriterSection typewriter={ui.typewriter} onChange={onTypewriter} />
+
+        <CommentarySection commentary={commentary} onChange={onCommentary} />
 
         <section className={styles.panelSection}>
           <h3>通知与窗口</h3>
@@ -2135,6 +2667,8 @@ export function ChatPanel() {
     ],
     fontScale: "md",
     lineHeight: "normal",
+    messageFont: DEFAULT_MESSAGE_FONT,
+    typewriter: { enabled: true, charsPerSecond: 25 },
     background: { chatOpacity: null, panelOpacity: 92, extend: false },
   }));
   const [profile, setProfile] = useState<ChatProfileData>(DEFAULT_PROFILE);
@@ -2144,6 +2678,7 @@ export function ChatPanel() {
     minSeconds: 30,
     maxSeconds: 300,
   });
+  const [bubble, setBubble] = useState<BubbleSettings>(DEFAULT_BUBBLE);
   const [selectedPerson, setSelectedPerson] = useState<ChatProfileRole>("hiro");
   const [profileMenu, setProfileMenu] = useState<{
     role: ChatProfileRole;
@@ -2187,6 +2722,8 @@ export function ChatPanel() {
   const initializedRef = useRef(false);
   const pendingRef = useRef<ChatMessage[]>([]);
   const knownIdsRef = useRef<Set<number>>(new Set());
+  /** 本次运行中真正新收到的消息；只有这些才逐字输出。 */
+  const freshMessageIdsRef = useRef<Set<number>>(new Set());
   const loadedCountRef = useRef(0);
   const nearBottomRef = useRef(true);
   const prependRef = useRef<{ height: number; top: number } | null>(null);
@@ -2199,6 +2736,12 @@ export function ChatPanel() {
   const themePendingRef = useRef<ChatTheme | null>(null);
   const backgroundTimerRef = useRef<number | null>(null);
   const backgroundPendingRef = useRef<ChatBackgroundPatch | null>(null);
+  const bubbleTimerRef = useRef<number | null>(null);
+  const bubblePendingRef = useRef<BubblePatch | null>(null);
+  const messageFontTimerRef = useRef<number | null>(null);
+  const messageFontPendingRef = useRef<Partial<MessageFont> | null>(null);
+  const typewriterTimerRef = useRef<number | null>(null);
+  const typewriterPendingRef = useRef<Partial<ChatTypewriterSettings> | null>(null);
   /** 已上屏但还没被桥接确认的消息，等真实消息回来时按文本对账。 */
   const optimisticRef = useRef<{ id: number; text: string }[]>([]);
   const viewerTokenRef = useRef(0);
@@ -2274,6 +2817,20 @@ export function ChatPanel() {
           background: { ...next.background, ...pendingBackground },
         };
       }
+      const pendingFont = messageFontPendingRef.current;
+      if (pendingFont) {
+        next = {
+          ...next,
+          messageFont: { ...next.messageFont, ...pendingFont },
+        };
+      }
+      const pendingTypewriter = typewriterPendingRef.current;
+      if (pendingTypewriter) {
+        next = {
+          ...next,
+          typewriter: { ...next.typewriter, ...pendingTypewriter },
+        };
+      }
       return next;
     });
     window.localStorage.setItem(MODE_STORAGE_KEY, state.mode);
@@ -2314,6 +2871,7 @@ export function ChatPanel() {
     (data: ChatInitialData) => {
       const merged = mergeUnique(data.messages ?? [], pendingRef.current);
       pendingRef.current = [];
+      freshMessageIdsRef.current.clear();
       initializedRef.current = true;
       knownIdsRef.current = new Set(
         merged.filter((message) => message.id !== 0).map((message) => message.id),
@@ -2363,6 +2921,7 @@ export function ChatPanel() {
 
       for (const message of fresh) {
         if (message.id !== 0) knownIdsRef.current.add(message.id);
+        if (message.id !== 0) freshMessageIdsRef.current.add(message.id);
       }
       setMessages((prev) => [
         ...prev.filter((message) => !settledPending.has(message.id)),
@@ -2887,6 +3446,97 @@ export function ChatPanel() {
     [showToast],
   );
 
+  /** 气泡设置：即时反馈 + 让桌宠显示预览，写入合并成一次。 */
+  const updateBubble = useCallback(
+    (patch: BubblePatch) => {
+      setBubble((prev) => ({
+        ...prev,
+        ...patch,
+        font: patch.font ? { ...prev.font, ...patch.font } : prev.font,
+      }));
+      window.petApi.previewBubble("这个大小合适吗？", 1500);
+      const pendingFont = {
+        ...(bubblePendingRef.current?.font ?? {}),
+        ...(patch.font ?? {}),
+      };
+      const rest: BubblePatch = { ...patch };
+      delete rest.font;
+      bubblePendingRef.current = {
+        ...(bubblePendingRef.current ?? {}),
+        ...rest,
+        font: pendingFont,
+      };
+      if (bubbleTimerRef.current) return;
+      bubbleTimerRef.current = window.setTimeout(() => {
+        bubbleTimerRef.current = null;
+        const pending = bubblePendingRef.current;
+        bubblePendingRef.current = null;
+        if (!pending) return;
+        void window.petApi
+          .setBubble(pending)
+          .then((next) => {
+            if (next) setBubble(next);
+          })
+          .catch(() => showToast("气泡设置没有保存成功。"));
+      }, 200);
+    },
+    [showToast],
+  );
+
+  const setMessageFont = useCallback(
+    (patch: Partial<MessageFont>) => {
+      setUi((prev) => ({
+        ...prev,
+        messageFont: { ...prev.messageFont, ...patch },
+      }));
+      messageFontPendingRef.current = {
+        ...(messageFontPendingRef.current ?? {}),
+        ...patch,
+      };
+      if (messageFontTimerRef.current) return;
+      messageFontTimerRef.current = window.setTimeout(() => {
+        messageFontTimerRef.current = null;
+        const pending = messageFontPendingRef.current;
+        messageFontPendingRef.current = null;
+        if (!pending) return;
+        void window.petApi
+          .chatSetMessageFont(pending)
+          .then((state) => {
+            if (state) applyUiState(state);
+          })
+          .catch(() => showToast("字体设置没有保存成功。"));
+      }, 160);
+    },
+    [applyUiState, showToast],
+  );
+
+  const setTypewriter = useCallback(
+    (patch: Partial<ChatTypewriterSettings>) => {
+      setUi((prev) => ({
+        ...prev,
+        typewriter: { ...prev.typewriter, ...patch },
+      }));
+      typewriterPendingRef.current = {
+        ...(typewriterPendingRef.current ?? {}),
+        ...patch,
+      };
+      if (typewriterTimerRef.current) return;
+      typewriterTimerRef.current = window.setTimeout(() => {
+        typewriterTimerRef.current = null;
+        const pending = typewriterPendingRef.current;
+        typewriterPendingRef.current = null;
+        if (!pending) return;
+        void window.petApi
+          .chatSetTypewriter(pending)
+          .then((state) => {
+            if (state) applyUiState(state);
+          })
+          .catch(() => showToast("逐字输出设置没有保存成功。"));
+      }, 160);
+    },
+    [applyUiState, showToast],
+  );
+
   const refreshStorage = useCallback(async () => {
     try {
       const [info, diag] = await Promise.all([
@@ -3009,6 +3659,14 @@ export function ChatPanel() {
     setStick(true);
   };
 
+  /** 逐字输出时，只有贴底才跟着滚；用户向上翻历史就保持位置。 */
+  const scrollWhileTyping = useCallback(() => {
+    if (!nearBottomRef.current) return;
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
+  }, []);
+
   const toggleCapture = () => {
     setCaptureEnabled((prev) => {
       const next = !prev;
@@ -3112,6 +3770,21 @@ export function ChatPanel() {
       })
       .catch(() => undefined);
     const off = window.petApi.onCommentary((next) => setCommentary(next));
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.petApi
+      .getBubble()
+      .then((next) => {
+        if (!cancelled) setBubble(next);
+      })
+      .catch(() => undefined);
+    const off = window.petApi.onBubble((next) => setBubble(next));
     return () => {
       cancelled = true;
       off();
@@ -3268,6 +3941,8 @@ export function ChatPanel() {
     "--panel-bg-alpha": `${ui.background.panelOpacity}%`,
     "--card-bg-image": showCardBackground ? backgroundUrl : "none",
     "--chat-bg-image": showChatBackground ? backgroundUrl : "none",
+    ...messageFontVars(ui.messageFont, "msg"),
+    fontFamily: MESSAGE_FONT_STACK,
   } as CSSProperties;
 
   return (
@@ -3574,6 +4249,9 @@ export function ChatPanel() {
                       group={item}
                       full={full}
                       profile={profile}
+                      typewriter={ui.typewriter}
+                      freshIds={freshMessageIdsRef.current}
+                      onTypingTick={scrollWhileTyping}
                       onOpen={openAttachment}
                       onOpenDirect={openDirect}
                     />
@@ -3684,10 +4362,14 @@ export function ChatPanel() {
                 autoLaunch={autoLaunch}
                 backgroundImage={backgroundImage}
                 commentary={commentary}
+                bubble={bubble}
                 onClose={closePanel}
                 onTheme={(theme) => void setTheme(theme)}
                 onFontScale={(scale) => void setFontScale(scale)}
                 onLineHeight={(height) => void setLineHeight(height)}
+                onMessageFont={setMessageFont}
+                onTypewriter={setTypewriter}
+                onBubble={updateBubble}
                 onBackground={setBackgroundAppearance}
                 onUploadBackground={(file) => void uploadBackground(file)}
                 onClearBackground={() => void clearBackground()}

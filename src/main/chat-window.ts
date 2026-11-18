@@ -12,6 +12,8 @@ import type {
   ChatMediaKind,
   ChatMediaResult,
   ChatMessage,
+  ChatTypewriterSettings,
+  MessageFont,
   ChatProfileData,
   ChatResizeDirection,
   ChatSendResult,
@@ -753,6 +755,43 @@ export function initChatWindow(): void {
     const height: ChatLineHeight =
       value === "compact" || value === "loose" ? value : "normal";
     return service().setLineHeight(height);
+  });
+
+  ipcMain.handle("chat:set-message-font", async (event, patch: unknown) => {
+    if (!isChatSender(event.sender) || !patch || typeof patch !== "object") {
+      return null;
+    }
+    const record = patch as Record<string, unknown>;
+    const next: Partial<MessageFont> = {};
+    if (typeof record.bold === "boolean") next.bold = record.bold;
+    if (typeof record.color === "string") next.color = record.color;
+    if (typeof record.stroke === "boolean") next.stroke = record.stroke;
+    if (typeof record.strokeWidth === "number" && Number.isFinite(record.strokeWidth)) {
+      next.strokeWidth = record.strokeWidth;
+    }
+    if (typeof record.strokeColor === "string") next.strokeColor = record.strokeColor;
+    if (typeof record.shadow === "boolean") next.shadow = record.shadow;
+    if (typeof record.shadowBlur === "number" && Number.isFinite(record.shadowBlur)) {
+      next.shadowBlur = record.shadowBlur;
+    }
+    if (typeof record.shadowColor === "string") next.shadowColor = record.shadowColor;
+    return service().setMessageFont(next);
+  });
+
+  ipcMain.handle("chat:set-typewriter", async (event, patch: unknown) => {
+    if (!isChatSender(event.sender) || !patch || typeof patch !== "object") {
+      return null;
+    }
+    const record = patch as Record<string, unknown>;
+    const next: Partial<ChatTypewriterSettings> = {};
+    if (typeof record.enabled === "boolean") next.enabled = record.enabled;
+    if (
+      typeof record.charsPerSecond === "number" &&
+      Number.isFinite(record.charsPerSecond)
+    ) {
+      next.charsPerSecond = record.charsPerSecond;
+    }
+    return service().setTypewriter(next);
   });
 
   ipcMain.handle("chat:set-background", async (event, patch: unknown) => {

@@ -21,9 +21,11 @@ import type {
   ChatStorageResult,
   ChatTheme,
   ChatThemePreset,
+  ChatTypewriterSettings,
   ChatUiConfig,
   ChatUiMode,
   ChatUiState,
+  MessageFont,
 } from "../../shared/types";
 import { readConfig, updateChatUi } from "../config";
 import { normalizeCommentary } from "../commentary-text";
@@ -55,6 +57,17 @@ const DEFAULT_APPEARANCE: ChatAppearance = {
   themePresets: DEFAULT_THEME_PRESETS,
   fontScale: "md",
   lineHeight: "normal",
+  messageFont: {
+    bold: false,
+    color: "",
+    stroke: false,
+    strokeWidth: 1,
+    strokeColor: "#000000",
+    shadow: false,
+    shadowBlur: 4,
+    shadowColor: "#000000",
+  },
+  typewriter: { enabled: true, charsPerSecond: 25 },
 };
 const DEFAULT_BACKGROUND: ChatBackground = {
   chatOpacity: null,
@@ -209,6 +222,8 @@ function pickAppearance(ui: ChatUiConfig): ChatAppearance {
     themePresets: ui.themePresets,
     fontScale: ui.fontScale,
     lineHeight: ui.lineHeight,
+    messageFont: ui.messageFont,
+    typewriter: ui.typewriter,
   };
 }
 
@@ -295,6 +310,8 @@ export class ChatService {
   private unreadListener: ((unread: number) => void) | null = null;
   private openChatListener: (() => void) | null = null;
   private replyListeners = new Set<(message: ChatMessage) => void>();
+  /** 点评轮次的自增序号，保证每轮气泡能按 roundId 归并。 */
+  private commentaryRoundSeq = 0;
   /** 屏幕点评的回复：照常进聊天，但不加未读、不弹通知。 */
   private silentReplyIds = new Set<number>();
   private started = false;
@@ -642,7 +659,8 @@ export class ChatService {
     shot: CapturedScreen,
     character?: string,
   ): Promise<string | null> {
-    const waiter = this.waitForAssistantReply(180_000, 8_000, character);
+    const roundId = `r${Date.now().toString(36)}-${++this.commentaryRoundSeq}`;
+    const waiter = this.waitForAssistantReply(180_000, 8_000, character, roundId);
     const result = await sendMessage(text, shot.base64, true);
     if (!result.ok) {
       waiter.cancel();
@@ -655,9 +673,11 @@ export class ChatService {
     timeoutMs: number,
     quietMs: number,
     character?: string,
+    roundId = "",
   ): { promise: Promise<string | null>; cancel: () => void } {
     let settled = false;
     const parts: string[] = [];
+    let segmentIndex = 0;
     let quietTimer: ReturnType<typeof setTimeout> | null = null;
     let overallTimer: ReturnType<typeof setTimeout> | null = null;
     let resolvePromise: (value: string | null) => void = () => {};
@@ -670,16 +690,16 @@ export class ChatService {
       quietTimer = null;
       overallTimer = null;
     };
+    const emit = (text: string, seq: number, final: boolean) => {
+      // 气泡只认这条事件：每段到达就上屏，和聊天窗口同一时刻出现；
+      // final 只表示这一轮收齐，不再决定何时显示。
+      broadcast("chat:commentary", { text, character, roundId, seq, final });
+    };
     const finish = (value: string | null) => {
       if (settled) return;
       settled = true;
       cleanup();
-      if (value) {
-        // 气泡只认这条事件：即使 IPC 已经超时、或渲染层正在等别的状态，
-        // 只要主进程收齐了一轮，桌宠就能补上气泡。
-        const text = normalizeCommentary(value);
-        if (text) broadcast("chat:commentary", { text, character });
-      }
+      emit("", segmentIndex, true);
       resolvePromise(value);
     };
 
@@ -693,6 +713,8 @@ export class ChatService {
       if (value.startsWith("【希罗现在的心情")) return;
       this.silentReplyIds.add(message.id);
       parts.push(message.text);
+      const segment = normalizeCommentary(message.text);
+      if (segment) emit(segment, segmentIndex++, false);
       if (quietTimer) clearTimeout(quietTimer);
       quietTimer = setTimeout(() => finish(parts.join("").trim() || null), quietMs);
     };
@@ -821,6 +843,28 @@ export class ChatService {
     const next = await updateChatUi({ lineHeight });
     this.uiConfig = next;
     this.ui = { ...this.ui, lineHeight: next.lineHeight };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async setMessageFont(patch: Partial<MessageFont>): Promise<ChatUiState> {
+    const current = this.getUiConfig();
+    const messageFont = { ...current.messageFont, ...patch };
+    const next = await updateChatUi({ messageFont });
+    this.uiConfig = next;
+    this.ui = { ...this.ui, messageFont: next.messageFont };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async setTypewriter(
+    patch: Partial<ChatTypewriterSettings>,
+  ): Promise<ChatUiState> {
+    const current = this.getUiConfig();
+    const typewriter = { ...current.typewriter, ...patch };
+    const next = await updateChatUi({ typewriter });
+    this.uiConfig = next;
+    this.ui = { ...this.ui, typewriter: next.typewriter };
     broadcast("chat:ui-state", this.getUiState());
     return this.getUiState();
   }

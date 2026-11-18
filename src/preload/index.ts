@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  BubblePreviewEvent,
+  BubbleSettings,
   ChatAvatarHistoryItem,
   ChatBackgroundPatch,
   ChatBackgroundUploadResult,
@@ -24,6 +26,7 @@ import type {
   ChatTheme,
   ChatUiMode,
   ChatUiState,
+  ChatTypewriterSettings,
   CommentaryRunResult,
   CommentaryReplyEvent,
   CommentarySettings,
@@ -33,6 +36,7 @@ import type {
   MemoryPayload,
   MemoryUpdateInput,
   MemoryWriteResult,
+  MessageFont,
 } from "../shared/types";
 
 export type DiaryResult =
@@ -157,6 +161,14 @@ const api = {
   },
   chatSetLineHeight(height: ChatLineHeight): Promise<ChatUiState | null> {
     return ipcRenderer.invoke("chat:set-line-height", height) as Promise<ChatUiState | null>;
+  },
+  chatSetMessageFont(patch: Partial<MessageFont>): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-message-font", patch) as Promise<ChatUiState | null>;
+  },
+  chatSetTypewriter(
+    patch: Partial<ChatTypewriterSettings>,
+  ): Promise<ChatUiState | null> {
+    return ipcRenderer.invoke("chat:set-typewriter", patch) as Promise<ChatUiState | null>;
   },
   chatSetBackground(patch: ChatBackgroundPatch): Promise<ChatUiState | null> {
     return ipcRenderer.invoke("chat:set-background", patch) as Promise<ChatUiState | null>;
@@ -290,8 +302,7 @@ const api = {
   },
   getCommentary(): Promise<CommentarySettings> {
     return ipcRenderer.invoke("commentary:get") as Promise<CommentarySettings>;
-  },
-  setCommentary(patch: Partial<CommentarySettings>): Promise<CommentarySettings> {
+  },  setCommentary(patch: Partial<CommentarySettings>): Promise<CommentarySettings> {
     return ipcRenderer.invoke("commentary:set", patch) as Promise<CommentarySettings>;
   },
   onCommentary(handler: (settings: CommentarySettings) => void): () => void {
@@ -315,6 +326,37 @@ const api = {
     ipcRenderer.on("chat:commentary", listener);
     return () => {
       ipcRenderer.removeListener("chat:commentary", listener);
+    };
+  },
+  getBubble(): Promise<BubbleSettings> {
+    return ipcRenderer.invoke("bubble:get") as Promise<BubbleSettings>;
+  },
+  setBubble(
+    patch: Partial<Omit<BubbleSettings, "font">> & { font?: Partial<MessageFont> },
+  ): Promise<BubbleSettings> {
+    return ipcRenderer.invoke("bubble:set", patch) as Promise<BubbleSettings>;
+  },
+  onBubble(handler: (settings: BubbleSettings) => void): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      settings: BubbleSettings,
+    ) => handler(settings);
+    ipcRenderer.on("pet:bubble", listener);
+    return () => {
+      ipcRenderer.removeListener("pet:bubble", listener);
+    };
+  },
+  previewBubble(text: string, ttlMs = 1500): void {
+    ipcRenderer.send("bubble:preview", { text, ttlMs });
+  },
+  onBubblePreview(handler: (event: BubblePreviewEvent) => void): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: BubblePreviewEvent,
+    ) => handler(payload);
+    ipcRenderer.on("pet:bubble-preview", listener);
+    return () => {
+      ipcRenderer.removeListener("pet:bubble-preview", listener);
     };
   },
   listDisplays(): Promise<DisplayInfo[]> {

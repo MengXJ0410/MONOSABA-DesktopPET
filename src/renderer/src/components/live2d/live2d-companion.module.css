@@ -67,21 +67,59 @@
   right: 6%;
   bottom: calc(100% + 10px);
   z-index: 2;
-  max-width: min(260px, 82%);
+  max-width: min(var(--bubble-max-width, 260px), calc(100vw - 16px));
   margin: 0;
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--pet-bubble-border, color-mix(in srgb, var(--accent) 42%, transparent));
   border-radius: 14px;
-  background: var(--pet-bubble-bg, rgba(7, 14, 26, 0.84));
-  color: var(--pet-bubble-text, #eef4ff);
-  font-size: 0.82rem;
+  background: color-mix(
+    in srgb,
+    var(--pet-bubble-bg, #070e1a) var(--bubble-alpha, 84%),
+    transparent
+  );
+  color: var(--bubble-color, var(--pet-bubble-text, #eef4ff));
+  font-family: var(--message-font-family, "Microsoft YaHei UI", "Microsoft YaHei", SimHei, "Heiti SC", sans-serif);
+  font-size: var(--bubble-font-size, 0.82rem);
+  font-weight: var(--bubble-weight, 400);
+  -webkit-text-stroke: var(--bubble-stroke, 0 transparent);
+  paint-order: stroke fill;
+  text-shadow: var(--bubble-shadow, none);
   line-height: 1.65;
   letter-spacing: 0.01em;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   box-shadow: var(--pet-shadow, 0 12px 32px rgba(0, 0, 0, 0.34));
   backdrop-filter: blur(10px);
   pointer-events: none;
   animation: bubble-in 0.22s ease-out;
+}
+
+/* 设置里选了正上方 / 左侧 / 右侧后，位置由脚本算好，这里只负责清掉默认锚点。 */
+.bubbleAnchored {
+  right: auto;
+  bottom: auto;
+  transform-origin: top center;
+}
+
+/* 无气泡纯文字：去掉底色、边框和模糊，只靠字体阴影/描边保证可读。 */
+.bubblePlain {
+  padding: 0.15rem 0.3rem;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.commentaryRound + .commentaryRound {
+  margin-top: 0.9em;
+}
+
+.commentarySegment {
+  margin: 0;
+}
+
+.commentarySegment + .commentarySegment {
+  margin-top: 0.45em;
 }
 
 .loadingCard {
@@ -286,8 +324,12 @@ html[data-color-mode="light"] .controls .settingsButton:hover {
 
 html[data-color-mode="light"] .bubble {
   border-color: color-mix(in srgb, var(--accent) 40%, rgba(38, 76, 110, 0.18));
-  background: rgba(255, 255, 255, 0.92);
-  color: #172b42;
+  background: color-mix(
+    in srgb,
+    var(--pet-bubble-bg, #ffffff) var(--bubble-alpha, 92%),
+    transparent
+  );
+  color: var(--bubble-color, #172b42);
   box-shadow: 0 12px 32px rgba(38, 76, 110, 0.18);
 }
 
@@ -359,8 +401,7 @@ html[data-color-mode="light"] .controls .settingsButton.settingsActive .settings
   .bubble {
     right: 4%;
     bottom: calc(100% + 8px);
-    max-width: 78%;
-    font-size: 0.76rem;
+    max-width: min(var(--bubble-max-width, 260px), calc(100vw - 16px));
   }
 }
 
