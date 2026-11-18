@@ -1185,6 +1185,10 @@ export function Live2DCompanion() {
           // 失败就等下一轮。
         }
         if (cancelled) return;
+        if (result?.ok === false && result.reason === "sleeping") {
+          // 睡着时不点评，只回一个 zzZ。
+          showBubble(result.reply || "zzZ", 4500);
+        }
         // 内容连续多轮没变化时，主进程会暂停点评；30 秒后再看一次画面 / 鼠标。
         const shouldProbe =
           result !== null &&
@@ -1204,6 +1208,7 @@ export function Live2DCompanion() {
     commentary.minSeconds,
     commentary.maxSeconds,
     settingsOpen,
+    showBubble,
     status,
     summoned,
     visible,

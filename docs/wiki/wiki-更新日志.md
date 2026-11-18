@@ -15,7 +15,18 @@ order: 110
 
 按时间倒序记录桌面端的实际变化。时间以提交和打包产物为准，时区 `Asia/Shanghai`。
 
-当前版本：**0.3.3**（便携版 `MONOSABA-DesktopPET-0.3.3-portable.exe`）；服务器桥接插件：**0.3.3**，心情插件：**1.4.8**。
+当前版本：**0.3.4**（便携版 `MONOSABA-DesktopPET-0.3.4-portable.exe`）；服务器桥接插件：**0.3.4**，心情插件：**1.5.0**。
+
+## 2026-11-18 · 0.3.4：点评彻底不影响心情 / 睡眠只回 zzZ
+
+| 变化 | 说明 |
+| --- | --- |
+| 根因 | 桥接设 `mood_skip_appraisal`，mood 1.4.9 只读 `mood_skip_affection`，点评轮仍在评估心情 / 好感 |
+| mood 1.5.0 | `on_llm_request` / `on_llm_response` 看到 `mood_skip_appraisal` 或 `mood_skip_all` 整轮跳过，不改情绪、好感、冷战、记忆 |
+| 桥接 0.3.4 | 点评事件同时设置三个跳过标记；`/status` 返回睡眠状态；`/send` 睡着时直接回 zzZ，不注入回合 |
+| 桌面 0.3.4 | 截图前检查睡眠；睡着时只显示 zzZ，不截图、不调用模型 |
+| 验证 | 真实点评前后 `/status` 好感 65.71 不变，今日增减、心情原因、updatedAt 均不变 |
+| 产物 | `MONOSABA-DesktopPET-0.3.4-portable.exe`；桥接 0.3.4；心情 1.5.0 |
 
 ## 2026-11-18 · 0.3.3：屏幕长时间没变化时暂停点评
 

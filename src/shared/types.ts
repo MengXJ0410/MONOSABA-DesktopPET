@@ -368,6 +368,10 @@ export type ChatSendData = {
   screenImage?: string | null;
   /** 请求了截图但截取失败。 */
   captureFailed?: boolean;
+  /** 点评目标正在睡眠，桥接没有注入回合。 */
+  sleeping?: boolean;
+  /** 睡眠时的固定回复。 */
+  reply?: string;
 };
 
 /** 发送消息时的截图选项。 */
@@ -441,6 +445,10 @@ export type ChatStatusData = {
   emotions?: ChatMoodEmotion[];
   recent?: ChatRecentExchange[];
   coldWar?: boolean;
+  /** 主私聊是否正在睡眠；桌宠点评会据此直接回 zzZ。 */
+  sleeping?: boolean;
+  /** awake / delaying / sleeping / woken / nightmare。 */
+  sleepStatus?: string;
 };
 
 export type ChatCommand = {
@@ -560,10 +568,12 @@ export type CommentaryRunResult =
       ok: false;
       skipped?: boolean;
       error?: string;
-      /** stalled = 已经暂停，画面还没变化；same = 这一轮画面没变但还没到暂停阈值。 */
-      reason?: "stalled" | "busy" | "same";
+      /** stalled = 已经暂停，画面还没变化；same = 这一轮画面没变但还没到暂停阈值；sleeping = 睡着，只回 zzZ。 */
+      reason?: "stalled" | "busy" | "same" | "sleeping";
       /** 这一次是否刚好进入暂停（用于只提示一次）。 */
       paused?: boolean;
+      /** 睡眠时的固定回复（zzZ）。 */
+      reply?: string;
     };
 
 /**

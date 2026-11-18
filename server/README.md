@@ -2,6 +2,8 @@
 
 `astrbot_plugin_desktoppet_bridge` 让 MONOSABA DesktopPET 的聊天窗口和手机 QQ 私聊共用同一个 AstrBot 会话。
 
+当前版本 **0.3.4**：点评整轮跳过心情 / 好感；睡着时只回 `zzZ`，不注入模型回合。
+
 - 桌面消息注入 `Hiro:FriendMessage:1955272576`，走完整管线（人格 / 记忆 / 会话）。
 - 注入事件使用假 bot，希罗对桌面消息的回复不会发到 QQ。
 - 在 bot 的**实际发送层**（`send_private_msg`）逐条记录消息，保留 QQ 的分段节奏、表情包和指令回复。
@@ -20,7 +22,7 @@ ssh mxjserver@10.144.144.1 "docker restart astrbot"
 启动日志里应出现：
 
 ```text
-[desktoppet] 桥接 0.3.3 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
+[desktoppet] 桥接 0.3.4 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
 [desktoppet] 发送捕获循环已启动
 [desktoppet] 已安装发送层捕获 bot=CQHttp replaced=functools.partial(...)
 ```
@@ -67,7 +69,9 @@ curl -H "Authorization: Bearer abk_..." \
 
 `commentary: true` 用于随机点评：插件给注入文本加 `〔桌面屏幕点评〕` 标记，不写桌面消息日志、不落盘截图；`/bootstrap`、`/history` 返回桌面时过滤带该标记的 user 消息。希罗的回复照常由发送层记录，所以桌面只看到点评内容，AstrBot 的上下文和记忆里保留完整回合。
 
-点评事件还会设置 `mood_skip_appraisal`，配套的 `astrbot_plugin_hiro_mood` **1.4.8** 在 `on_llm_response` 开头检查这个标记并跳过整轮心情 / 好感评估。这样用户不回复点评也不会增加生气或进入冷战。旧版心情插件不认识这个标记，需要同步升级（或手动加这一行判断）。
+点评事件同时设置 `mood_skip_appraisal`、`mood_skip_affection`、`mood_skip_all`；配套的 `astrbot_plugin_hiro_mood` **1.5.0** 在 `on_llm_request` 与 `on_llm_response` 开头检查前两个标记并整轮跳过。这样用户不回复点评也不会改变心情 / 好感、不会进入冷战或写强情绪记忆。旧版 mood 1.4.9 只认 `mood_skip_affection`，需要升级到 1.5.0 才能完全跳过。
+
+睡着时（sleep 插件 `is_sleeping(umo)` 为真）`/send` 的 `commentary` 会直接返回 `{ "sleeping": true, "reply": "zzZ" }`，不注入回合、不保存截图、不计睡眠消息。`/status` 额外返回 `sleeping`、`sleepStatus` 和 `sleep` 对象。
 
 `/messages` 返回结构：
 

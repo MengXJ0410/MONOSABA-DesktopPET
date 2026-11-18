@@ -31,6 +31,12 @@
   点评仍进 AstrBot 上下文和长期记忆，但心情插件不评估这一轮，
   用户不回复也不会产生生气 / 冷战 / 好感变化。
 
+0.3.4 变更：
+- 点评事件同时设置 mood_skip_appraisal / mood_skip_affection / mood_skip_all；
+  mood 1.5.0 在 on_llm_request / on_llm_response 整轮跳过。
+- /status 返回 sleeping / sleepStatus / sleep；睡着时 commentary 的 /send
+  直接返回 sleeping + zzZ，不注入回合、不保存截图、不计睡眠消息。
+
 设计边界：
 - 只处理一个固定 UMO（默认 Hiro:FriendMessage:1955272576）。
 - 媒体原图保存在 plugin_data/<plugin>/media；缩略图按需生成。
@@ -70,7 +76,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 PLUGIN_NAME = "astrbot_plugin_desktoppet_bridge"
-PLUGIN_VERSION = "0.3.3"
+PLUGIN_VERSION = "0.3.4"
 
 # 屏幕点评的触发消息只用于上下文；桌面聊天和日志里都要隐藏它。
 COMMENTARY_MARKER = "〔桌面屏幕点评〕"
@@ -932,6 +938,31 @@ class DesktopPetBridge(Star):
             logger.exception("[desktoppet] 获取平台实例失败")
             return None
 
+    def _get_plugin(self, name: str):
+        """安全获取其他插件实例；启动早期 / 被禁用时返回 None。"""
+        try:
+            star = self.context.get_registered_star(name)
+            return getattr(star, "star_cls", None) if star else None
+        except Exception:
+            return None
+
+    def _sleep_state(self) -> dict:
+        plugin = self._get_plugin("astrbot_plugin_hiro_sleep")
+        if plugin is None:
+            return {"available": False, "sleeping": False, "status": ""}
+        try:
+            status = plugin.get_status(self.umo) or {}
+            return {
+                "available": True,
+                "sleeping": bool(plugin.is_sleeping(self.umo)),
+                "status": str(status.get("status") or ""),
+                "sleepAt": str(status.get("sleep_at") or ""),
+                "wakeAt": str(status.get("wake_at") or ""),
+            }
+        except Exception:
+            logger.warning("[desktoppet] 读取睡眠状态失败", exc_info=True)
+            return {"available": False, "sleeping": False, "status": ""}
+
     def _qq_connected(self) -> bool:
         adapter = self._adapter()
         bot = getattr(adapter, "bot", None) if adapter is not None else None
@@ -1308,8 +1339,11 @@ class DesktopPetBridge(Star):
         event.set_extra("_desktoppet_origin", "desktop")
         event.set_extra("_desktoppet_logged", True)
         if commentary:
-            # 心情插件看到这个标记就跳过本轮评估；点评仍在会话和记忆里。
+            # 点评不是对话回合：mood 1.5+ 看到 appraisal 标记会整轮跳过；
+            # 同时带上 affection 标记，兼容只认这个键的旧版 mood。
             event.set_extra("mood_skip_appraisal", True)
+            event.set_extra("mood_skip_affection", True)
+            event.set_extra("mood_skip_all", True)
         if image_data:
             event.set_extra("_desktoppet_has_screen", True)
         adapter.commit_event(event)
@@ -1625,6 +1659,7 @@ class DesktopPetBridge(Star):
                     "attachments",
                     "send-layer",
                     "commentary",
+                    "sleep-gate",
                 ],
             },
         }
@@ -1643,6 +1678,20 @@ class DesktopPetBridge(Star):
         if len(text) > MAX_MESSAGE_CHARS:
             return {"status": "error", "message": "消息太长了。"}
         commentary = payload.get("commentary") is True
+        if commentary:
+            sleep_state = self._sleep_state()
+            if sleep_state.get("sleeping"):
+                # 睡着时不注入点评回合、不保存截图，避免数消息 / 吵醒 / 影响心情。
+                return {
+                    "status": "ok",
+                    "data": {
+                        "message": None,
+                        "commentary": True,
+                        "sleeping": True,
+                        "reply": "zzZ",
+                        "capabilities": ["attachments"],
+                    },
+                }
 
         image_data = None
         image_attachment = None
@@ -1767,6 +1816,7 @@ class DesktopPetBridge(Star):
                     "attachments",
                     "send-layer",
                     "commentary",
+                    "sleep-gate",
                 ],
                 "logLimit": self.max_log,
             },
@@ -1774,6 +1824,10 @@ class DesktopPetBridge(Star):
 
     async def _api_status(self):
         data = await asyncio.to_thread(self._read_status_sync)
+        sleep_state = self._sleep_state()
+        data["sleep"] = sleep_state
+        data["sleeping"] = bool(sleep_state.get("sleeping"))
+        data["sleepStatus"] = str(sleep_state.get("status") or "")
         if not data.get("available"):
             return {
                 "status": "ok",

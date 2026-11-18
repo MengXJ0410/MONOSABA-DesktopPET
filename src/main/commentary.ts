@@ -102,6 +102,11 @@ export async function runCommentary(character?: string): Promise<CommentaryRunRe
     return { ok: false, skipped: true, reason: "busy" };
   }
 
+  // 睡着时不截图、不调用模型；只回 zzZ。
+  if (await chatService.isSleeping()) {
+    return { ok: false, skipped: true, reason: "sleeping", reply: "zzZ" };
+  }
+
   const activeIndex = await getActiveFullscreenDisplayIndex();
   const displays = sortedDisplays();
   const display =
@@ -135,9 +140,12 @@ export async function runCommentary(character?: string): Promise<CommentaryRunRe
   }
 
   const reply = await chatService.sendCommentary(PROMPT, shot, character);
-  if (!reply) return { ok: false, error: "没有收到点评。" };
+  if (reply.sleeping) {
+    return { ok: false, skipped: true, reason: "sleeping", reply: "zzZ" };
+  }
+  if (!reply.text) return { ok: false, error: "没有收到点评。" };
 
-  if (isCommentarySameReply(reply)) {
+  if (isCommentarySameReply(reply.text)) {
     sameRounds += 1;
     if (sameRounds >= SAME_REPLY_LIMIT) {
       paused = true;
@@ -156,7 +164,7 @@ export async function runCommentary(character?: string): Promise<CommentaryRunRe
   }
 
   sameRounds = 0;
-  const text = normalizeCommentary(reply);
+  const text = normalizeCommentary(reply.text);
   if (!text) return { ok: false, error: "点评内容为空。" };
   return { ok: true, text };
 }

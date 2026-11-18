@@ -670,15 +670,19 @@ export class ChatService {
     text: string,
     shot: CapturedScreen,
     character?: string,
-  ): Promise<string | null> {
+  ): Promise<{ text: string | null; sleeping?: boolean }> {
     const roundId = `r${Date.now().toString(36)}-${++this.commentaryRoundSeq}`;
     const waiter = this.waitForAssistantReply(180_000, 8_000, character, roundId);
     const result = await sendMessage(text, shot.base64, true);
     if (!result.ok) {
       waiter.cancel();
-      return null;
+      return { text: null };
     }
-    return waiter.promise;
+    if (result.data.sleeping) {
+      waiter.cancel();
+      return { text: null, sleeping: true };
+    }
+    return { text: await waiter.promise };
   }
 
   private waitForAssistantReply(
@@ -783,6 +787,12 @@ export class ChatService {
     }
     this.moodCache = result.data;
     return this.moodCache;
+  }
+
+  /** 主私聊是否在睡眠；读不到时 fail-open（返回 false）。 */
+  async isSleeping(): Promise<boolean> {
+    const status = await this.getMoodStatus(false);
+    return status.sleeping === true;
   }
 
   private invalidateMood(): void {
