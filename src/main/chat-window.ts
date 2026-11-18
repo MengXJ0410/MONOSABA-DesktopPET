@@ -40,8 +40,8 @@ const COMPACT_CARD_WIDTH = 420;
 const COMPACT_CARD_HEIGHT = 600;
 const FULL_CARD_WIDTH = 1040;
 const FULL_CARD_HEIGHT = 700;
-const FULL_MIN_WIDTH = 880;
-const FULL_MIN_HEIGHT = 560;
+const FULL_MIN_WIDTH = 360;
+const FULL_MIN_HEIGHT = 420;
 
 function broadcastToWindows(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {

@@ -69,6 +69,16 @@ const STATUS_DEBOUNCE_MS = 650;
 const PANEL_STORAGE_KEY = "chat.full.panel";
 const MODE_STORAGE_KEY = "chat.ui.mode";
 
+/**
+ * 完整版按“卡片宽度”分三档，而不是按屏幕宽度：
+ * wide   左栏 + 聊天 + 右栏（面板内嵌）
+ * mid    左栏 + 聊天，右栏收成覆盖式抽屉
+ * narrow 只剩聊天，左栏也收成抽屉
+ */
+const LAYOUT_WIDE_MIN = 800;
+const LAYOUT_MID_MIN = 600;
+type FullLayout = "wide" | "mid" | "narrow";
+
 const SETTINGS_SECTIONS = [
   "appearance",
   "background",
@@ -545,6 +555,11 @@ const icons = {
   down: (
     <Icon>
       <path d="M12 5v14M5 12l7 7 7-7" />
+    </Icon>
+  ),
+  menu: (
+    <Icon>
+      <path d="M4 7h16M4 12h16M4 17h16" />
     </Icon>
   ),
 };
@@ -3060,6 +3075,15 @@ export function ChatPanel() {
   const [panelOpen, setPanelOpen] = useState(
     () => window.localStorage.getItem(PANEL_STORAGE_KEY) !== "0",
   );
+  /** 窄窗下左侧导航的抽屉（不持久化，窗口变宽自动关闭）。 */
+  const [railDrawerOpen, setRailDrawerOpen] = useState(false);
+  /** 非 wide 档时右侧面板改成的覆盖式抽屉。 */
+  const [panelDrawerOpen, setPanelDrawerOpen] = useState(false);
+  /** 正在拖动窗口边缘：临时关闭过渡，避免重排和光标抖动。 */
+  const [resizing, setResizing] = useState(false);
+  const [cardWidth, setCardWidth] = useState(() =>
+    Math.max(0, window.innerWidth - 16),
+  );
   const [statusData, setStatusData] = useState<ChatStatusData | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [viewer, setViewer] = useState<ViewerState | null>(null);
@@ -3111,6 +3135,10 @@ export function ChatPanel() {
   const stickRef = useRef(stick);
   const editorRef = useRef(editor);
   const profileMenuRef = useRef(profileMenu);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const railDrawerRef = useRef(railDrawerOpen);
+  const panelDrawerRef = useRef(panelDrawerOpen);
+  const layoutRef = useRef<FullLayout>("wide");
 
   uiRef.current = ui;
   panelOpenRef.current = panelOpen;
@@ -3121,9 +3149,36 @@ export function ChatPanel() {
   stickRef.current = stick;
   editorRef.current = editor;
   profileMenuRef.current = profileMenu;
+  railDrawerRef.current = railDrawerOpen;
+  panelDrawerRef.current = panelDrawerOpen;
   loadedCountRef.current = messages.length;
 
   const full = ui.mode === "full";
+  const layout: FullLayout = !full
+    ? "narrow"
+    : cardWidth >= LAYOUT_WIDE_MIN
+      ? "wide"
+      : cardWidth >= LAYOUT_MID_MIN
+        ? "mid"
+        : "narrow";
+  layoutRef.current = layout;
+
+  // 用容器宽度（不是屏幕宽度）决定三档布局；窗口被拖窄时自动收栏。
+  useEffect(() => {
+    const element = cardRef.current;
+    if (!element) return;
+    const measure = () => setCardWidth(Math.round(element.clientWidth));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [full]);
+
+  // 宽度回到宽档或离开窄档时，关掉对应的抽屉，避免浮层残留。
+  useEffect(() => {
+    if (layout === "wide") setPanelDrawerOpen(false);
+    if (layout !== "narrow") setRailDrawerOpen(false);
+  }, [layout]);
   const blocking =
     status.state === "offline" ||
     status.state === "auth" ||
@@ -3519,22 +3574,34 @@ export function ChatPanel() {
     window.requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
+  const showPanel = useCallback((mode: "status" | "settings") => {
+    setPanelMode(mode);
+    setPanelOpen(true);
+    window.localStorage.setItem(PANEL_STORAGE_KEY, "1");
+  }, []);
+
   const togglePanel = useCallback(() => {
     if (uiRef.current.mode !== "full") {
       showToast("查看请切换完整版UI");
       return;
     }
-    if (panelOpenRef.current && panelModeRef.current === "settings") {
-      setPanelMode("status");
+    if (layoutRef.current === "wide") {
+      // 宽档：内嵌右栏。再点一次已激活的“心情”就关闭。
+      if (panelOpenRef.current && panelModeRef.current === "status") {
+        setPanelOpen(false);
+        window.localStorage.setItem(PANEL_STORAGE_KEY, "0");
+        return;
+      }
+      showPanel("status");
       return;
     }
+    // 窄档：右栏是覆盖式抽屉，开合同样走开关语义。
+    setRailDrawerOpen(false);
     setPanelMode("status");
-    setPanelOpen((prev) => {
-      const next = !prev;
-      window.localStorage.setItem(PANEL_STORAGE_KEY, next ? "1" : "0");
-      return next;
-    });
-  }, [showToast]);
+    setPanelDrawerOpen(
+      (previous) => !(previous && panelModeRef.current === "status"),
+    );
+  }, [showPanel, showToast]);
 
   const switchMode = useCallback(
     async (mode: ChatUiMode) => {
@@ -3582,15 +3649,31 @@ export function ChatPanel() {
       showToast("查看请切换完整版UI");
       return;
     }
+    if (layoutRef.current === "wide") {
+      // 宽档：点已激活的“设置”直接关掉右栏，再点才重新打开。
+      if (panelOpenRef.current && panelModeRef.current === "settings") {
+        setPanelOpen(false);
+        window.localStorage.setItem(PANEL_STORAGE_KEY, "0");
+        return;
+      }
+      showPanel("settings");
+      return;
+    }
+    // 窄档：设置面板是覆盖式抽屉，同样支持再点一次关闭。
+    setRailDrawerOpen(false);
     setPanelMode("settings");
-    setPanelOpen(true);
-    window.localStorage.setItem(PANEL_STORAGE_KEY, "1");
-  }, [showToast]);
+    setPanelDrawerOpen(
+      (previous) => !(previous && panelModeRef.current === "settings"),
+    );
+  }, [showPanel, showToast]);
 
   const closePanel = useCallback(() => {
     setPanelOpen(false);
+    setPanelDrawerOpen(false);
     window.localStorage.setItem(PANEL_STORAGE_KEY, "0");
   }, []);
+
+  const closePanelDrawer = useCallback(() => setPanelDrawerOpen(false), []);
 
   const applyProfileResult = useCallback(
     (result: ChatProfileData | { error: string } | null) => {
@@ -4322,8 +4405,7 @@ export function ChatPanel() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (editorRef.current) {
+      if (event.key !== "Escape") return;      if (editorRef.current) {
         event.preventDefault();
         setEditor(null);
         return;
@@ -4348,11 +4430,45 @@ export function ChatPanel() {
         setCommandOpen(false);
         return;
       }
+      // 先关浮层和侧栏，最后才把整个聊天窗口藏起来。
+      if (panelDrawerRef.current) {
+        event.preventDefault();
+        setPanelDrawerOpen(false);
+        return;
+      }
+      if (railDrawerRef.current) {
+        event.preventDefault();
+        setRailDrawerOpen(false);
+        return;
+      }
+      if (panelOpenRef.current && layoutRef.current === "wide") {
+        event.preventDefault();
+        closePanel();
+        return;
+      }
       window.petApi.closeChat();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeViewer]);
+  }, [closePanel, closeViewer]);
+
+  // 快捷键：Ctrl+, 开关设置；Ctrl+B 开关心情面板。
+  useEffect(() => {
+    const onHotkey = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.key === ",") {
+        event.preventDefault();
+        openSettings();
+        return;
+      }
+      if (event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        togglePanel();
+      }
+    };
+    window.addEventListener("keydown", onHotkey);
+    return () => window.removeEventListener("keydown", onHotkey);
+  }, [openSettings, togglePanel]);
 
   useEffect(() => {
     if (!confirmState) return;
@@ -4402,12 +4518,149 @@ export function ChatPanel() {
     fontFamily: MESSAGE_FONT_STACK,
   } as CSSProperties;
 
+  const panelActive = layout === "wide" ? panelOpen : panelDrawerOpen;
+
+  /** 左栏内容：宽/中档内嵌在左侧，窄档放进抽屉。 */
+  const railBody = (
+    <>
+      <div className={styles.railPeople}>
+        <button
+          type="button"
+          className={`${styles.railPerson}${selectedPerson === "hiro" ? ` ${styles.railPersonActive}` : ""}`}
+          onClick={() => {
+            setSelectedPerson("hiro");
+            inputRef.current?.focus();
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setSelectedPerson("hiro");
+            openProfileMenu("hiro", event);
+          }}
+          title={`${profile.hiro.name}（右键修改资料）`}
+        >
+          <img
+            className={styles.railAvatar}
+            src={avatarOf(profile.hiro)}
+            alt={profile.hiro.name}
+            draggable={false}
+          />
+          <span className={styles.railName}>{profile.hiro.name}</span>
+          <span className={`${styles.railDot} ${dotClass}`} />
+        </button>
+        <button
+          type="button"
+          className={`${styles.railPerson}${selectedPerson === "me" ? ` ${styles.railPersonActive}` : ""}`}
+          onClick={() => setSelectedPerson("me")}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setSelectedPerson("me");
+            openProfileMenu("me", event);
+          }}
+          title={`${profile.me.name}（右键修改资料）`}
+        >
+          <img
+            className={styles.railAvatar}
+            src={avatarOf(profile.me)}
+            alt={profile.me.name}
+            draggable={false}
+          />
+          <span className={styles.railName}>{profile.me.name}</span>
+        </button>
+      </div>
+      <nav className={styles.railNav}>
+        <button
+          type="button"
+          className={`${styles.railButton} ${styles.railActive}`}
+          onClick={() => inputRef.current?.focus()}
+          aria-current="page"
+        >
+          {icons.chat}
+          <span>聊天</span>
+        </button>
+        <button
+          type="button"
+          className={`${styles.railButton}${panelActive && panelMode === "status" ? ` ${styles.railActive}` : ""}`}
+          onClick={togglePanel}
+          aria-pressed={panelActive && panelMode === "status"}
+        >
+          {icons.heart}
+          <span>心情</span>
+        </button>
+      </nav>
+      <div className={styles.railFoot}>
+        <button
+          type="button"
+          className={`${styles.railButton}${panelActive && panelMode === "settings" ? ` ${styles.railActive}` : ""}`}
+          onClick={openSettings}
+          aria-pressed={panelActive && panelMode === "settings"}
+        >
+          {icons.gear}
+          <span>设置</span>
+        </button>
+      </div>
+    </>
+  );
+
+  /** 右栏内容：宽档内嵌，中/窄档放进覆盖式抽屉。 */
+  const panelNode =
+    panelMode === "settings" ? (
+      <SettingsPanel
+        ui={ui}
+        storage={storage}
+        diagnostics={diagnostics}
+        autoLaunch={autoLaunch}
+        backgroundImage={backgroundImage}
+        commentary={commentary}
+        bubble={bubble}
+        onClose={closePanel}
+        onTheme={(theme) => void setTheme(theme)}
+        onFontScale={(scale) => void setFontScale(scale)}
+        onLineHeight={(height) => void setLineHeight(height)}
+        onMessageFont={setMessageFont}
+        onTypewriter={setTypewriter}
+        onBubble={updateBubble}
+        onSaveFontPreset={saveFontPreset}
+        onApplyFontPreset={(id) => void applyFontPreset(id)}
+        onDeleteFontPreset={(id) => void deleteFontPreset(id)}
+        onExportSettings={() => void exportSettings()}
+        onImportSettings={() => void importSettings()}
+        onBackground={setBackgroundAppearance}
+        onUploadBackground={(file) => void uploadBackground(file)}
+        onClearBackground={() => void clearBackground()}
+        onCommentary={(patch) => void updateCommentary(patch)}
+        onSavePreset={savePreset}
+        onDeletePreset={(id) => void deletePreset(id)}
+        onToggleNotifications={(enabled) => void toggleNotifications(enabled)}
+        onTogglePinned={(pinned) => {
+          if (pinned !== uiRef.current.pinned) void togglePin();
+        }}
+        onToggleAutoLaunch={(enabled) => void toggleAutoLaunch(enabled)}
+        onChooseStorage={() => void chooseStorage()}
+        onDefaultStorage={() => void defaultStorage()}
+        onOpenFolder={(kind) => window.petApi.chatOpenFolder(kind)}
+        onClearStorage={() => void clearStorage()}
+        onOpenControlPanel={openControlPanel}
+        onToast={showToast}
+      />
+    ) : (
+      <StatusPanel
+        data={statusData}
+        loading={statusLoading}
+        notifications={ui.notifications}
+        onToggleNotifications={(enabled) => void toggleNotifications(enabled)}
+        onRefresh={() => void refreshStatus(true)}
+        onClose={closePanel}
+        onOpenSettings={openControlPanel}
+      />
+    );
+
   return (
     <div
       className={`${styles.shell} ${full ? styles.shellFull : ""}`}
       data-mode={ui.theme.mode}
       data-font={ui.fontScale}
       data-leading={ui.lineHeight}
+      data-resizing={resizing ? "1" : undefined}
       style={shellVariables}
     >
       {full ? (
@@ -4420,17 +4673,26 @@ export function ChatPanel() {
                 if (event.button !== 0) return;
                 event.preventDefault();
                 event.currentTarget.setPointerCapture(event.pointerId);
+                setResizing(true);
                 window.petApi.chatResizeStart(direction);
               }}
               onPointerMove={() => window.petApi.chatResizeMove()}
-              onPointerUp={() => window.petApi.chatResizeEnd()}
-              onPointerCancel={() => window.petApi.chatResizeEnd()}
+              onPointerUp={() => {
+                setResizing(false);
+                window.petApi.chatResizeEnd();
+              }}
+              onPointerCancel={() => {
+                setResizing(false);
+                window.petApi.chatResizeEnd();
+              }}
             />
           ))}
         </div>
       ) : null}
       <section
+        ref={cardRef}
         className={`${styles.card} ${full ? styles.cardFull : styles.cardCompact}`}
+        data-layout={full ? layout : "compact"}
         aria-label="与希罗的聊天"
       >
         <header
@@ -4438,6 +4700,15 @@ export function ChatPanel() {
         >
           {full ? (
             <>
+              {layout === "narrow" ? (
+                <IconButton
+                  label="聊天导航"
+                  onClick={() => setRailDrawerOpen(true)}
+                  className={styles.drawerTrigger}
+                >
+                  {icons.menu}
+                </IconButton>
+              ) : null}
               <div className={styles.headInfo}>
                 <span className={styles.title}>{profile.hiro.name}</span>
                 <span
@@ -4457,7 +4728,7 @@ export function ChatPanel() {
                 <IconButton
                   label="心情与好感"
                   onClick={togglePanel}
-                  active={panelOpen}
+                  active={layout === "wide" ? panelOpen : panelDrawerOpen}
                 >
                   {icons.heart}
                 </IconButton>
@@ -4532,83 +4803,9 @@ export function ChatPanel() {
         </header>
 
         <div className={`${styles.body} ${full ? styles.bodyFull : styles.bodyCompact}`}>
-          {full ? (
+          {layout !== "narrow" ? (
             <aside className={styles.rail} aria-label="聊天导航">
-              <div className={styles.railPeople}>
-                <button
-                  type="button"
-                  className={`${styles.railPerson}${selectedPerson === "hiro" ? ` ${styles.railPersonActive}` : ""}`}
-                  onClick={() => {
-                    setSelectedPerson("hiro");
-                    inputRef.current?.focus();
-                  }}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setSelectedPerson("hiro");
-                    openProfileMenu("hiro", event);
-                  }}
-                  title={`${profile.hiro.name}（右键修改资料）`}
-                >
-                  <img
-                    className={styles.railAvatar}
-                    src={avatarOf(profile.hiro)}
-                    alt={profile.hiro.name}
-                    draggable={false}
-                  />
-                  <span className={styles.railName}>{profile.hiro.name}</span>
-                  <span className={`${styles.railDot} ${dotClass}`} />
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.railPerson}${selectedPerson === "me" ? ` ${styles.railPersonActive}` : ""}`}
-                  onClick={() => setSelectedPerson("me")}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setSelectedPerson("me");
-                    openProfileMenu("me", event);
-                  }}
-                  title={`${profile.me.name}（右键修改资料）`}
-                >
-                  <img
-                    className={styles.railAvatar}
-                    src={avatarOf(profile.me)}
-                    alt={profile.me.name}
-                    draggable={false}
-                  />
-                  <span className={styles.railName}>{profile.me.name}</span>
-                </button>
-              </div>
-              <nav className={styles.railNav}>
-                <button
-                  type="button"
-                  className={`${styles.railButton} ${styles.railActive}`}
-                  onClick={() => inputRef.current?.focus()}
-                  aria-current="page"
-                >
-                  {icons.chat}
-                  <span>聊天</span>
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.railButton}${panelOpen && panelMode === "status" ? ` ${styles.railActive}` : ""}`}
-                  onClick={togglePanel}
-                  aria-pressed={panelOpen && panelMode === "status"}
-                >
-                  {icons.heart}
-                  <span>心情</span>
-                </button>
-              </nav>
-              <div className={styles.railFoot}>
-                <button
-                  type="button"
-                  className={`${styles.railButton}${panelOpen && panelMode === "settings" ? ` ${styles.railActive}` : ""}`}
-                  onClick={openSettings}
-                  aria-pressed={panelOpen && panelMode === "settings"}
-                >
-                  {icons.gear}
-                  <span>设置</span>
-                </button>
-              </div>
+              {railBody}
             </aside>
           ) : null}
 
@@ -4818,57 +5015,42 @@ export function ChatPanel() {
             </div>
           </div>
 
-          {full && panelOpen ? (
-            panelMode === "settings" ? (
-              <SettingsPanel
-                ui={ui}
-                storage={storage}
-                diagnostics={diagnostics}
-                autoLaunch={autoLaunch}
-                backgroundImage={backgroundImage}
-                commentary={commentary}
-                bubble={bubble}
-                onClose={closePanel}
-                onTheme={(theme) => void setTheme(theme)}
-                onFontScale={(scale) => void setFontScale(scale)}
-                onLineHeight={(height) => void setLineHeight(height)}
-                onMessageFont={setMessageFont}
-                onTypewriter={setTypewriter}
-                onBubble={updateBubble}
-                onSaveFontPreset={saveFontPreset}
-                onApplyFontPreset={(id) => void applyFontPreset(id)}
-                onDeleteFontPreset={(id) => void deleteFontPreset(id)}
-                onExportSettings={() => void exportSettings()}
-                onImportSettings={() => void importSettings()}
-                onBackground={setBackgroundAppearance}
-                onUploadBackground={(file) => void uploadBackground(file)}
-                onClearBackground={() => void clearBackground()}
-                onCommentary={(patch) => void updateCommentary(patch)}
-                onSavePreset={savePreset}
-                onDeletePreset={(id) => void deletePreset(id)}
-                onToggleNotifications={(enabled) => void toggleNotifications(enabled)}
-                onTogglePinned={(pinned) => {
-                  if (pinned !== uiRef.current.pinned) void togglePin();
-                }}
-                onToggleAutoLaunch={(enabled) => void toggleAutoLaunch(enabled)}
-                onChooseStorage={() => void chooseStorage()}
-                onDefaultStorage={() => void defaultStorage()}
-                onOpenFolder={(kind) => window.petApi.chatOpenFolder(kind)}
-                onClearStorage={() => void clearStorage()}
-                onOpenControlPanel={openControlPanel}
-                onToast={showToast}
+          {layout === "wide" && panelOpen ? panelNode : null}
+
+          {layout !== "wide" && panelDrawerOpen ? (
+            <>
+              <div
+                className={styles.drawerScrim}
+                onClick={closePanelDrawer}
+                aria-hidden="true"
               />
-            ) : (
-              <StatusPanel
-                data={statusData}
-                loading={statusLoading}
-                notifications={ui.notifications}
-                onToggleNotifications={(enabled) => void toggleNotifications(enabled)}
-                onRefresh={() => void refreshStatus(true)}
-                onClose={closePanel}
-                onOpenSettings={openControlPanel}
+              <div
+                className={styles.drawerRight}
+                role="dialog"
+                aria-modal="true"
+                aria-label={panelMode === "settings" ? "聊天设置" : "希罗的状态"}
+              >
+                {panelNode}
+              </div>
+            </>
+          ) : null}
+
+          {layout === "narrow" && railDrawerOpen ? (
+            <>
+              <div
+                className={styles.drawerScrim}
+                onClick={() => setRailDrawerOpen(false)}
+                aria-hidden="true"
               />
-            )
+              <aside
+                className={styles.drawerLeft}
+                role="dialog"
+                aria-modal="true"
+                aria-label="聊天导航"
+              >
+                {railBody}
+              </aside>
+            </>
           ) : null}
         </div>
 

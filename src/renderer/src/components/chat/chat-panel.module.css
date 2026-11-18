@@ -413,6 +413,7 @@
 }
 
 .bodyFull {
+  position: relative;
   flex-direction: row;
   background: transparent;
 }
@@ -1043,7 +1044,7 @@
 }
 
 .stickerButton:hover {
-  transform: translateY(-2px) scale(1.02);
+  /* 只做阴影，不做位移/缩放：否则指针停在边缘会“移出→失焦→移回”地闪 */
   filter: drop-shadow(0 6px 16px color-mix(in srgb, color-mix(in srgb, var(--accent) 88%, white) 28%, transparent));
 }
 
@@ -2502,7 +2503,7 @@
 
 .historyItem:hover {
   border-color: color-mix(in srgb, var(--accent) 75%, transparent);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .historyItem img {
@@ -3356,4 +3357,156 @@
 .fontPresetList .dangerBtn {
   border-color: color-mix(in srgb, #ff6b7a 34%, transparent);
   color: color-mix(in srgb, #ff8b96 82%, transparent);
+}
+
+/* ---- 窄窗抽屉与光标稳定性 ---- */
+
+/*
+ * 可交互元素一律不参与窗口拖动。
+ * 拖拽区（-webkit-app-region: drag）和按钮 hover 的命中判定会互相抢，
+ * 指针移到按钮边缘时就会出现“箭头 / 小手”来回闪。
+ */
+.card button,
+.card input,
+.card textarea,
+.card select,
+.card a,
+.card [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+.card {
+  cursor: default;
+}
+
+.drawerTrigger {
+  margin-right: 2px;
+}
+
+.drawerScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 44;
+  background: rgba(4, 8, 14, 0.46);
+  backdrop-filter: blur(1px);
+  animation: drawer-scrim-in 0.16s ease-out both;
+}
+
+.drawerRight {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  width: min(340px, 92%);
+  overflow: hidden;
+  border-left: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: -18px 0 40px rgba(0, 0, 0, 0.42);
+  animation: drawer-in-right 0.18s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.drawerRight .panel {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  border-left: 0;
+}
+
+.drawerLeft {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 45;
+  display: flex;
+  width: min(268px, 88%);
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 12px 12px;
+  overflow-y: auto;
+  border-right: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) 96%, transparent);
+  box-shadow: 18px 0 40px rgba(0, 0, 0, 0.42);
+  animation: drawer-in-left 0.18s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.drawerLeft .railName {
+  opacity: 1;
+}
+
+/* 拖动窗口边缘时关掉过渡，避免重排时元素追着指针动、光标发抖 */
+.shell[data-resizing="1"] *,
+.shell[data-resizing="1"] *::before,
+.shell[data-resizing="1"] *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* 窄档：去掉占地方的头像和次要文字，把宽度留给消息和输入框 */
+.card[data-layout="narrow"] .railAvatar,
+.card[data-layout="narrow"] .statusLabel,
+.card[data-layout="narrow"] .compactStatus,
+.card[data-layout="narrow"] .toolbarMeta {
+  display: none;
+}
+
+.card[data-layout="narrow"] .headerFull {
+  gap: 6px;
+  padding: 8px 8px 7px 8px;
+}
+
+.card[data-layout="narrow"] .toolbar {
+  padding: 5px 10px;
+}
+
+.card[data-layout="narrow"] .listFull {
+  padding: 10px 10px 8px;
+}
+
+.card[data-layout="narrow"] .bubble {
+  max-width: 88%;
+}
+
+.card[data-layout="narrow"] .composer {
+  padding: 7px 8px 9px;
+}
+
+@keyframes drawer-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drawer-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drawer-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawerScrim,
+  .drawerLeft,
+  .drawerRight {
+    animation: none;
+  }
 }
