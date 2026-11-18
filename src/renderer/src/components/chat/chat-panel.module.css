@@ -2607,6 +2607,60 @@
   font-size: 10.5px;
 }
 
+.commentaryStatus {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 26%, transparent);
+  background: color-mix(in srgb, var(--bg-deep) 42%, transparent);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
+  font-size: 11px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.commentaryStatus > div + div {
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
+}
+
+.commentaryTestRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+}
+
+.commentaryTestButton {
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.commentaryTestButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.commentaryTestButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.commentaryTestHint {
+  flex: 1 1 auto;
+  color: color-mix(in srgb, var(--ink) 44%, transparent);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
 .bgHead {
   display: flex;
   align-items: baseline;

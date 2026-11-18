@@ -53,6 +53,26 @@ $ms.Dispose()
 `;
 
 let scriptReady: Promise<string> | null = null;
+/** 记录每块屏幕实际能用的截图方式，避免每次都先等 desktopCapturer 超时。 */
+const methodCache = new Map<string, "capturer" | "powershell">();
+/** desktopCapturer 在部分屏幕 / 全屏游戏下会卡住，最多等这么久就切 PowerShell。 */
+const CAPTURER_TIMEOUT_MS = 2500;
+
+/** 给可能卡住的异步调用加一个上限；超时返回 null，调用方继续走兜底。 */
+async function withTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function toSourceId(displayId: string | number | null | undefined): string {
   return displayId === null || displayId === undefined ? "" : String(displayId);
@@ -162,6 +182,8 @@ async function captureWithPowerShell(
 /**
  * 截取指定显示器；截图会包含桌宠和聊天框（按当前产品设定）。
  * 先试 Electron desktopCapturer，目标屏没有 source 时用 PowerShell 兜底。
+ * 每块屏幕记住能用的方式：主屏 desktopCapturer 不可用时，下次直接走 PowerShell，
+ * 不会再白等一次超时（否则一次点评可能多花十几秒）。
  */
 export async function captureDisplay(
   displayId?: string,
@@ -171,18 +193,37 @@ export async function captureDisplay(
     displays.find((display) => toSourceId(display.id) === displayId) ??
     screen.getPrimaryDisplay();
   const index = displays.findIndex((display) => display.id === target.id);
+  const key = toSourceId(target.id);
+  const preferred = methodCache.get(key);
+
+  const viaPowerShell = async (): Promise<CapturedScreen | null> => {
+    try {
+      const shot = await captureWithPowerShell(index >= 0 ? index : 0);
+      if (shot) methodCache.set(key, "powershell");
+      return shot;
+    } catch (error) {
+      console.warn("[chat] PowerShell screen capture failed", error);
+      return null;
+    }
+  };
+
+  if (preferred === "powershell") {
+    const shot = await viaPowerShell();
+    if (shot) return shot;
+  }
 
   try {
-    const direct = await captureWithDesktopCapturer(target);
-    if (direct) return direct;
+    const direct = await withTimeout(
+      captureWithDesktopCapturer(target),
+      CAPTURER_TIMEOUT_MS,
+    );
+    if (direct) {
+      methodCache.set(key, "capturer");
+      return direct;
+    }
   } catch (error) {
     console.warn("[chat] desktopCapturer failed", error);
   }
 
-  try {
-    return await captureWithPowerShell(index >= 0 ? index : 0);
-  } catch (error) {
-    console.warn("[chat] PowerShell screen capture failed", error);
-    return null;
-  }
+  return viaPowerShell();
 }

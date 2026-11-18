@@ -138,13 +138,18 @@ async function request<T>(
   }
 
   const timeout = Math.max(config.timeoutMs, timeoutMs ?? 0);
+  const isPost = (init.method ?? "GET").toUpperCase() === "POST";
   let last: ChatResult<T> = fail("offline", "无法连接");
   for (const base of bases) {
+    const startedAt = Date.now();
     const result = await requestFromHost<T>(base, path, config, init, timeout);
     if (result.ok) return result;
     last = result;
     // 密钥 / 插件问题换地址也没用，直接返回。
     if (result.kind === "auth" || result.kind === "server") return result;
+    // 写请求不能因为“超时”就在别的地址重发：桥接可能已经收下并处理了，
+    // 重发会变成两条点评 / 两条消息。快速失败（连接被拒）才继续换地址。
+    if (isPost && Date.now() - startedAt > 5_000) return result;
   }
   return last;
 }
@@ -181,10 +186,20 @@ export async function sendMessage(
   if (commentary) {
     body.commentary = true;
   }
-  return request<ChatSendData>("/send", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  const config = (await readConfig()).chat;
+  // 带截图 / 点评的请求体大，且桥接可能正排在模型回合后面；
+  // 15 秒默认超时太短，会把已经成功注入的回合误判成失败。
+  const timeout = imageBase64
+    ? Math.max(config.timeoutMs, 60_000)
+    : config.timeoutMs;
+  return request<ChatSendData>(
+    "/send",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+    timeout,
+  );
 }
 
 export async function pollMessages(

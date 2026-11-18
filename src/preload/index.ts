@@ -32,6 +32,7 @@ import type {
   CommentaryRunResult,
   CommentaryReplyEvent,
   CommentarySettings,
+  CommentaryDiagnostics,
   DiaryPayload,
   DisplayInfo,
   MemoryDeleteInput,
@@ -331,8 +332,15 @@ const api = {
   },
   getCommentary(): Promise<CommentarySettings> {
     return ipcRenderer.invoke("commentary:get") as Promise<CommentarySettings>;
-  },  setCommentary(patch: Partial<CommentarySettings>): Promise<CommentarySettings> {
+  },
+  setCommentary(patch: Partial<CommentarySettings>): Promise<CommentarySettings> {
     return ipcRenderer.invoke("commentary:set", patch) as Promise<CommentarySettings>;
+  },
+  getCommentaryDiagnostics(): Promise<CommentaryDiagnostics> {
+    return ipcRenderer.invoke("commentary:diagnostics") as Promise<CommentaryDiagnostics>;
+  },
+  noteCommentarySchedule(at: number): void {
+    void ipcRenderer.invoke("commentary:note-schedule", at);
   },
   onCommentary(handler: (settings: CommentarySettings) => void): () => void {
     const listener = (
@@ -355,6 +363,9 @@ const api = {
   },
   runCommentary(character?: string): Promise<CommentaryRunResult> {
     return ipcRenderer.invoke("pet:run-commentary", character) as Promise<CommentaryRunResult>;
+  },
+  noteChatActivity(): void {
+    void ipcRenderer.invoke("chat:activity");
   },
   onCommentaryReply(handler: (event: CommentaryReplyEvent) => void): () => void {
     const listener = (

@@ -1160,6 +1160,18 @@ export function Live2DCompanion() {
     let cancelled = false;
     let timer: number | null = null;
     const runCharacter = character;
+    /** setTimeout 的单次上限约 24.8 天；更长的间隔分段等待，保证“不设上限”真的可用。 */
+    const MAX_TIMER_MS = 2_147_483_647;
+    const arm = (remainingMs: number, fire: () => void) => {
+      if (remainingMs <= MAX_TIMER_MS) {
+        timer = window.setTimeout(fire, remainingMs);
+        return;
+      }
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        arm(remainingMs - MAX_TIMER_MS, fire);
+      }, MAX_TIMER_MS);
+    };
     const schedule = (nextDelayMs?: number) => {
       const min = Math.max(30, commentary.minSeconds);
       const max = Math.max(min, commentary.maxSeconds);
@@ -1170,9 +1182,12 @@ export function Live2DCompanion() {
               (min + Math.random() * (max - min)) * 1000,
               LIVE2D_COMMENTARY_MAX_SECONDS * 1000,
             );
-      timer = window.setTimeout(async () => {
+      // 让主进程知道下一轮的时间，设置面板里能看到“下次点评”。
+      window.petApi.noteCommentarySchedule?.(Date.now() + delay);
+      arm(delay, async () => {
         timer = null;
         if (cancelled) return;
+        window.petApi.noteCommentarySchedule?.(0);
         if (document.visibilityState !== "visible") {
           schedule();
           return;
@@ -1195,12 +1210,13 @@ export function Live2DCompanion() {
           ((result.ok === false && result.reason === "stalled") ||
             (result.ok === true && result.paused === true));
         schedule(shouldProbe ? 30_000 : undefined);
-      }, delay);
+      });
     };
     schedule();
     return () => {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
+      window.petApi.noteCommentarySchedule?.(0);
     };
   }, [
     character,

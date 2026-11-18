@@ -659,6 +659,12 @@ export function initChatWindow(): void {
     service().markRead();
   });
 
+  // 打字时告诉主进程：随机点评先让路；停手 2 分钟后自动恢复。
+  ipcMain.handle("chat:activity", (event) => {
+    if (!isChatSender(event.sender)) return;
+    service().noteChatActivity();
+  });
+
   ipcMain.handle("chat:retry", async (event) => {
     if (!isChatSender(event.sender)) return null;
     await service().bootstrap();

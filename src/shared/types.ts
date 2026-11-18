@@ -568,8 +568,12 @@ export type CommentaryRunResult =
       ok: false;
       skipped?: boolean;
       error?: string;
-      /** stalled = 已经暂停，画面还没变化；same = 这一轮画面没变但还没到暂停阈值；sleeping = 睡着，只回 zzZ。 */
-      reason?: "stalled" | "busy" | "same" | "sleeping";
+      /**
+       * stalled = 已经暂停，画面还没变化；same = 这一轮画面没变但还没到暂停阈值；
+       * sleeping = 睡着，只回 zzZ；busy = 聊天窗口正在使用；capture = 屏幕截图失败；
+       * no-reply = 请求已发出但没等到回复；error = 其它异常。
+       */
+      reason?: "stalled" | "busy" | "same" | "sleeping" | "capture" | "no-reply" | "error";
       /** 这一次是否刚好进入暂停（用于只提示一次）。 */
       paused?: boolean;
       /** 睡眠时的固定回复（zzZ）。 */
@@ -594,4 +598,44 @@ export type BubblePreviewEvent = {
   text: string;
   /** 毫秒；到点自动收起预览。 */
   ttlMs: number;
+};
+
+/** 一次随机点评尝试的结果，用于设置面板显示“为什么没点评”。 */
+export type CommentaryAttempt = {
+  at: number;
+  ok: boolean;
+  /** 与 CommentaryRunResult.reason 对应；成功时为空。 */
+  reason?: string;
+  durationMs: number;
+  /** 简短说明，例如截图失败、请求超时。 */
+  detail?: string;
+};
+
+/**
+ * 随机点评的运行状态。设置面板打开「随机点评」时读取，
+ * 用来显示下次时间、上次结果和跳过原因，避免“开了但一直没触发”无从排查。
+ */
+export type CommentaryDiagnostics = {
+  /** 本次启动累计尝试次数。 */
+  attempts: number;
+  /** 最近一次尝试时间；0 表示启动后还没试过。 */
+  lastAt: number;
+  lastOk: boolean;
+  lastReason?: string;
+  lastDetail?: string;
+  lastDurationMs: number;
+  /** 最近一段成功的点评开头，用来确认内容真的上屏了。 */
+  lastText?: string;
+  /** 最近一轮截图耗时（毫秒）。 */
+  lastCaptureMs: number;
+  /** 聊天窗口当前是否聚焦在用（点评会因此让路）。 */
+  chatWindowActive: boolean;
+  /** 聊天窗口最近一次活动时间戳（聚焦、输入、发送）。 */
+  chatLastActivityAt: number;
+  sameRounds: number;
+  paused: boolean;
+  /** 渲染层排定的下一轮时间戳；0 表示当前没有排期。 */
+  nextAt: number;
+  /** 最近 8 次尝试，新的在前。 */
+  history: CommentaryAttempt[];
 };

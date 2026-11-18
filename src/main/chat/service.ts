@@ -50,6 +50,8 @@ const CACHE_MAX_BYTES = 500 * 1024 * 1024;
 const STATUS_CACHE_MS = 3000;
 const COMMANDS_CACHE_MS = 10 * 60_000;
 const NOTIFY_DEBOUNCE_MS = 2200;
+/** 聊天窗口聚焦后，多久没有输入就允许点评恢复。 */
+const CONVERSATION_BUSY_MS = 120_000;
 
 const DEFAULT_THEME: ChatTheme = { mode: "night", accent: "#c8102e", presetId: "hiro" };
 const DEFAULT_THEME_PRESETS: ChatThemePreset[] = [
@@ -305,6 +307,10 @@ export class ChatService {
   private moodCache: ChatStatusData | null = null;
   private moodFetchedAt = 0;
   private windowActive = false;
+  /** 最近一次用户在聊天窗口里活动（聚焦、输入、发送）的时间。 */
+  private lastChatActivityAt = 0;
+  /** 最近一次发送消息的时间。 */
+  private lastChatSendAt = 0;
   private bootstrapped = false;
   private bootstrapInFlight = false;
   private pollInFlight = false;
@@ -585,7 +591,34 @@ export class ChatService {
 
   setWindowActive(active: boolean): void {
     this.windowActive = active;
-    if (active) this.markRead();
+    if (active) {
+      this.lastChatActivityAt = Date.now();
+      this.markRead();
+    }
+  }
+
+  /** 聊天窗口里打字、点按钮时调用：点评会避开这段正在对话的时间。 */
+  noteChatActivity(): void {
+    this.lastChatActivityAt = Date.now();
+  }
+
+  /**
+   * 随机点评是否该让路。
+   * 不再只看“窗口有没有聚焦”——窗口长期开着但没人理时，点评照常进行；
+   * 只有聚焦状态下 2 分钟内还有输入 / 发送才跳过。
+   */
+  isConversationBusy(): boolean {
+    if (!this.windowActive) return false;
+    const last = Math.max(this.lastChatActivityAt, this.lastChatSendAt);
+    return Date.now() - last < CONVERSATION_BUSY_MS;
+  }
+
+  /** 供“随机点评”状态显示：窗口是否在用、最近活动时间。 */
+  getConversationState(): { windowActive: boolean; lastActivityAt: number } {
+    return {
+      windowActive: this.windowActive,
+      lastActivityAt: Math.max(this.lastChatActivityAt, this.lastChatSendAt),
+    };
   }
 
   private setStatus(status: ChatStatus): void {
@@ -627,6 +660,8 @@ export class ChatService {
   > {
     const value = text.trim();
     if (!value) return { ok: false, kind: "unknown", error: "消息不能为空。" };
+    this.lastChatSendAt = Date.now();
+    this.lastChatActivityAt = this.lastChatSendAt;
 
     let screen: CapturedScreen | null = null;
     if (options.captureScreen) {

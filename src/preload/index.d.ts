@@ -31,6 +31,7 @@ import type {
   CommentaryRunResult,
   CommentaryReplyEvent,
   CommentarySettings,
+  CommentaryDiagnostics,
   DiaryPayload,
   DisplayInfo,
   MemoryDeleteInput,
@@ -143,9 +144,12 @@ export type PetApi = {
   setAutoLaunch(enabled: boolean): Promise<boolean>;
   getCommentary(): Promise<CommentarySettings>;
   setCommentary(patch: Partial<CommentarySettings>): Promise<CommentarySettings>;
+  getCommentaryDiagnostics(): Promise<CommentaryDiagnostics>;
+  noteCommentarySchedule(at: number): void;
   onCommentary(handler: (settings: CommentarySettings) => void): () => void;
   onCommentaryPaused(handler: (text: string) => void): () => void;
   runCommentary(character?: string): Promise<CommentaryRunResult>;
+  noteChatActivity(): void;
   onCommentaryReply(handler: (event: CommentaryReplyEvent) => void): () => void;
   getBubble(): Promise<BubbleSettings>;
   setBubble(

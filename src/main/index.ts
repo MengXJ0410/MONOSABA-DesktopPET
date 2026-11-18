@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { registerAppProtocol, registerAppScheme } from "./app-protocol";
 import { getAutoLaunchEnabled, ensureAutoLaunch, setAutoLaunchEnabled } from "./auto-launch";
 import { ensureConfig, readConfig, updateBubble, updateCommentary } from "./config";
-import { resetCommentaryWatch, runCommentary } from "./commentary";
+import {
+  getCommentaryDiagnostics,
+  noteCommentarySchedule,
+  resetCommentaryWatch,
+  runCommentary,
+} from "./commentary";
 import type {
   BubbleSettings,
   CommentarySettings,
@@ -183,6 +188,11 @@ if (!gotLock) {
     ipcMain.handle("pet:run-commentary", async (_event, character: unknown) =>
       runCommentary(typeof character === "string" ? character : undefined),
     );
+
+    ipcMain.handle("commentary:diagnostics", () => getCommentaryDiagnostics());
+    ipcMain.handle("commentary:note-schedule", (_event, at: unknown) => {
+      noteCommentarySchedule(typeof at === "number" ? at : 0);
+    });
 
     ipcMain.handle("bubble:get", async () => (await readConfig()).bubble);
     ipcMain.handle("bubble:set", async (_event, patch: unknown) => {

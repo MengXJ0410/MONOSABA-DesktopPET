@@ -35,6 +35,7 @@ import type {
   ChatUiMode,
   ChatUiState,
   CommentarySettings,
+  CommentaryDiagnostics,
   DisplayInfo,
   FontPreset,
   MessageFont,
@@ -2030,9 +2031,62 @@ function CommentarySection({
 }) {
   const [minDraft, setMinDraft] = useState(String(commentary.minSeconds));
   const [maxDraft, setMaxDraft] = useState(String(commentary.maxSeconds));
+  const [diagnostics, setDiagnostics] = useState<CommentaryDiagnostics | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
 
   useEffect(() => setMinDraft(String(commentary.minSeconds)), [commentary.minSeconds]);
   useEffect(() => setMaxDraft(String(commentary.maxSeconds)), [commentary.maxSeconds]);
+
+  // 展开这个分组时轮询运行状态，随时能看到“下次什么时候、上次为什么跳过”。
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const next = await window.petApi.getCommentaryDiagnostics();
+        if (!cancelled) setDiagnostics(next);
+      } catch {
+        // 忽略：拿不到状态时保持上一次的值。
+      }
+    };
+    void load();
+    const timer = window.setInterval(load, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const runNow = async () => {
+    if (testing) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await window.petApi.runCommentary("hiro");
+      if (result.ok) {
+        setTestResult(`点评成功：${result.text.slice(0, 40)}`);
+      } else if (result.reason === "sleeping") {
+        setTestResult("希罗睡着了，只回了 zzZ。");
+      } else if (result.reason === "busy") {
+        setTestResult("聊天窗口正在使用，这一轮先跳过。");
+      } else if (result.reason === "stalled") {
+        setTestResult("画面一直没变，点评处于暂停；动动鼠标或换个画面就会恢复。");
+      } else if (result.reason === "same") {
+        setTestResult("希罗觉得画面没变，这一轮没有点评。");
+      } else {
+        setTestResult(result.error || "没有收到点评。");
+      }
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : "点评失败。");
+    } finally {
+      setTesting(false);
+      try {
+        setDiagnostics(await window.petApi.getCommentaryDiagnostics());
+      } catch {
+        // 忽略。
+      }
+    }
+  };
 
   const commitMin = () => {
     const parsed = Number(minDraft);
@@ -2112,11 +2166,99 @@ function CommentarySection({
         />
         <span className={styles.commentaryUnit}>秒</span>
       </div>
+
+      <div className={styles.commentaryStatus} role="status">
+        <div>{describeCommentaryNext(commentary, diagnostics)}</div>
+        <div>{describeCommentaryLast(diagnostics)}</div>
+      </div>
+
+      <div className={styles.commentaryTestRow}>
+        <button
+          type="button"
+          className={styles.commentaryTestButton}
+          onClick={() => void runNow()}
+          disabled={testing || !commentary.enabled}
+        >
+          {testing ? "点评中…" : "立即点评一次"}
+        </button>
+        <span className={styles.commentaryTestHint}>
+          {testResult ?? "想确认是否正常，可以点这里立刻试一轮。"}
+        </span>
+      </div>
+
       <p className={styles.storageHint}>
-        开启后停用待机闲谈，按随机间隔截取鼠标所在屏幕点评。最小 30 秒，可填任意更大值；与桌宠控制面板同步。
+        开启后停用待机闲谈，按随机间隔截取鼠标所在屏幕点评。最小 30 秒，可填任意更大值；与桌宠控制面板同步。聊天窗口正在输入或刚发过消息时会让路，停手 2 分钟后恢复；睡着时只回 zzZ。
       </p>
     </>
   );
+}
+
+const COMMENTARY_REASON_LABEL: Record<string, string> = {
+  busy: "聊天窗口正在使用",
+  sleeping: "希罗在睡觉，只回 zzZ",
+  stalled: "画面一直没变，已暂停",
+  same: "画面没变，这一轮没点评",
+  capture: "屏幕截图失败",
+  "no-reply": "没有等到回复",
+  error: "出错了",
+};
+
+function clockText(at: number): string {
+  return new Date(at).toLocaleTimeString("zh-CN", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function durationText(ms: number): string {
+  if (ms <= 0) return "还没试过";
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))} 秒后`;
+  const minutes = Math.round(ms / 60_000);
+  return `${minutes} 分钟后`;
+}
+
+function describeCommentaryNext(
+  commentary: CommentarySettings,
+  diagnostics: CommentaryDiagnostics | null,
+): string {
+  if (!commentary.enabled) return "随机点评已关闭。";
+  if (!diagnostics) return "正在读取点评状态…";
+  if (diagnostics.paused) {
+    return "点评已暂停：画面长时间没变；动动鼠标或换个画面就会恢复。";
+  }
+  if (
+    diagnostics.chatWindowActive &&
+    Date.now() - diagnostics.chatLastActivityAt < 120_000
+  ) {
+    return "聊天窗口正在使用，点评先让路；停手 2 分钟后继续。";
+  }
+  if (!diagnostics.nextAt) {
+    return "当前没有排期：人物隐藏、面板打开或模型未就绪时才会重新开始。";
+  }
+  const left = diagnostics.nextAt - Date.now();
+  if (left <= 0) return `下一轮点评正在准备（原定 ${clockText(diagnostics.nextAt)}）。`;
+  return `下次点评：约 ${clockText(diagnostics.nextAt)}（${durationText(left)}）。`;
+}
+
+function describeCommentaryLast(diagnostics: CommentaryDiagnostics | null): string {
+  if (!diagnostics || !diagnostics.lastAt) return "本次启动后还没尝试过点评。";
+  const when = clockText(diagnostics.lastAt);
+  const capture =
+    diagnostics.lastCaptureMs > 0
+      ? `，截图 ${(diagnostics.lastCaptureMs / 1000).toFixed(1)} 秒`
+      : "";
+  if (diagnostics.lastOk) {
+    const preview = diagnostics.lastText ? `「${diagnostics.lastText}」` : "";
+    return `上次点评 ${when}：成功 ${preview}${capture}`;
+  }
+  const reason = diagnostics.lastReason ?? "error";
+  const label = COMMENTARY_REASON_LABEL[reason] ?? reason;
+  const detail =
+    diagnostics.lastDetail && diagnostics.lastDetail !== label
+      ? `（${diagnostics.lastDetail}）`
+      : "";
+  return `上次点评 ${when}：${label}${detail}${capture}`;
 }
 
 function SettingsSection({
@@ -2942,6 +3084,8 @@ export function ChatPanel() {
   const prependRef = useRef<{ height: number; top: number } | null>(null);
   const awaitingRef = useRef(false);
   const sendingRef = useRef(false);
+  /** 上次告诉主进程“正在打字”的时间，避免每个键都发 IPC。 */
+  const lastTypingNotifyRef = useRef(0);
   const loadingMoreRef = useRef(false);
   const toastTimerRef = useRef<number | null>(null);
   const statusTimerRef = useRef<number | null>(null);
@@ -4646,7 +4790,15 @@ export function ChatPanel() {
                 <textarea
                   ref={inputRef}
                   value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    // 打字时让随机点评避开，停手 2 分钟后自动恢复。
+                    const now = Date.now();
+                    if (now - lastTypingNotifyRef.current > 5000) {
+                      lastTypingNotifyRef.current = now;
+                      window.petApi.noteChatActivity?.();
+                    }
+                  }}
                   onKeyDown={onComposerKeyDown}
                   placeholder="和希罗说点什么……输入 / 查看指令"
                   aria-label="消息"

@@ -91,7 +91,7 @@ export const LIVE2D_ROTATE_DEFAULT_MAX_SECONDS = 70;
 
 /** 随机点评：最小 30 秒，滑块到 600，数值框可以继续往上填。 */
 export const LIVE2D_COMMENTARY_MIN_SECONDS = 30;
-export const LIVE2D_COMMENTARY_SLIDER_MAX = 600;
+export const LIVE2D_COMMENTARY_SLIDER_MAX = 1200;
 export const LIVE2D_COMMENTARY_STEP_SECONDS = 5;
 /** 系统定时器上限约 24.8 天，超过没有实际意义。 */
 export const LIVE2D_COMMENTARY_MAX_SECONDS = 2_147_483;
