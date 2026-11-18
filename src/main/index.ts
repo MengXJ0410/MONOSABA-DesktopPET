@@ -25,8 +25,9 @@ import {
   deleteMemory,
 } from "./diary/ssh";
 import { chatService } from "./chat/service";
-import { initChatWindow } from "./chat-window";
+import { initChatWindow, openChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
+import { ensureNotificationShortcut, restoreNotificationShortcut } from "./notification-shortcut";
 import { startMousePassthrough } from "./mouse-passthrough";
 import { createTray } from "./tray";
 import { createMainWindow, getMainWindow } from "./window";
@@ -60,7 +61,15 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {
+    // 点通知时 Windows 会按 AUMID 启动快捷方式，第二个实例在这里被转发回来：
+    // 直接把聊天窗口调出来，用户才觉得“点通知跳到了聊天”。
     getMainWindow()?.showInactive();
+    openChatWindow(null);
+  });
+
+  // 退出后临时解压目录会失效：把开始菜单入口指回外层便携 exe。
+  app.on("before-quit", () => {
+    restoreNotificationShortcut();
   });
 
   app.whenReady().then(async () => {
@@ -70,6 +79,7 @@ if (!gotLock) {
     registerAppProtocol();
     initDiaryWindow();
     initChatWindow();
+    void ensureNotificationShortcut();
     void chatService.start().catch((error) => {
       console.error("[chat] service start failed", error);
     });

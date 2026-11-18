@@ -15,7 +15,18 @@ order: 110
 
 按时间倒序记录桌面端的实际变化。时间以提交和打包产物为准，时区 `Asia/Shanghai`。
 
-当前版本：**0.3.5**（便携版 `MONOSABA-DesktopPET-0.3.5-portable.exe`）；服务器桥接插件：**0.3.4**，心情插件：**1.5.0**。
+当前版本：**0.3.6**（便携版 `MONOSABA-DesktopPET-0.3.6-portable.exe`）；服务器桥接插件：**0.3.4**，心情插件：**1.5.0**。
+
+## 2026-11-18 · 0.3.6：点击通知打开聊天，不再跳到 “Electron”
+
+| 变化 | 说明 |
+| --- | --- |
+| 现象 | 未聚焦时来消息会弹通知，点通知却打开一个叫「Electron」的窗口 |
+| 根因 | toast 点击按 AUMID 启动开始菜单快捷方式；机器上有两个同 AUMID 快捷方式，其中 `Electron.lnk` 指向 `node_modules\electron\dist\electron.exe`，另一个指向便携版上次解压的临时目录 |
+| 修复 | 启动时把 `MONOSABA DesktopPET.lnk` 修到当前运行的 exe（便携版用解压后的小 exe，点击约 1 秒；外层便携 exe 会重新解压 20 秒以上）并写入 AUMID；删除指向 `electron.exe` 的同 AUMID 遗留快捷方式；退出时指回外层 exe |
+| 跳转 | 第二个实例转发回第一个实例时自动打开并聚焦聊天窗口 |
+| 验证 | 从开始菜单快捷方式启动第二个实例，运行中的实例直接弹出聊天窗口 |
+| 产物 | `MONOSABA-DesktopPET-0.3.6-portable.exe` |
 
 ## 2026-11-18 · 0.3.5：“开了点评却 40 分钟不触发”修复
 
