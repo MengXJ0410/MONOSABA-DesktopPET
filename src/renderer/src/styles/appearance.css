@@ -320,6 +320,45 @@
   text-align: right;
 }
 
+/* 随机点评：滑块之外再给一个数值框，支持填超过 600 秒的值。 */
+.appearance-commentary-input {
+  flex: none;
+  width: 3.8rem;
+  padding: 0.16rem 0.3rem;
+  border: 1px solid var(--pet-button-border, rgba(220, 235, 255, 0.18));
+  border-radius: 6px;
+  background: var(--pet-input-bg, rgba(255, 255, 255, 0.06));
+  color: var(--pet-text, #edf4ff);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+}
+
+.appearance-commentary-input:focus {
+  border-color: var(--pet-accent, rgba(255, 107, 122, 0.7));
+}
+
+/* 覆盖 .appearance-range input 把数值框也当成滑杆的样式。 */
+.appearance-range.appearance-rotate-row .appearance-commentary-input {
+  flex: 0 0 3.4rem;
+  width: 3.4rem;
+  min-width: 3.4rem;
+  height: auto;
+  appearance: auto;
+  -webkit-appearance: auto;
+  border: 1px solid var(--pet-button-border, rgba(220, 235, 255, 0.18));
+  border-radius: 6px;
+  background: var(--pet-input-bg, rgba(255, 255, 255, 0.06));
+  padding: 0.16rem 0.3rem;
+  color: var(--pet-text, #edf4ff);
+  cursor: text;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .appearance-rotate-hint {
   margin: 0;
   color: var(--pet-muted, #b9c7d8);

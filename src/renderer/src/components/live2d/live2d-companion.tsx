@@ -15,6 +15,9 @@ import {
   LIVE2D_CHARACTERS,
   LIVE2D_CHARACTER_STORAGE_KEY,
   LIVE2D_CLICK_HOLD_MS,
+  LIVE2D_COMMENTARY_DEFAULT_MAX_SECONDS,
+  LIVE2D_COMMENTARY_DEFAULT_MIN_SECONDS,
+  LIVE2D_COMMENTARY_MAX_SECONDS,
   LIVE2D_CORE_PATH,
   LIVE2D_DEFAULT_CHARACTER,
   LIVE2D_EXPRESSION_LINES,
@@ -64,7 +67,7 @@ import { advanceIdleGaze, createIdleGaze, type IdleGazeState } from "@/lib/live2
 import { shouldPlayClickSound } from "@/lib/live2d/click-sound";
 import { repelPanel } from "@/lib/live2d/panel-placement";
 import { Live2DSettingsPanel } from "@/components/live2d/live2d-settings-panel";
-import type { DisplayInfo, Rect } from "../../../../shared/types";
+import type { CommentarySettings, DisplayInfo, Rect } from "../../../../shared/types";
 import styles from "./live2d-companion.module.css";
 
 type CompanionStatus = "idle" | "loading" | "ready" | "error";
@@ -409,6 +412,15 @@ export function Live2DCompanion() {
     maxSeconds: LIVE2D_ROTATE_DEFAULT_MAX_SECONDS,
     characters: live2dCharacterIds(),
   });
+  const [commentary, setCommentary] = useState<CommentarySettings>({
+    enabled: false,
+    minSeconds: LIVE2D_COMMENTARY_DEFAULT_MIN_SECONDS,
+    maxSeconds: LIVE2D_COMMENTARY_DEFAULT_MAX_SECONDS,
+  });
+  const commentaryRef = useRef(commentary);
+  commentaryRef.current = commentary;
+  const characterRef = useRef<Live2DCharacterId>(LIVE2D_DEFAULT_CHARACTER);
+  characterRef.current = character;
   const [opacitySettings, setOpacitySettings] = useState<Live2DOpacitySettings>({
     hoverFade: false,
     hoverOpacity: LIVE2D_OPACITY_DEFAULT_HOVER,
@@ -430,6 +442,7 @@ export function Live2DCompanion() {
   }>({ characterBox: null, layout: null, viewport: { width: 0, height: 0 }, anchor: { x: 12, y: 12 } });
   const [status, setStatus] = useState<CompanionStatus>("idle");
   const [bubble, setBubble] = useState<string | null>(null);
+  const [commentaryRounds, setCommentaryRounds] = useState<string[]>([]);
   const [iconFailed, setIconFailed] = useState(false);
   const iconRef = useRef<HTMLImageElement>(null);
   const appRef = useRef<Application | null>(null);
@@ -459,6 +472,22 @@ export function Live2DCompanion() {
     };
   }, []);
 
+  // 随机点评设置由 config.json 统一管理，桌宠面板和聊天设置共用同一份。
+  useEffect(() => {
+    let cancelled = false;
+    void window.petApi
+      .getCommentary()
+      .then((next) => {
+        if (!cancelled) setCommentary(next);
+      })
+      .catch(() => undefined);
+    const off = window.petApi.onCommentary((next) => setCommentary(next));
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, []);
+
   const showBubble = useCallback((text: string, duration = 6200) => {
     if (bubbleTimerRef.current) window.clearTimeout(bubbleTimerRef.current);
     setBubble(text);
@@ -467,6 +496,30 @@ export function Live2DCompanion() {
       bubbleTimerRef.current = null;
     }, duration);
   }, []);
+
+  /** 点评气泡常驻，最多保留最近 3 轮；普通台词临时盖在上面。 */
+  const pushCommentary = useCallback((text: string) => {
+    setCommentaryRounds((current) => [...current, text].slice(-3));
+  }, []);
+
+  // 气泡只认主进程收齐一轮后发的 chat:commentary，不再依赖 runCommentary 的返回值。
+  useEffect(() => {
+    return window.petApi.onCommentaryReply((event) => {
+      const text = typeof event?.text === "string" ? event.text.trim() : "";
+      if (!text) return;
+      if (!commentaryRef.current.enabled) return;
+      if (event.character && event.character !== characterRef.current) return;
+      pushCommentary(text);
+    });
+  }, [pushCommentary]);
+
+  useEffect(() => {
+    if (!commentary.enabled) setCommentaryRounds([]);
+  }, [commentary.enabled]);
+
+  useEffect(() => {
+    setCommentaryRounds([]);
+  }, [character]);
 
   const clearBubble = useCallback(() => {
     if (bubbleTimerRef.current) {
@@ -767,6 +820,30 @@ export function Live2DCompanion() {
     });
   }, []);
 
+  const setCommentarySettings = useCallback(
+    async (patch: Partial<CommentarySettings>) => {
+      setCommentary((current) => ({ ...current, ...patch }));
+      try {
+        const next = await window.petApi.setCommentary(patch);
+        if (next) setCommentary(next);
+      } catch {
+        showBubble("随机点评设置没有保存成功。");
+      }
+    },
+    [showBubble],
+  );
+
+  const toggleCommentary = useCallback(() => {
+    void setCommentarySettings({ enabled: !commentaryRef.current.enabled });
+  }, [setCommentarySettings]);
+
+  const changeCommentaryRange = useCallback(
+    (minSeconds: number, maxSeconds: number) => {
+      void setCommentarySettings({ minSeconds, maxSeconds });
+    },
+    [setCommentarySettings],
+  );
+
   const toggleOpacityHoverFade = useCallback(() => {
     setOpacitySettings((current) => {
       const next = { ...current, hoverFade: !current.hoverFade };
@@ -832,6 +909,54 @@ export function Live2DCompanion() {
     );
     return () => window.clearTimeout(timer);
   }, [character, rotateSettings, settingsOpen, status, summoned, switchToCharacter, visible]);
+
+  // 随机点评：每次先随机一个间隔，到点截取鼠标所在屏幕并让希罗点评。
+  // 聊天窗口聚焦时由主进程跳过；这里负责人物隐藏、面板打开和模型未就绪时暂停。
+  useEffect(() => {
+    if (!commentary.enabled) return;
+    if (!visible || !summoned || settingsOpen) return;
+    if (status !== "ready") return;
+    let cancelled = false;
+    let timer: number | null = null;
+    const runCharacter = character;
+    const schedule = () => {
+      const min = Math.max(30, commentary.minSeconds);
+      const max = Math.max(min, commentary.maxSeconds);
+      const delay = Math.min(
+        (min + Math.random() * (max - min)) * 1000,
+        LIVE2D_COMMENTARY_MAX_SECONDS * 1000,
+      );
+      timer = window.setTimeout(async () => {
+        timer = null;
+        if (cancelled) return;
+        if (document.visibilityState !== "visible") {
+          schedule();
+          return;
+        }
+        try {
+          // 气泡由主进程的 chat:commentary 事件负责；这里只等一轮结束再排下一轮。
+          await window.petApi.runCommentary(runCharacter);
+        } catch {
+          // 失败就等下一轮。
+        }
+        if (!cancelled) schedule();
+      }, delay);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [
+    character,
+    commentary.enabled,
+    commentary.minSeconds,
+    commentary.maxSeconds,
+    settingsOpen,
+    status,
+    summoned,
+    visible,
+  ]);
 
   /** 点击彩蛋：先看冷却，再掷概率；命中才播放。 */
   const playClickSound = useCallback((sound: Live2DClickSound) => {
@@ -1283,7 +1408,11 @@ export function Live2DCompanion() {
     const scheduleIdleSpeech = () => {
       if (idleSpeechTimer) window.clearTimeout(idleSpeechTimer);
       idleSpeechTimer = window.setTimeout(() => {
-        if (!cancelled && document.visibilityState === "visible") {
+        if (
+          !cancelled &&
+          document.visibilityState === "visible" &&
+          !commentaryRef.current.enabled
+        ) {
           showBubble(pick(LIVE2D_IDLE_LINES));
         }
         scheduleIdleSpeech();
@@ -1938,9 +2067,9 @@ export function Live2DCompanion() {
             height: layout.height,
           }}
         >
-          {visible && bubble ? (
+          {visible && (bubble || commentaryRounds.length > 0) ? (
             <p className={styles.bubble} role="status" aria-live="polite">
-              {bubble}
+              {bubble ?? commentaryRounds.join("\n\n")}
             </p>
           ) : null}
           <div
@@ -2031,6 +2160,9 @@ export function Live2DCompanion() {
             rotateEnabled={rotateSettings.enabled}
             rotateMinSeconds={rotateSettings.minSeconds}
             rotateMaxSeconds={rotateSettings.maxSeconds}
+            commentaryEnabled={commentary.enabled}
+            commentaryMinSeconds={commentary.minSeconds}
+            commentaryMaxSeconds={commentary.maxSeconds}
             opacityHoverFade={opacitySettings.hoverFade}
             opacityHover={opacitySettings.hoverOpacity}
             opacityBase={opacitySettings.baseOpacity}
@@ -2040,6 +2172,8 @@ export function Live2DCompanion() {
             onSelectDisplay={selectDisplay}
             onToggleRotate={toggleRotate}
             onRotateRangeChange={changeRotateRange}
+            onToggleCommentary={toggleCommentary}
+            onCommentaryRangeChange={changeCommentaryRange}
             onToggleOpacityHoverFade={toggleOpacityHoverFade}
             onOpacityChange={changeOpacity}
             onToggleForceTop={toggleForceTop}

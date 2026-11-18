@@ -2541,6 +2541,42 @@
   cursor: default;
 }
 
+.commentaryRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
+  font-size: 11.5px;
+}
+
+.commentaryRow > span:first-child {
+  flex: 1 1 auto;
+}
+
+.commentaryInput {
+  width: 78px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-deep) 50%, transparent);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+}
+
+.commentaryInput:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.commentaryUnit {
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
+  font-size: 10.5px;
+}
+
 .bgHead {
   display: flex;
   align-items: baseline;

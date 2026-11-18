@@ -438,4 +438,24 @@ export type PetConfig = {
   chat: ChatConfig;
   /** 用户是否开启过开机自启；升级换代后用它把自启路径修到当前 exe。 */
   autoLaunch: boolean;
+  /** 随机屏幕点评。 */
+  commentary: CommentarySettings;
+};
+
+export type CommentarySettings = {
+  enabled: boolean;
+  /** 最短间隔（秒），最小 30。 */
+  minSeconds: number;
+  /** 最长间隔（秒），不设实际上限（受系统定时器限制）。 */
+  maxSeconds: number;
+};
+
+export type CommentaryRunResult =
+  | { ok: true; text: string }
+  | { ok: false; skipped?: boolean; error?: string };
+
+/** 主进程收齐一轮点评后广播给桌宠渲染层；气泡只认这个事件。 */
+export type CommentaryReplyEvent = {
+  text: string;
+  character?: string;
 };

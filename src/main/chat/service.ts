@@ -26,6 +26,7 @@ import type {
   ChatUiState,
 } from "../../shared/types";
 import { readConfig, updateChatUi } from "../config";
+import { normalizeCommentary } from "../commentary-text";
 import { profileStore } from "../profile";
 import { backgroundStore } from "./background";
 import { captureDisplay } from "./capture";
@@ -293,6 +294,9 @@ export class ChatService {
   private notifyTimer: ReturnType<typeof setTimeout> | null = null;
   private unreadListener: ((unread: number) => void) | null = null;
   private openChatListener: (() => void) | null = null;
+  private replyListeners = new Set<(message: ChatMessage) => void>();
+  /** 屏幕点评的回复：照常进聊天，但不加未读、不弹通知。 */
+  private silentReplyIds = new Set<number>();
   private started = false;
   private lastCursor = 0;
   private lastEpoch = "";
@@ -470,6 +474,16 @@ export class ChatService {
       .then((added) => {
         if (added.length === 0) return;
         this.invalidateMood();
+        for (const message of added) {
+          if (message.role !== "assistant") continue;
+          for (const listener of this.replyListeners) {
+            try {
+              listener(message);
+            } catch (error) {
+              console.warn("[chat] reply listener failed", error);
+            }
+          }
+        }
         broadcast("chat:messages", added);
         this.handleUnread(added);
       })
@@ -480,9 +494,13 @@ export class ChatService {
   }
 
   private handleUnread(messages: ChatMessage[]): void {
+    const silent = new Set<number>();
+    for (const message of messages) {
+      if (this.silentReplyIds.delete(message.id)) silent.add(message.id);
+    }
     if (!this.bootstrapped) return;
     const replies = messages.filter(
-      (message) => message.role === "assistant",
+      (message) => message.role === "assistant" && !silent.has(message.id),
     );
     if (replies.length === 0) return;
     if (this.windowActive) {
@@ -612,6 +630,79 @@ export class ChatService {
         captureFailed: options.captureScreen === true && screen === null,
       },
     };
+  }
+
+  isWindowActive(): boolean {
+    return this.windowActive;
+  }
+
+  /** 屏幕点评：注入一条带截图的加粗回合，等待希罗的回复文本。 */
+  async sendCommentary(
+    text: string,
+    shot: CapturedScreen,
+    character?: string,
+  ): Promise<string | null> {
+    const waiter = this.waitForAssistantReply(180_000, 8_000, character);
+    const result = await sendMessage(text, shot.base64, true);
+    if (!result.ok) {
+      waiter.cancel();
+      return null;
+    }
+    return waiter.promise;
+  }
+
+  private waitForAssistantReply(
+    timeoutMs: number,
+    quietMs: number,
+    character?: string,
+  ): { promise: Promise<string | null>; cancel: () => void } {
+    let settled = false;
+    const parts: string[] = [];
+    let quietTimer: ReturnType<typeof setTimeout> | null = null;
+    let overallTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolvePromise: (value: string | null) => void = () => {};
+
+    let listener: (message: ChatMessage) => void = () => {};
+    const cleanup = () => {
+      this.replyListeners.delete(listener);
+      if (quietTimer) clearTimeout(quietTimer);
+      if (overallTimer) clearTimeout(overallTimer);
+      quietTimer = null;
+      overallTimer = null;
+    };
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (value) {
+        // 气泡只认这条事件：即使 IPC 已经超时、或渲染层正在等别的状态，
+        // 只要主进程收齐了一轮，桌宠就能补上气泡。
+        const text = normalizeCommentary(value);
+        if (text) broadcast("chat:commentary", { text, character });
+      }
+      resolvePromise(value);
+    };
+
+    listener = (message: ChatMessage) => {
+      if (message.role !== "assistant") return;
+      // QQ 的回复可能同时到达，不能混进屏幕点评。
+      if (message.origin && message.origin !== "desktop") return;
+      const value = message.text.trim();
+      if (!value) return;
+      // 心情插件的主动报告不算点评回复。
+      if (value.startsWith("【希罗现在的心情")) return;
+      this.silentReplyIds.add(message.id);
+      parts.push(message.text);
+      if (quietTimer) clearTimeout(quietTimer);
+      quietTimer = setTimeout(() => finish(parts.join("").trim() || null), quietMs);
+    };
+    this.replyListeners.add(listener);
+    overallTimer = setTimeout(() => finish(null), timeoutMs);
+
+    const promise = new Promise<string | null>((resolve) => {
+      resolvePromise = resolve;
+    });
+    return { promise, cancel: () => finish(null) };
   }
 
   async getCommands(force = false): Promise<ChatCommandsData> {

@@ -23,6 +23,9 @@ import type {
   ChatTheme,
   ChatUiMode,
   ChatUiState,
+  CommentaryRunResult,
+  CommentaryReplyEvent,
+  CommentarySettings,
   DiaryPayload,
   DisplayInfo,
   MemoryDeleteInput,
@@ -117,6 +120,11 @@ export type PetApi = {
   }): Promise<{ ok: boolean; dataUrl?: string }>;
   getAutoLaunch(): Promise<boolean>;
   setAutoLaunch(enabled: boolean): Promise<boolean>;
+  getCommentary(): Promise<CommentarySettings>;
+  setCommentary(patch: Partial<CommentarySettings>): Promise<CommentarySettings>;
+  onCommentary(handler: (settings: CommentarySettings) => void): () => void;
+  runCommentary(character?: string): Promise<CommentaryRunResult>;
+  onCommentaryReply(handler: (event: CommentaryReplyEvent) => void): () => void;
   listDisplays(): Promise<DisplayInfo[]>;
   setDisplay(displayId: string): Promise<DisplayInfo | null>;
   setForceTop(enabled: boolean): Promise<boolean>;

@@ -20,7 +20,7 @@ ssh mxjserver@10.144.144.1 "docker restart astrbot"
 启动日志里应出现：
 
 ```text
-[desktoppet] 桥接 0.3.1 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
+[desktoppet] 桥接 0.3.3 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
 [desktoppet] 发送捕获循环已启动
 [desktoppet] 已安装发送层捕获 bot=CQHttp replaced=functools.partial(...)
 ```
@@ -48,8 +48,8 @@ curl -H "Authorization: Bearer abk_..." \
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/ping` | `{platform, qqConnected, epoch, capture}` |
-| POST | `/send` | `{text, image?}` → 注入同一会话，返回日志条目；支持 `/` 指令 |
+| GET | `/ping` | `{platform, qqConnected, epoch, capture, capabilities}` |
+| POST | `/send` | `{text, image?, commentary?}` → 注入同一会话，返回日志条目；支持 `/` 指令 |
 | GET | `/messages?after=&limit=` | 增量消息 + `cursor` + `hasMore` + `qqConnected` + `epoch` |
 | GET | `/bootstrap?` | 首次全量回填：全部日志 + 会话历史（默认 500 条）+ `epoch` / `version` / `capabilities` |
 | GET | `/status?` | 心情 / 好感面板数据（读取 `mood.json`，复刻半衰期与好感衰减） |
@@ -64,6 +64,10 @@ curl -H "Authorization: Bearer abk_..." \
 ```
 
 插件会把它作为 `Image.fromBase64(...)` 附加到注入消息里；桌面截图由 Windows 端的 `desktopCapturer` 生成，最长边 1280，JPEG 85。
+
+`commentary: true` 用于随机点评：插件给注入文本加 `〔桌面屏幕点评〕` 标记，不写桌面消息日志、不落盘截图；`/bootstrap`、`/history` 返回桌面时过滤带该标记的 user 消息。希罗的回复照常由发送层记录，所以桌面只看到点评内容，AstrBot 的上下文和记忆里保留完整回合。
+
+点评事件还会设置 `mood_skip_appraisal`，配套的 `astrbot_plugin_hiro_mood` **1.4.8** 在 `on_llm_response` 开头检查这个标记并跳过整轮心情 / 好感评估。这样用户不回复点评也不会增加生气或进入冷战。旧版心情插件不认识这个标记，需要同步升级（或手动加这一行判断）。
 
 `/messages` 返回结构：
 

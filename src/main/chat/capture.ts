@@ -58,7 +58,8 @@ function toSourceId(displayId: string | number | null | undefined): string {
   return displayId === null || displayId === undefined ? "" : String(displayId);
 }
 
-function sortedDisplays(): Display[] {
+/** 与 captureDisplay 的 PowerShell 下标共用同一套显示器排序。 */
+export function sortedDisplays(): Display[] {
   return [...screen.getAllDisplays()].sort(
     (a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y || a.id - b.id,
   );

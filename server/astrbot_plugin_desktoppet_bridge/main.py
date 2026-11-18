@@ -21,6 +21,16 @@
 - 恢复被 AstrBot 唤醒词截断的消息文本（例如 wake_prefix 配了「希罗」时
   「希罗酱…」会变成「酱…」）。
 
+0.3.2 变更：
+- /send 支持 commentary=true：注入“屏幕点评”回合，但不写桌面消息日志、不落盘截图；
+  注入文本带固定标记，/bootstrap 和 /history 返回桌面时会过滤掉这条触发消息。
+  希罗的回复仍由发送层正常记录，所以桌面只看到点评内容。
+
+0.3.3 变更：
+- commentary=true 的注入事件额外设置 mood_skip_appraisal：
+  点评仍进 AstrBot 上下文和长期记忆，但心情插件不评估这一轮，
+  用户不回复也不会产生生气 / 冷战 / 好感变化。
+
 设计边界：
 - 只处理一个固定 UMO（默认 Hiro:FriendMessage:1955272576）。
 - 媒体原图保存在 plugin_data/<plugin>/media；缩略图按需生成。
@@ -60,7 +70,10 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 PLUGIN_NAME = "astrbot_plugin_desktoppet_bridge"
-PLUGIN_VERSION = "0.3.1"
+PLUGIN_VERSION = "0.3.3"
+
+# 屏幕点评的触发消息只用于上下文；桌面聊天和日志里都要隐藏它。
+COMMENTARY_MARKER = "〔桌面屏幕点评〕"
 
 DEFAULT_UMO = "Hiro:FriendMessage:1955272576"
 DEFAULT_PLATFORM_ID = "Hiro"
@@ -1225,6 +1238,9 @@ class DesktopPetBridge(Star):
             if role not in ("user", "assistant"):
                 continue
             text = _clean(_content_text(row.get("content")))
+            if role == "user" and text.lstrip().startswith(COMMENTARY_MARKER):
+                # 屏幕点评的触发消息只保留在上下文里，不返回给桌面聊天。
+                continue
             image = _content_image(row.get("content")) if include_images else None
             if not text and not image:
                 continue
@@ -1253,7 +1269,12 @@ class DesktopPetBridge(Star):
         return result
 
     # ------------------------------------------------------------------ 发送
-    async def _inject(self, text: str, image_data: str | None = None) -> dict | None:
+    async def _inject(
+        self,
+        text: str,
+        image_data: str | None = None,
+        commentary: bool = False,
+    ) -> dict | None:
         adapter = self._adapter()
         if adapter is None:
             return None
@@ -1286,6 +1307,9 @@ class DesktopPetBridge(Star):
         event.role = "admin"
         event.set_extra("_desktoppet_origin", "desktop")
         event.set_extra("_desktoppet_logged", True)
+        if commentary:
+            # 心情插件看到这个标记就跳过本轮评估；点评仍在会话和记忆里。
+            event.set_extra("mood_skip_appraisal", True)
         if image_data:
             event.set_extra("_desktoppet_has_screen", True)
         adapter.commit_event(event)
@@ -1600,6 +1624,7 @@ class DesktopPetBridge(Star):
                     "commands",
                     "attachments",
                     "send-layer",
+                    "commentary",
                 ],
             },
         }
@@ -1617,6 +1642,7 @@ class DesktopPetBridge(Star):
             return {"status": "error", "message": "消息不能为空。"}
         if len(text) > MAX_MESSAGE_CHARS:
             return {"status": "error", "message": "消息太长了。"}
+        commentary = payload.get("commentary") is True
 
         image_data = None
         image_attachment = None
@@ -1631,14 +1657,18 @@ class DesktopPetBridge(Star):
                     raw = base64.b64decode(data, validate=True)
                 except Exception:
                     return {"status": "error", "message": "截图格式不正确。"}
-                image_attachment = await asyncio.to_thread(
-                    self._media.save,
-                    raw,
-                    "screenshot.jpg",
-                )
-                if image_attachment is None:
-                    return {"status": "error", "message": "截图格式不正确。"}
-                image_data = data
+                if commentary:
+                    # 点评截图只给模型看，不占桌面的媒体库。
+                    image_data = data
+                else:
+                    image_attachment = await asyncio.to_thread(
+                        self._media.save,
+                        raw,
+                        "screenshot.jpg",
+                    )
+                    if image_attachment is None:
+                        return {"status": "error", "message": "截图格式不正确。"}
+                    image_data = data
 
         adapter = self._adapter()
         if adapter is None:
@@ -1649,10 +1679,13 @@ class DesktopPetBridge(Star):
         except Exception:
             pass
 
-        attachments = [image_attachment] if image_attachment else []
-        entry = await self._append("user", text, "desktop", attachments)
+        inject_text = f"{COMMENTARY_MARKER}{text}" if commentary else text
+        entry = None
+        if not commentary:
+            attachments = [image_attachment] if image_attachment else []
+            entry = await self._append("user", text, "desktop", attachments)
         try:
-            await self._inject(text, image_data)
+            await self._inject(inject_text, image_data, commentary=commentary)
         except Exception:
             logger.exception("[desktoppet] 注入消息失败")
             return {"status": "error", "message": "注入消息失败。"}
@@ -1660,6 +1693,7 @@ class DesktopPetBridge(Star):
             "status": "ok",
             "data": {
                 "message": entry,
+                "commentary": commentary,
                 "capabilities": ["attachments"],
             },
         }
@@ -1732,6 +1766,7 @@ class DesktopPetBridge(Star):
                     "commands",
                     "attachments",
                     "send-layer",
+                    "commentary",
                 ],
                 "logLimit": self.max_log,
             },

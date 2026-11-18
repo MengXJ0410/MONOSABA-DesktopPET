@@ -33,6 +33,7 @@ import type {
   ChatThemePreset,
   ChatUiMode,
   ChatUiState,
+  CommentarySettings,
   DisplayInfo,
 } from "../../../../shared/types";
 import { HIRO_AVATAR, ME_DEFAULT_AVATAR } from "../../content/avatars";
@@ -1495,12 +1496,112 @@ function AvatarEditor({
   );
 }
 
+function CommentarySection({
+  commentary,
+  onChange,
+}: {
+  commentary: CommentarySettings;
+  onChange: (patch: Partial<CommentarySettings>) => void;
+}) {
+  const [minDraft, setMinDraft] = useState(String(commentary.minSeconds));
+  const [maxDraft, setMaxDraft] = useState(String(commentary.maxSeconds));
+
+  useEffect(() => setMinDraft(String(commentary.minSeconds)), [commentary.minSeconds]);
+  useEffect(() => setMaxDraft(String(commentary.maxSeconds)), [commentary.maxSeconds]);
+
+  const commitMin = () => {
+    const parsed = Number(minDraft);
+    if (!Number.isFinite(parsed)) {
+      setMinDraft(String(commentary.minSeconds));
+      return;
+    }
+    const value = Math.min(Math.max(30, Math.round(parsed)), commentary.maxSeconds);
+    setMinDraft(String(value));
+    onChange({ minSeconds: value });
+  };
+
+  const commitMax = () => {
+    const parsed = Number(maxDraft);
+    if (!Number.isFinite(parsed)) {
+      setMaxDraft(String(commentary.maxSeconds));
+      return;
+    }
+    const value = Math.max(commentary.minSeconds, Math.round(parsed));
+    setMaxDraft(String(value));
+    onChange({ maxSeconds: value });
+  };
+
+  return (
+    <section className={styles.panelSection}>
+      <h3>随机点评</h3>
+      <label className={styles.notifyRow}>
+        <span>开启随机点评</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={commentary.enabled}
+          className={`${styles.smallSwitch}${commentary.enabled ? ` ${styles.smallSwitchOn}` : ""}`}
+          onClick={() => onChange({ enabled: !commentary.enabled })}
+        >
+          <span className={styles.switchTrack} aria-hidden="true">
+            <span className={styles.switchThumb} />
+          </span>
+        </button>
+      </label>
+      <div className={styles.commentaryRow}>
+        <span>最短间隔</span>
+        <input
+          className={styles.commentaryInput}
+          type="number"
+          min={30}
+          step={5}
+          value={minDraft}
+          aria-label="最短点评间隔（秒）"
+          onChange={(event) => setMinDraft(event.target.value)}
+          onBlur={commitMin}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            commitMin();
+            event.currentTarget.blur();
+          }}
+        />
+        <span className={styles.commentaryUnit}>秒</span>
+      </div>
+      <div className={styles.commentaryRow}>
+        <span>最长间隔</span>
+        <input
+          className={styles.commentaryInput}
+          type="number"
+          min={30}
+          step={5}
+          value={maxDraft}
+          aria-label="最长点评间隔（秒）"
+          onChange={(event) => setMaxDraft(event.target.value)}
+          onBlur={commitMax}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            commitMax();
+            event.currentTarget.blur();
+          }}
+        />
+        <span className={styles.commentaryUnit}>秒</span>
+      </div>
+      <p className={styles.storageHint}>
+        开启后停用待机闲谈，按随机间隔截取鼠标所在屏幕点评。最小 30 秒，可填任意更大值；与桌宠控制面板同步。
+      </p>
+    </section>
+  );
+}
+
 function SettingsPanel({
   ui,
   storage,
   diagnostics,
   autoLaunch,
   backgroundImage,
+  commentary,
   onClose,
   onTheme,
   onFontScale,
@@ -1508,6 +1609,7 @@ function SettingsPanel({
   onBackground,
   onUploadBackground,
   onClearBackground,
+  onCommentary,
   onSavePreset,
   onDeletePreset,
   onToggleNotifications,
@@ -1525,6 +1627,7 @@ function SettingsPanel({
   diagnostics: ChatDiagnostics | null;
   autoLaunch: boolean;
   backgroundImage: string | null;
+  commentary: CommentarySettings;
   onClose: () => void;
   onTheme: (theme: ChatTheme) => void;
   onFontScale: (scale: ChatFontScale) => void;
@@ -1532,6 +1635,7 @@ function SettingsPanel({
   onBackground: (patch: ChatBackgroundPatch) => void;
   onUploadBackground: (file: File) => void;
   onClearBackground: () => void;
+  onCommentary: (patch: Partial<CommentarySettings>) => void;
   onSavePreset: (name: string) => Promise<boolean>;
   onDeletePreset: (id: string) => void;
   onToggleNotifications: (enabled: boolean) => void;
@@ -1830,6 +1934,8 @@ function SettingsPanel({
           />
         </section>
 
+        <CommentarySection commentary={commentary} onChange={onCommentary} />
+
         <section className={styles.panelSection}>
           <h3>消息</h3>
           <div className={styles.settingsRow}>
@@ -2033,6 +2139,11 @@ export function ChatPanel() {
   }));
   const [profile, setProfile] = useState<ChatProfileData>(DEFAULT_PROFILE);
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
+  const [commentary, setCommentary] = useState<CommentarySettings>({
+    enabled: false,
+    minSeconds: 30,
+    maxSeconds: 300,
+  });
   const [selectedPerson, setSelectedPerson] = useState<ChatProfileRole>("hiro");
   const [profileMenu, setProfileMenu] = useState<{
     role: ChatProfileRole;
@@ -2763,6 +2874,19 @@ export function ChatPanel() {
     [showToast],
   );
 
+  const updateCommentary = useCallback(
+    async (patch: Partial<CommentarySettings>) => {
+      setCommentary((prev) => ({ ...prev, ...patch }));
+      try {
+        const next = await window.petApi.setCommentary(patch);
+        if (next) setCommentary(next);
+      } catch {
+        showToast("随机点评设置没有保存成功。");
+      }
+    },
+    [showToast],
+  );
+
   const refreshStorage = useCallback(async () => {
     try {
       const [info, diag] = await Promise.all([
@@ -2977,6 +3101,21 @@ export function ChatPanel() {
       .getAutoLaunch()
       .then((enabled) => setAutoLaunch(enabled))
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.petApi
+      .getCommentary()
+      .then((next) => {
+        if (!cancelled) setCommentary(next);
+      })
+      .catch(() => undefined);
+    const off = window.petApi.onCommentary((next) => setCommentary(next));
+    return () => {
+      cancelled = true;
+      off();
+    };
   }, []);
 
   useEffect(() => {
@@ -3544,6 +3683,7 @@ export function ChatPanel() {
                 diagnostics={diagnostics}
                 autoLaunch={autoLaunch}
                 backgroundImage={backgroundImage}
+                commentary={commentary}
                 onClose={closePanel}
                 onTheme={(theme) => void setTheme(theme)}
                 onFontScale={(scale) => void setFontScale(scale)}
@@ -3551,6 +3691,7 @@ export function ChatPanel() {
                 onBackground={setBackgroundAppearance}
                 onUploadBackground={(file) => void uploadBackground(file)}
                 onClearBackground={() => void clearBackground()}
+                onCommentary={(patch) => void updateCommentary(patch)}
                 onSavePreset={savePreset}
                 onDeletePreset={(id) => void deletePreset(id)}
                 onToggleNotifications={(enabled) => void toggleNotifications(enabled)}

@@ -2,7 +2,13 @@ import { app, BrowserWindow, ipcMain, Menu, screen, shell } from "electron";
 import { join } from "node:path";
 import { registerAppProtocol, registerAppScheme } from "./app-protocol";
 import { getAutoLaunchEnabled, ensureAutoLaunch, setAutoLaunchEnabled } from "./auto-launch";
-import { ensureConfig } from "./config";
+import { ensureConfig, readConfig, updateCommentary } from "./config";
+import { runCommentary } from "./commentary";
+import type {
+  CommentarySettings,
+  MemoryDeleteInput,
+  MemoryUpdateInput,
+} from "../shared/types";
 import { listDisplays, selectDisplay, setForceTop, syncWindowToDisplay, disposeForceTop } from "./display";
 import {
   loadDiary,
@@ -11,7 +17,6 @@ import {
   updateMemory,
   deleteMemory,
 } from "./diary/ssh";
-import type { MemoryDeleteInput, MemoryUpdateInput } from "../shared/types";
 import { chatService } from "./chat/service";
 import { initChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
@@ -20,6 +25,17 @@ import { createTray } from "./tray";
 import { createMainWindow, getMainWindow } from "./window";
 
 registerAppScheme();
+
+function broadcastToAll(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    try {
+      win.webContents.send(channel, payload);
+    } catch {
+      // 窗口正在销毁时忽略。
+    }
+  }
+}
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 app.setAppUserModelId("com.mengxj.monosaba.desktop-pet");
@@ -136,6 +152,34 @@ if (!gotLock) {
         return getAutoLaunchEnabled();
       }
     });
+
+    ipcMain.handle("commentary:get", async () => (await readConfig()).commentary);
+    ipcMain.handle("commentary:set", async (_event, patch: unknown) => {
+      const record =
+        patch && typeof patch === "object"
+          ? (patch as Record<string, unknown>)
+          : {};
+      const next: Partial<CommentarySettings> = {};
+      if (typeof record.enabled === "boolean") next.enabled = record.enabled;
+      if (
+        typeof record.minSeconds === "number" &&
+        Number.isFinite(record.minSeconds)
+      ) {
+        next.minSeconds = record.minSeconds;
+      }
+      if (
+        typeof record.maxSeconds === "number" &&
+        Number.isFinite(record.maxSeconds)
+      ) {
+        next.maxSeconds = record.maxSeconds;
+      }
+      const settings = await updateCommentary(next);
+      broadcastToAll("pet:commentary", settings);
+      return settings;
+    });
+    ipcMain.handle("pet:run-commentary", async (_event, character: unknown) =>
+      runCommentary(typeof character === "string" ? character : undefined),
+    );
 
     ipcMain.on("app:quit", () => app.quit());
     ipcMain.on("app:open-config", () => {

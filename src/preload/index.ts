@@ -24,6 +24,9 @@ import type {
   ChatTheme,
   ChatUiMode,
   ChatUiState,
+  CommentaryRunResult,
+  CommentaryReplyEvent,
+  CommentarySettings,
   DiaryPayload,
   DisplayInfo,
   MemoryDeleteInput,
@@ -284,6 +287,35 @@ const api = {
   },
   setAutoLaunch(enabled: boolean): Promise<boolean> {
     return ipcRenderer.invoke("app:set-auto-launch", enabled) as Promise<boolean>;
+  },
+  getCommentary(): Promise<CommentarySettings> {
+    return ipcRenderer.invoke("commentary:get") as Promise<CommentarySettings>;
+  },
+  setCommentary(patch: Partial<CommentarySettings>): Promise<CommentarySettings> {
+    return ipcRenderer.invoke("commentary:set", patch) as Promise<CommentarySettings>;
+  },
+  onCommentary(handler: (settings: CommentarySettings) => void): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      settings: CommentarySettings,
+    ) => handler(settings);
+    ipcRenderer.on("pet:commentary", listener);
+    return () => {
+      ipcRenderer.removeListener("pet:commentary", listener);
+    };
+  },
+  runCommentary(character?: string): Promise<CommentaryRunResult> {
+    return ipcRenderer.invoke("pet:run-commentary", character) as Promise<CommentaryRunResult>;
+  },
+  onCommentaryReply(handler: (event: CommentaryReplyEvent) => void): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: CommentaryReplyEvent,
+    ) => handler(payload);
+    ipcRenderer.on("chat:commentary", listener);
+    return () => {
+      ipcRenderer.removeListener("chat:commentary", listener);
+    };
   },
   listDisplays(): Promise<DisplayInfo[]> {
     return ipcRenderer.invoke("pet:list-displays") as Promise<DisplayInfo[]>;

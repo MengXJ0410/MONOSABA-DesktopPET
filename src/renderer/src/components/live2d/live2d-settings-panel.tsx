@@ -9,8 +9,9 @@ import {
 } from "@/content/live2d";
 import { Live2DRotatePopover } from "./live2d-rotate-popover";
 import { Live2DPassthroughPopover } from "./live2d-passthrough-popover";
+import { Live2DCommentaryPopover } from "./live2d-commentary-popover";
 
-type PopoverKind = "rotate" | "passthrough";
+type PopoverKind = "rotate" | "passthrough" | "commentary";
 
 type Live2DSettingsPanelProps = {
   visible: boolean;
@@ -20,6 +21,9 @@ type Live2DSettingsPanelProps = {
   rotateEnabled: boolean;
   rotateMinSeconds: number;
   rotateMaxSeconds: number;
+  commentaryEnabled: boolean;
+  commentaryMinSeconds: number;
+  commentaryMaxSeconds: number;
   opacityHoverFade: boolean;
   opacityHover: number;
   opacityBase: number;
@@ -38,6 +42,8 @@ type Live2DSettingsPanelProps = {
   onSelectDisplay: (displayId: string) => void;
   onToggleRotate: () => void;
   onRotateRangeChange: (minSeconds: number, maxSeconds: number) => void;
+  onToggleCommentary: () => void;
+  onCommentaryRangeChange: (minSeconds: number, maxSeconds: number) => void;
   onToggleOpacityHoverFade: () => void;
   onOpacityChange: (hoverOpacity: number, baseOpacity: number) => void;
   onToggleForceTop: () => void;
@@ -64,6 +70,9 @@ export function Live2DSettingsPanel({
   rotateEnabled,
   rotateMinSeconds,
   rotateMaxSeconds,
+  commentaryEnabled,
+  commentaryMinSeconds,
+  commentaryMaxSeconds,
   opacityHoverFade,
   opacityHover,
   opacityBase,
@@ -80,6 +89,8 @@ export function Live2DSettingsPanel({
   onSelectDisplay,
   onToggleRotate,
   onRotateRangeChange,
+  onToggleCommentary,
+  onCommentaryRangeChange,
   onToggleOpacityHoverFade,
   onOpacityChange,
   onToggleForceTop,
@@ -99,6 +110,7 @@ export function Live2DSettingsPanel({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const rotateButtonRef = useRef<HTMLButtonElement | null>(null);
   const passthroughButtonRef = useRef<HTMLButtonElement | null>(null);
+  const commentaryButtonRef = useRef<HTMLButtonElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   // 鼠标在小窗里（或正在拖滑杆）时不能收，否则点到滑杆的瞬间就把面板关了。
   const popoverHoverRef = useRef(false);
@@ -119,7 +131,11 @@ export function Live2DSettingsPanel({
   const openPopover = (kind: PopoverKind) => {
     clearCloseTimer();
     const button =
-      kind === "rotate" ? rotateButtonRef.current : passthroughButtonRef.current;
+      kind === "rotate"
+        ? rotateButtonRef.current
+        : kind === "commentary"
+          ? commentaryButtonRef.current
+          : passthroughButtonRef.current;
     const root = rootRef.current;
     if (!button || !root) return;
     setActivePopover({
@@ -268,6 +284,26 @@ export function Live2DSettingsPanel({
           自动轮换
         </button>
         <button
+          ref={commentaryButtonRef}
+          type="button"
+          className={`appearance-choice appearance-system appearance-wide${commentaryEnabled ? " is-on" : ""}`}
+          aria-pressed={commentaryEnabled}
+          aria-label={`随机点评，当前${commentaryEnabled ? "已开启" : "已关闭"}，悬停可设置间隔`}
+          title={
+            commentaryEnabled
+              ? "随机点评已开启，悬停设置间隔，点击关闭"
+              : "随机点评已关闭，悬停设置间隔，点击开启"
+          }
+          onClick={onToggleCommentary}
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") openPopover("commentary");
+          }}
+          onPointerLeave={() => scheduleClosePopover()}
+          onFocus={() => openPopover("commentary")}
+        >
+          随机点评
+        </button>
+        <button
           type="button"
           className={`appearance-choice appearance-system appearance-wide${forceTop ? " is-on" : ""}`}
           aria-pressed={forceTop}
@@ -332,6 +368,20 @@ export function Live2DSettingsPanel({
           maxSeconds={rotateMaxSeconds}
           popoverRef={popoverRef}
           onChange={onRotateRangeChange}
+          onPointerEnter={handlePopoverPointerEnter}
+          onPointerLeave={handlePopoverPointerLeave}
+          onPointerDown={handlePopoverPointerDown}
+          onPointerUp={handlePopoverPointerUp}
+        />
+      ) : null}
+      {activePopover?.kind === "commentary" ? (
+        <Live2DCommentaryPopover
+          anchor={activePopover.anchor}
+          panel={activePopover.panel}
+          minSeconds={commentaryMinSeconds}
+          maxSeconds={commentaryMaxSeconds}
+          popoverRef={popoverRef}
+          onChange={onCommentaryRangeChange}
           onPointerEnter={handlePopoverPointerEnter}
           onPointerLeave={handlePopoverPointerLeave}
           onPointerDown={handlePopoverPointerDown}

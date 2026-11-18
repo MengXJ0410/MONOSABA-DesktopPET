@@ -172,10 +172,14 @@ export async function bootstrapChat(): Promise<ChatBootstrapResult> {
 export async function sendMessage(
   text: string,
   imageBase64?: string | null,
+  commentary = false,
 ): Promise<ChatSendResult> {
   const body: Record<string, unknown> = { text };
   if (imageBase64) {
     body.image = { mime: "image/jpeg", data: imageBase64 };
+  }
+  if (commentary) {
+    body.commentary = true;
   }
   return request<ChatSendData>("/send", {
     method: "POST",

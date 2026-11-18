@@ -11,10 +11,14 @@ import type {
   ChatThemeMode,
   ChatThemePreset,
   ChatUiConfig,
+  CommentarySettings,
   PetConfig,
 } from "../shared/types";
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const COMMENTARY_MIN_SECONDS = 30;
+/** setTimeout 的上限约 24.8 天，超过这个值没有实际意义。 */
+const COMMENTARY_MAX_SECONDS = 2_147_483;
 
 const DEFAULT_THEME: ChatTheme = {
   mode: "night",
@@ -49,6 +53,11 @@ const DEFAULT_CHAT_UI: ChatUiConfig = {
 
 const DEFAULT_CONFIG: PetConfig = {
   autoLaunch: false,
+  commentary: {
+    enabled: false,
+    minSeconds: 30,
+    maxSeconds: 300,
+  },
   diary: {
     hosts: ["10.144.144.1", "192.168.124.47", "192.168.124.48"],
     port: 22,
@@ -169,6 +178,25 @@ function normalizeOpacity(value: unknown, fallback: number): number {
   return Math.max(0, Math.min(100, Math.round(parsed)));
 }
 
+function normalizeCommentary(input: unknown): CommentarySettings {
+  const row = isRecord(input) ? input : {};
+  const rawMin = finiteNumber(row.minSeconds) ?? 30;
+  const rawMax = finiteNumber(row.maxSeconds) ?? 300;
+  const minSeconds = Math.max(
+    COMMENTARY_MIN_SECONDS,
+    Math.min(COMMENTARY_MAX_SECONDS, Math.round(rawMin)),
+  );
+  const maxSeconds = Math.max(
+    minSeconds,
+    Math.min(COMMENTARY_MAX_SECONDS, Math.round(rawMax)),
+  );
+  return {
+    enabled: row.enabled === true,
+    minSeconds,
+    maxSeconds,
+  };
+}
+
 function normalizeBackground(input: unknown): ChatBackgroundConfig {
   const background = isRecord(input) ? input : {};
   const chat = finiteNumber(background.chatOpacity);
@@ -229,6 +257,7 @@ function normalizeConfig(input: unknown): PetConfig {
 
   return {
     autoLaunch: isRecord(input) && input.autoLaunch === true,
+    commentary: normalizeCommentary(isRecord(input) ? input.commentary : null),
     diary: {
       hosts: normalizedHosts,
       port:
@@ -338,4 +367,14 @@ export async function updateChatUi(
 export async function updateAutoLaunch(enabled: boolean): Promise<void> {
   const raw = await readRawConfig();
   await writeRawConfig({ ...raw, autoLaunch: enabled });
+}
+
+export async function updateCommentary(
+  patch: Partial<CommentarySettings>,
+): Promise<CommentarySettings> {
+  const raw = await readRawConfig();
+  const current = normalizeCommentary(raw.commentary);
+  const next = normalizeCommentary({ ...current, ...patch });
+  await writeRawConfig({ ...raw, commentary: next });
+  return next;
 }
