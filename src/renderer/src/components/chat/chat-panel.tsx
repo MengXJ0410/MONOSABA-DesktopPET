@@ -37,6 +37,7 @@ import type {
   ChatUiState,
   CommentarySettings,
   DisplayInfo,
+  FontPreset,
   MessageFont,
 } from "../../../../shared/types";
 import { HIRO_AVATAR, ME_DEFAULT_AVATAR } from "../../content/avatars";
@@ -67,6 +68,21 @@ const PAGE_SIZE = 200;
 const STATUS_DEBOUNCE_MS = 650;
 const PANEL_STORAGE_KEY = "chat.full.panel";
 const MODE_STORAGE_KEY = "chat.ui.mode";
+
+const SETTINGS_SECTIONS = [
+  "appearance",
+  "background",
+  "bubble",
+  "presets",
+  "messages",
+  "typewriter",
+  "commentary",
+  "window",
+  "storage",
+  "about",
+] as const;
+
+type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number];
 
 const DEFAULT_PROFILE: ChatProfileData = {
   hiro: { role: "hiro", name: "希罗", avatar: null },
@@ -1816,17 +1832,17 @@ function BubbleSection({
     fontSize: `${bubble.fontSize}px`,
     maxWidth: `min(${bubble.maxWidth}px, 100%)`,
     fontFamily: MESSAGE_FONT_STACK,
+    textIndent: bubble.indent ? "2em" : "0",
     "--bubble-alpha": `${bubble.opacity}%`,
     ...messageFontVars(bubble.font, "bubble"),
   } as CSSProperties;
 
   return (
-    <section className={styles.panelSection}>
-      <h3>桌宠气泡</h3>
+    <>
       <div className={styles.settingsRow}>
         <span className={styles.settingsLabel}>位置</span>
         <div className={styles.segmented}>
-          {(["top", "left", "right"] as const).map((position) => (
+          {(["top", "left", "right", "auto"] as const).map((position) => (
             <button
               key={position}
               type="button"
@@ -1881,6 +1897,20 @@ function BubbleSection({
       <p className={styles.storageHint}>
         纯文字模式去掉底色和边框，只保留文字；不透明度在这个模式下不生效。
       </p>
+      <label className={styles.notifyRow}>
+        <span>首行缩进 2 字符</span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={bubble.indent}
+          className={`${styles.smallSwitch}${bubble.indent ? ` ${styles.smallSwitchOn}` : ""}`}
+          onClick={() => onChange({ indent: !bubble.indent })}
+        >
+          <span className={styles.switchTrack} aria-hidden="true">
+            <span className={styles.switchThumb} />
+          </span>
+        </button>
+      </label>
       <SliderRow
         label="自动隐藏"
         value={bubble.autoHideSeconds}
@@ -1912,7 +1942,7 @@ function BubbleSection({
         font={bubble.font}
         onChange={(font) => onChange({ font })}
       />
-    </section>
+    </>
   );
 }
 
@@ -1925,8 +1955,7 @@ function TypewriterSection({
 }) {
   const [replay, setReplay] = useState(0);
   return (
-    <section className={styles.panelSection}>
-      <h3>逐字输出</h3>
+    <>
       <label className={styles.notifyRow}>
         <span>希罗的消息逐字出现</span>
         <button
@@ -1977,7 +2006,7 @@ function TypewriterSection({
           再试一次
         </button>
       </div>
-    </section>
+    </>
   );
 }
 
@@ -2017,8 +2046,7 @@ function CommentarySection({
   };
 
   return (
-    <section className={styles.panelSection}>
-      <h3>随机点评</h3>
+    <>
       <label className={styles.notifyRow}>
         <span>开启随机点评</span>
         <button
@@ -2076,7 +2104,120 @@ function CommentarySection({
       <p className={styles.storageHint}>
         开启后停用待机闲谈，按随机间隔截取鼠标所在屏幕点评。最小 30 秒，可填任意更大值；与桌宠控制面板同步。
       </p>
+    </>
+  );
+}
+
+function SettingsSection({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className={styles.panelSection}>
+      <button
+        type="button"
+        className={styles.sectionToggle}
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span>{title}</span>
+        <span className={styles.sectionArrow} aria-hidden="true">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open ? <div className={styles.sectionBody}>{children}</div> : null}
     </section>
+  );
+}
+
+function FontPresetSection({
+  presets,
+  onSave,
+  onApply,
+  onDelete,
+}: {
+  presets: FontPreset[];
+  onSave: (name: string) => Promise<boolean>;
+  onApply: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    const label = name.trim();
+    if (!label || saving) return;
+    setSaving(true);
+    try {
+      const ok = await onSave(label);
+      if (ok) setName("");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <>
+      <p className={styles.storageHint}>
+        一个预设同时保存聊天字体和气泡字体 / 外观（字号、不透明度、位置、宽度、纯文字、缩进），最多 10 个。
+      </p>
+      <div className={styles.fontPresetRow}>
+        <input
+          className={styles.fontPresetInput}
+          type="text"
+          maxLength={12}
+          value={name}
+          placeholder="预设名称，例如「夜间大字」"
+          aria-label="字体预设名称"
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            void save();
+          }}
+        />
+        <button
+          type="button"
+          className={styles.fontPresetSave}
+          disabled={!name.trim() || saving || presets.length >= 10}
+          onClick={() => void save()}
+        >
+          {saving ? "保存中" : "保存当前"}
+        </button>
+      </div>
+      {presets.length === 0 ? (
+        <p className={styles.muted}>还没有字体预设。</p>
+      ) : (
+        <ul className={styles.fontPresetList}>
+          {presets.map((preset) => (
+            <li key={preset.id}>
+              <span className={styles.fontPresetName} title={preset.name}>
+                {preset.name}
+              </span>
+              <span className={styles.fontPresetMeta}>
+                {preset.bubble.fontSize}px
+              </span>
+              <button type="button" onClick={() => onApply(preset.id)}>
+                应用
+              </button>
+              <button
+                type="button"
+                className={styles.dangerBtn}
+                onClick={() => onDelete(preset.id)}
+              >
+                删除
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className={styles.storageHint}>{presets.length} / 10</p>
+    </>
   );
 }
 
@@ -2095,6 +2236,11 @@ function SettingsPanel({
   onMessageFont,
   onTypewriter,
   onBubble,
+  onSaveFontPreset,
+  onApplyFontPreset,
+  onDeleteFontPreset,
+  onExportSettings,
+  onImportSettings,
   onBackground,
   onUploadBackground,
   onClearBackground,
@@ -2125,6 +2271,11 @@ function SettingsPanel({
   onMessageFont: (patch: Partial<MessageFont>) => void;
   onTypewriter: (patch: Partial<ChatTypewriterSettings>) => void;
   onBubble: (patch: BubblePatch) => void;
+  onSaveFontPreset: (name: string) => Promise<boolean>;
+  onApplyFontPreset: (id: string) => void;
+  onDeleteFontPreset: (id: string) => void;
+  onExportSettings: () => void;
+  onImportSettings: () => void;
   onBackground: (patch: ChatBackgroundPatch) => void;
   onUploadBackground: (file: File) => void;
   onClearBackground: () => void;
@@ -2144,7 +2295,26 @@ function SettingsPanel({
   const [presetName, setPresetName] = useState("");
   const [savingPreset, setSavingPreset] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [openSections, setOpenSections] = useState<
+    Partial<Record<SettingsSectionId, boolean>>
+  >({});
   const backgroundFileRef = useRef<HTMLInputElement | null>(null);
+
+  const allSectionsOpen = SETTINGS_SECTIONS.every((id) => openSections[id]);
+  const toggleSection = (id: SettingsSectionId) =>
+    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleAllSections = () =>
+    setOpenSections(
+      allSectionsOpen
+        ? {}
+        : (Object.fromEntries(
+            SETTINGS_SECTIONS.map((id) => [id, true]),
+          ) as Record<SettingsSectionId, boolean>),
+    );
+  const sectionProps = (id: SettingsSectionId) => ({
+    open: Boolean(openSections[id]),
+    onToggle: () => toggleSection(id),
+  });
 
   const theme = ui.theme;
   const chatOpacity = ui.background.chatOpacity ?? 60;
@@ -2205,8 +2375,13 @@ function SettingsPanel({
       </header>
 
       <div className={styles.panelScroll}>
-        <section className={styles.panelSection}>
-          <h3>外观</h3>
+        <div className={styles.sectionToolbar}>
+          <button type="button" onClick={toggleAllSections}>
+            {allSectionsOpen ? "全部收起" : "全部展开"}
+          </button>
+        </div>
+
+        <SettingsSection title="外观" {...sectionProps("appearance")}>
           <div className={styles.settingsRow}>
             <span className={styles.settingsLabel}>明暗</span>
             <div className={styles.segmented}>
@@ -2329,10 +2504,9 @@ function SettingsPanel({
               {savingPreset ? "保存中" : "存为预设"}
             </button>
           </div>
-        </section>
+        </SettingsSection>
 
-        <section className={styles.panelSection}>
-          <h3>背景</h3>
+        <SettingsSection title="背景" {...sectionProps("background")}>
           <div className={styles.sliderRow}>
             <span className={styles.settingsLabel}>聊天背景不透明度</span>
             <span className={styles.sliderValue}>{chatOpacity}%</span>
@@ -2425,12 +2599,22 @@ function SettingsPanel({
               event.target.value = "";
             }}
           />
-        </section>
+        </SettingsSection>
 
-        <BubbleSection bubble={bubble} onChange={onBubble} />
+        <SettingsSection title="桌宠气泡" {...sectionProps("bubble")}>
+          <BubbleSection bubble={bubble} onChange={onBubble} />
+        </SettingsSection>
 
-        <section className={styles.panelSection}>
-          <h3>消息</h3>
+        <SettingsSection title="字体预设" {...sectionProps("presets")}>
+          <FontPresetSection
+            presets={ui.fontPresets}
+            onSave={onSaveFontPreset}
+            onApply={onApplyFontPreset}
+            onDelete={onDeleteFontPreset}
+          />
+        </SettingsSection>
+
+        <SettingsSection title="消息" {...sectionProps("messages")}>
           <div className={styles.settingsRow}>
             <span className={styles.settingsLabel}>字号</span>
             <div className={styles.segmented}>
@@ -2496,14 +2680,17 @@ function SettingsPanel({
           <p className={styles.storageHint}>
             文字颜色对希罗和我的气泡同时生效，自定义时注意对比度；留「自动」则跟随原配色。
           </p>
-        </section>
+        </SettingsSection>
 
-        <TypewriterSection typewriter={ui.typewriter} onChange={onTypewriter} />
+        <SettingsSection title="逐字输出" {...sectionProps("typewriter")}>
+          <TypewriterSection typewriter={ui.typewriter} onChange={onTypewriter} />
+        </SettingsSection>
 
-        <CommentarySection commentary={commentary} onChange={onCommentary} />
+        <SettingsSection title="随机点评" {...sectionProps("commentary")}>
+          <CommentarySection commentary={commentary} onChange={onCommentary} />
+        </SettingsSection>
 
-        <section className={styles.panelSection}>
-          <h3>通知与窗口</h3>
+        <SettingsSection title="通知与窗口" {...sectionProps("window")}>
           {[
             {
               label: "桌面通知",
@@ -2528,10 +2715,9 @@ function SettingsPanel({
               </button>
             </label>
           ))}
-        </section>
+        </SettingsSection>
 
-        <section className={styles.panelSection}>
-          <h3>数据与存储</h3>
+        <SettingsSection title="数据与存储" {...sectionProps("storage")}>
           {storage ? (
             <>
               <p className={styles.storagePath} title={storage.dir}>
@@ -2600,10 +2786,22 @@ function SettingsPanel({
           <p className={styles.storageHint}>
             迁移会先复制到新目录再切换，旧目录保留为备份；头像和设置始终留在配置目录。
           </p>
-        </section>
+          <h4 className={styles.subHeading}>备份与恢复</h4>
+          <div className={styles.panelBtnRow}>
+            <button type="button" onClick={onExportSettings}>
+              {icons.folder}
+              导出设置…
+            </button>
+            <button type="button" onClick={onImportSettings}>
+              导入设置…
+            </button>
+          </div>
+          <p className={styles.storageHint}>
+            导出的 JSON 只包含主题、背景透明度、桌宠气泡、两套字体、逐字输出、点评间隔和预设；不含 API Key、服务器地址与聊天记录。
+          </p>
+        </SettingsSection>
 
-        <section className={styles.panelSection}>
-          <h3>关于</h3>
+        <SettingsSection title="关于" {...sectionProps("about")}>
           <dl className={styles.aboutList}>
             <div>
               <dt>桌面版本</dt>
@@ -2639,7 +2837,7 @@ function SettingsPanel({
               复制诊断
             </button>
           </div>
-        </section>
+        </SettingsSection>
       </div>
     </aside>
   );
@@ -2669,6 +2867,7 @@ export function ChatPanel() {
     lineHeight: "normal",
     messageFont: DEFAULT_MESSAGE_FONT,
     typewriter: { enabled: true, charsPerSecond: 25 },
+    fontPresets: [],
     background: { chatOpacity: null, panelOpacity: 92, extend: false },
   }));
   const [profile, setProfile] = useState<ChatProfileData>(DEFAULT_PROFILE);
@@ -3537,6 +3736,105 @@ export function ChatPanel() {
     [applyUiState, showToast],
   );
 
+  const saveFontPreset = useCallback(
+    async (name: string) => {
+      try {
+        const result = await window.petApi.chatFontPresetSave(name);
+        if (!result) {
+          showToast("保存字体预设失败。");
+          return false;
+        }
+        if ("error" in result) {
+          showToast(result.error);
+          return false;
+        }
+        applyUiState(result);
+        showToast("字体预设已保存");
+        return true;
+      } catch {
+        showToast("保存字体预设失败。");
+        return false;
+      }
+    },
+    [applyUiState, showToast],
+  );
+
+  const applyFontPreset = useCallback(
+    async (id: string) => {
+      try {
+        const result = await window.petApi.chatFontPresetApply(id);
+        if (!result) {
+          showToast("应用字体预设失败。");
+          return;
+        }
+        if ("error" in result) {
+          showToast(result.error);
+          return;
+        }
+        applyUiState(result);
+        showToast("已应用字体预设");
+      } catch {
+        showToast("应用字体预设失败。");
+      }
+    },
+    [applyUiState, showToast],
+  );
+
+  const deleteFontPreset = useCallback(
+    async (id: string) => {
+      try {
+        const result = await window.petApi.chatFontPresetDelete(id);
+        if (!result) return;
+        if ("error" in result) {
+          showToast(result.error);
+          return;
+        }
+        applyUiState(result);
+      } catch {
+        showToast("删除字体预设失败。");
+      }
+    },
+    [applyUiState, showToast],
+  );
+
+  const exportSettings = useCallback(async () => {
+    try {
+      const result = await window.petApi.chatSettingsExport();
+      if (!result) {
+        showToast("导出设置失败。");
+        return;
+      }
+      if (!result.ok) {
+        if (!result.canceled) showToast(result.error);
+        return;
+      }
+      showToast("设置已导出");
+    } catch {
+      showToast("导出设置失败。");
+    }
+  }, [showToast]);
+
+  const importSettings = useCallback(async () => {
+    try {
+      const result = await window.petApi.chatSettingsImport();
+      if (!result) {
+        showToast("导入设置失败。");
+        return;
+      }
+      if (!result.ok) {
+        if (!result.canceled) showToast(result.error);
+        return;
+      }
+      showToast(
+        result.applied.length > 0
+          ? `已导入：${result.applied.join("、")}`
+          : "设置文件里没有可导入的内容",
+      );
+    } catch {
+      showToast("导入设置失败。");
+    }
+  }, [showToast]);
+
   const refreshStorage = useCallback(async () => {
     try {
       const [info, diag] = await Promise.all([
@@ -4370,6 +4668,11 @@ export function ChatPanel() {
                 onMessageFont={setMessageFont}
                 onTypewriter={setTypewriter}
                 onBubble={updateBubble}
+                onSaveFontPreset={saveFontPreset}
+                onApplyFontPreset={(id) => void applyFontPreset(id)}
+                onDeleteFontPreset={(id) => void deleteFontPreset(id)}
+                onExportSettings={() => void exportSettings()}
+                onImportSettings={() => void importSettings()}
                 onBackground={setBackgroundAppearance}
                 onUploadBackground={(file) => void uploadBackground(file)}
                 onClearBackground={() => void clearBackground()}

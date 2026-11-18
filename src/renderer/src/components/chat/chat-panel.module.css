@@ -3139,3 +3139,150 @@
     animation: none;
   }
 }
+
+/* ---- 折叠分组 / 字体预设 ---- */
+
+.sectionToolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0 4px;
+}
+
+.sectionToolbar button {
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.sectionToolbar button:hover {
+  border-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  color: var(--accent-soft);
+}
+
+.sectionToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sectionToggle:hover {
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+}
+
+.sectionArrow {
+  font-size: 10px;
+  opacity: 0.72;
+}
+
+.sectionBody {
+  padding-top: 9px;
+}
+
+.fontPresetRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.fontPresetInput {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-deep) 42%, transparent);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+}
+
+.fontPresetInput::placeholder {
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
+}
+
+.fontPresetSave {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 46%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-soft);
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fontPresetSave:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fontPresetList {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fontPresetList li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-deep) 30%, transparent);
+}
+
+.fontPresetName {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fontPresetMeta {
+  color: color-mix(in srgb, var(--ink) 46%, transparent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fontPresetList button {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.fontPresetList button:hover {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  color: var(--accent-soft);
+}
+
+.fontPresetList .dangerBtn {
+  border-color: color-mix(in srgb, #ff6b7a 34%, transparent);
+  color: color-mix(in srgb, #ff8b96 82%, transparent);
+}

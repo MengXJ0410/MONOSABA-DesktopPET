@@ -19,6 +19,8 @@ import type {
   ChatResizeDirection,
   ChatSendOptions,
   ChatSendResult,
+  ChatSettingsExportResult,
+  ChatSettingsImportResult,
   ChatStatus,
   ChatStatusData,
   ChatStorageInfo,
@@ -169,6 +171,33 @@ const api = {
     patch: Partial<ChatTypewriterSettings>,
   ): Promise<ChatUiState | null> {
     return ipcRenderer.invoke("chat:set-typewriter", patch) as Promise<ChatUiState | null>;
+  },
+  chatFontPresetSave(
+    name: string,
+  ): Promise<ChatUiState | { error: string } | null> {
+    return ipcRenderer.invoke("chat:font-preset-save", name) as Promise<
+      ChatUiState | { error: string } | null
+    >;
+  },
+  chatFontPresetDelete(
+    id: string,
+  ): Promise<ChatUiState | { error: string } | null> {
+    return ipcRenderer.invoke("chat:font-preset-delete", id) as Promise<
+      ChatUiState | { error: string } | null
+    >;
+  },
+  chatFontPresetApply(
+    id: string,
+  ): Promise<ChatUiState | { error: string } | null> {
+    return ipcRenderer.invoke("chat:font-preset-apply", id) as Promise<
+      ChatUiState | { error: string } | null
+    >;
+  },
+  chatSettingsExport(): Promise<ChatSettingsExportResult | null> {
+    return ipcRenderer.invoke("chat:settings-export") as Promise<ChatSettingsExportResult | null>;
+  },
+  chatSettingsImport(): Promise<ChatSettingsImportResult | null> {
+    return ipcRenderer.invoke("chat:settings-import") as Promise<ChatSettingsImportResult | null>;
   },
   chatSetBackground(patch: ChatBackgroundPatch): Promise<ChatUiState | null> {
     return ipcRenderer.invoke("chat:set-background", patch) as Promise<ChatUiState | null>;

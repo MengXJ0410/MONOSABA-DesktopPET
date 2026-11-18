@@ -26,18 +26,19 @@ export const DEFAULT_BUBBLE_FONT: MessageFont = {
 };
 
 export const DEFAULT_BUBBLE: BubbleSettings = {
-  fontSize: 13,
+  fontSize: 20,
   opacity: 84,
   position: "top",
   maxWidth: 260,
   plainText: false,
+  indent: true,
   autoHideSeconds: 0,
   rounds: 3,
   font: DEFAULT_BUBBLE_FONT,
 };
 
-export const BUBBLE_FONT_MIN = 12;
-export const BUBBLE_FONT_MAX = 24;
+export const BUBBLE_FONT_MIN = 8;
+export const BUBBLE_FONT_MAX = 64;
 export const BUBBLE_OPACITY_MIN = 20;
 export const BUBBLE_WIDTH_MIN = 180;
 export const BUBBLE_WIDTH_MAX = 420;
@@ -52,6 +53,7 @@ export const BUBBLE_POSITION_LABEL: Record<BubblePosition, string> = {
   top: "正上方",
   left: "左侧",
   right: "右侧",
+  auto: "自动",
 };
 
 /** 把一段消息字体配置转成内联 CSS 变量。 */

@@ -25,9 +25,11 @@ import type {
   ChatUiConfig,
   ChatUiMode,
   ChatUiState,
+  BubbleSettings,
+  FontPreset,
   MessageFont,
 } from "../../shared/types";
-import { readConfig, updateChatUi } from "../config";
+import { readConfig, updateBubble, updateChatUi } from "../config";
 import { normalizeCommentary } from "../commentary-text";
 import { profileStore } from "../profile";
 import { backgroundStore } from "./background";
@@ -68,6 +70,7 @@ const DEFAULT_APPEARANCE: ChatAppearance = {
     shadowColor: "#000000",
   },
   typewriter: { enabled: true, charsPerSecond: 25 },
+  fontPresets: [],
 };
 const DEFAULT_BACKGROUND: ChatBackground = {
   chatOpacity: null,
@@ -224,6 +227,7 @@ function pickAppearance(ui: ChatUiConfig): ChatAppearance {
     lineHeight: ui.lineHeight,
     messageFont: ui.messageFont,
     typewriter: ui.typewriter,
+    fontPresets: ui.fontPresets,
   };
 }
 
@@ -867,6 +871,82 @@ export class ChatService {
     this.ui = { ...this.ui, typewriter: next.typewriter };
     broadcast("chat:ui-state", this.getUiState());
     return this.getUiState();
+  }
+
+  /** 导入设置或批量改动后，从 config.json 重新读一遍 UI 并广播。 */
+  async reloadUi(): Promise<ChatUiState> {
+    const config = await readConfig();
+    this.uiConfig = config.chat.ui;
+    this.ui = {
+      mode: config.chat.ui.mode,
+      pinned: config.chat.ui.fullPinned,
+      unread: this.ui.unread,
+      notifications: config.chat.ui.notifications,
+      ...pickAppearance(config.chat.ui),
+      background: toBackground(config.chat.ui.background),
+    };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async saveFontPreset(name: string): Promise<ChatUiState> {
+    const label = name.trim().slice(0, 12);
+    if (!label) throw new Error("预设名称不能为空。");
+    const current = this.getUiConfig();
+    if (current.fontPresets.length >= 10) {
+      throw new Error("字体预设最多 10 个，先删掉一个吧。");
+    }
+    const bubble = (await readConfig()).bubble;
+    const preset: FontPreset = {
+      id: `f-${Date.now().toString(36)}`,
+      name: label,
+      messageFont: { ...current.messageFont },
+      bubble: {
+        fontSize: bubble.fontSize,
+        opacity: bubble.opacity,
+        position: bubble.position,
+        maxWidth: bubble.maxWidth,
+        plainText: bubble.plainText,
+        indent: bubble.indent,
+        font: { ...bubble.font },
+      },
+    };
+    const next = await updateChatUi({
+      fontPresets: [...current.fontPresets, preset],
+    });
+    this.uiConfig = next;
+    this.ui = { ...this.ui, fontPresets: next.fontPresets };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async deleteFontPreset(id: string): Promise<ChatUiState> {
+    const current = this.getUiConfig();
+    if (!current.fontPresets.some((preset) => preset.id === id)) {
+      throw new Error("这个字体预设已经不在了。");
+    }
+    const next = await updateChatUi({
+      fontPresets: current.fontPresets.filter((preset) => preset.id !== id),
+    });
+    this.uiConfig = next;
+    this.ui = { ...this.ui, fontPresets: next.fontPresets };
+    broadcast("chat:ui-state", this.getUiState());
+    return this.getUiState();
+  }
+
+  async applyFontPreset(
+    id: string,
+  ): Promise<{ state: ChatUiState; bubble: BubbleSettings }> {
+    const current = this.getUiConfig();
+    const preset = current.fontPresets.find((item) => item.id === id);
+    if (!preset) throw new Error("这个字体预设已经不在了。");
+    const next = await updateChatUi({ messageFont: preset.messageFont });
+    const bubble = await updateBubble(preset.bubble);
+    this.uiConfig = next;
+    this.ui = { ...this.ui, messageFont: next.messageFont };
+    broadcast("chat:ui-state", this.getUiState());
+    broadcast("pet:bubble", bubble);
+    return { state: this.getUiState(), bubble };
   }
 
   async setBackground(patch: ChatBackgroundPatch): Promise<ChatUiState> {

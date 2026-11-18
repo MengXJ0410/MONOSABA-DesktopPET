@@ -26,6 +26,10 @@ import type {
 import { appEntryUrl } from "./app-protocol";
 import { readConfig } from "./config";
 import {
+  exportChatSettings,
+  importChatSettings,
+} from "./chat/settings-io";
+import {
   chatService,
   type ChatService,
 } from "./chat/service";
@@ -37,6 +41,17 @@ const FULL_CARD_WIDTH = 1040;
 const FULL_CARD_HEIGHT = 700;
 const FULL_MIN_WIDTH = 880;
 const FULL_MIN_HEIGHT = 560;
+
+function broadcastToWindows(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    try {
+      win.webContents.send(channel, payload);
+    } catch {
+      // 窗口正在销毁时忽略。
+    }
+  }
+}
 
 let chatWindow: BrowserWindow | null = null;
 let chatWindowMode: ChatUiMode = "compact";
@@ -792,6 +807,53 @@ export function initChatWindow(): void {
       next.charsPerSecond = record.charsPerSecond;
     }
     return service().setTypewriter(next);
+  });
+
+  ipcMain.handle("chat:font-preset-save", async (event, name: unknown) => {
+    if (!isChatSender(event.sender) || typeof name !== "string") return null;
+    try {
+      return await service().saveFontPreset(name);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "保存字体预设失败。" };
+    }
+  });
+
+  ipcMain.handle("chat:font-preset-delete", async (event, id: unknown) => {
+    if (!isChatSender(event.sender) || typeof id !== "string") return null;
+    try {
+      return await service().deleteFontPreset(id);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "删除字体预设失败。" };
+    }
+  });
+
+  ipcMain.handle("chat:font-preset-apply", async (event, id: unknown) => {
+    if (!isChatSender(event.sender) || typeof id !== "string") return null;
+    try {
+      const result = await service().applyFontPreset(id);
+      return result.state;
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "应用字体预设失败。" };
+    }
+  });
+
+  ipcMain.handle("chat:settings-export", async (event) => {
+    if (!isChatSender(event.sender)) return null;
+    return exportChatSettings(BrowserWindow.fromWebContents(event.sender));
+  });
+
+  ipcMain.handle("chat:settings-import", async (event) => {
+    if (!isChatSender(event.sender)) return null;
+    const result = await importChatSettings(
+      BrowserWindow.fromWebContents(event.sender),
+    );
+    if (result.ok) {
+      await service().reloadUi();
+      const config = await readConfig();
+      broadcastToWindows("pet:bubble", config.bubble);
+      broadcastToWindows("pet:commentary", config.commentary);
+    }
+    return result;
   });
 
   ipcMain.handle("chat:set-background", async (event, patch: unknown) => {

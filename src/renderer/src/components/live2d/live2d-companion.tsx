@@ -184,47 +184,118 @@ function computePanelPlacement(
   return { left: placed.left, top: placed.top, width };
 }
 
-type BubblePlacement = { left: number; top: number };
+type BubbleStackPlacement = {
+  style: {
+    left: number;
+    top?: number;
+    bottom?: number;
+    maxHeight: number;
+  };
+  clipped: boolean;
+};
 
-/** 按设置把气泡放到人物正上方 / 左侧 / 右侧，并夹在屏幕内。 */
-function computeBubblePlacement(
+type ResolvedBubblePosition = "top" | "left" | "right";
+
+/** 「自动」：正上方放得下就优先头顶，否则选左右空间更大的一侧。 */
+function chooseAutoBubblePosition(
+  characterBox: CharacterBox,
+  layout: StageLayout,
+  viewport: { width: number; height: number },
+  maxWidth: number,
+): ResolvedBubblePosition {
+  const edge = 8;
+  const boxLeft = layout.left + characterBox.x;
+  const boxRight = boxLeft + characterBox.width;
+  const boxTop = layout.top + characterBox.y;
+  const topSpace = boxTop - edge;
+  const leftSpace = boxLeft - edge;
+  const rightSpace = viewport.width - boxRight - edge;
+  const needWidth = Math.min(maxWidth, Math.max(180, viewport.width * 0.45)) + 12;
+  // 头顶至少能放约 5 行才优先；否则左右一整列更舒服。
+  if (topSpace >= Math.min(240, viewport.height * 0.45)) return "top";
+  const leftFits = leftSpace >= needWidth;
+  const rightFits = rightSpace >= needWidth;
+  if (leftFits && rightFits) return leftSpace >= rightSpace ? "left" : "right";
+  if (rightFits) return "right";
+  if (leftFits) return "left";
+  if (topSpace >= leftSpace && topSpace >= rightSpace) return "top";
+  return leftSpace >= rightSpace ? "left" : "right";
+}
+
+/**
+ * 气泡栈的可见区域：始终以人物头顶为下边界向上生长；
+ * 上方空间不够时由 CSS 遮罩渐隐，不向下压到人物脸上。
+ */
+function computeBubbleStackPlacement(
   characterBox: CharacterBox,
   layout: StageLayout,
   viewport: { width: number; height: number },
   size: { width: number; height: number },
-  position: BubbleSettings["position"],
+  position: ResolvedBubblePosition,
   gap = 10,
   edge = 8,
-): BubblePlacement {
-  const width = Math.max(48, size.width || 220);
-  const height = Math.max(24, size.height || 40);
+): BubbleStackPlacement {
+  const width = Math.max(48, size.width || 240);
+  const height = Math.max(28, size.height || 80);
   const boxLeft = layout.left + characterBox.x;
   const boxTop = layout.top + characterBox.y;
   const boxRight = boxLeft + characterBox.width;
-  const boxBottom = boxTop + characterBox.height;
   const centerX = boxLeft + characterBox.width / 2;
   const centerY = boxTop + characterBox.height / 2;
 
-  let left: number;
-  let top: number;
-  if (position === "left" || position === "right") {
-    top = centerY - height / 2;
-    left = position === "left" ? boxLeft - width - 12 : boxRight + 12;
-    // 这一侧放不下就翻到另一侧。
-    if (position === "left" && left < edge) left = boxRight + 12;
-    if (position === "right" && left + width > viewport.width - edge) {
-      left = boxLeft - width - 12;
-    }
-  } else {
-    left = centerX - width / 2;
-    top = boxTop - height - gap;
-    // 头顶空间不够时改到人物下方，避免盖在脸上。
-    if (top < edge) top = boxBottom + gap;
+  if (position === "top") {
+    const left = clamp(
+      centerX - width / 2,
+      edge,
+      Math.max(edge, viewport.width - width - edge),
+    );
+    const maxHeight = Math.max(24, boxTop - gap - edge);
+    return {
+      style: {
+        left: left - layout.left,
+        // 可见区下边界贴住人物头顶，内容向上长。
+        bottom: layout.height - characterBox.y + gap,
+        maxHeight,
+      },
+      clipped: height > maxHeight + 1,
+    };
   }
 
+  const maxHeight = Math.max(48, viewport.height - edge * 2);
+  const visibleHeight = Math.min(height, maxHeight);
+  const top = clamp(
+    centerY - visibleHeight / 2,
+    edge,
+    Math.max(edge, viewport.height - visibleHeight - edge),
+  );
+  let left = position === "left" ? boxLeft - width - 12 : boxRight + 12;
+  // 这一侧放不下就翻到另一侧。
+  if (position === "left" && left < edge) left = boxRight + 12;
+  if (position === "right" && left + width > viewport.width - edge) {
+    left = boxLeft - width - 12;
+  }
   left = clamp(left, edge, Math.max(edge, viewport.width - width - edge));
-  top = clamp(top, edge, Math.max(edge, viewport.height - height - edge));
-  return { left: left - layout.left, top: top - layout.top };
+  return {
+    style: {
+      left: left - layout.left,
+      top: top - layout.top,
+      maxHeight,
+    },
+    clipped: height > maxHeight + 1,
+  };
+}
+
+/** 把一段文本拆成多个段落，让每段首行都能独立缩进。 */
+function bubbleParagraphs(text: string, keyPrefix: string) {
+  return text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph, index) => (
+      <p className={styles.bubbleParagraph} key={`${keyPrefix}-${index}`}>
+        {paragraph}
+      </p>
+    ));
 }
 
 function loadCubismCore(): Promise<void> {
@@ -505,6 +576,7 @@ export function Live2DCompanion() {
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const bubblePreviewTimerRef = useRef<number | null>(null);
   const commentaryHideTimerRef = useRef<number | null>(null);
+  const autoChoiceRef = useRef<ResolvedBubblePosition | null>(null);
   const bubbleSettingsRef = useRef(bubbleSettings);
   bubbleSettingsRef.current = bubbleSettings;
   const [iconFailed, setIconFailed] = useState(false);
@@ -1416,51 +1488,91 @@ export function Live2DCompanion() {
           ? "commentary"
           : null;
 
+  // 「自动」在每一轮点评开始时锁定一次位置，避免气泡越写越长时左右跳来跳去。
+  useEffect(() => {
+    if (commentaryRounds.length === 0) autoChoiceRef.current = null;
+  }, [commentaryRounds.length]);
+
+  const resolvedPosition = useMemo<ResolvedBubblePosition>(() => {
+    if (bubbleSettings.position !== "auto") return bubbleSettings.position;
+    if (!characterBox || !layout) return "top";
+    if (autoChoiceRef.current) return autoChoiceRef.current;
+    const choice = chooseAutoBubblePosition(
+      characterBox,
+      layout,
+      viewport,
+      bubbleSettings.maxWidth,
+    );
+    if (bubbleMode === "commentary") autoChoiceRef.current = choice;
+    return choice;
+  }, [
+    bubbleMode,
+    bubbleSettings.maxWidth,
+    bubbleSettings.position,
+    characterBox,
+    layout,
+    viewport,
+  ]);
+
   const bubblePlacement = useMemo(() => {
     if (!bubbleMode || !characterBox || !layout) return null;
-    return computeBubblePlacement(
+    return computeBubbleStackPlacement(
       characterBox,
       layout,
       viewport,
       bubbleSize,
-      bubbleSettings.position,
+      resolvedPosition,
     );
   }, [
     bubbleMode,
-    bubbleSettings.position,
     bubbleSize,
     characterBox,
     layout,
+    resolvedPosition,
     viewport,
   ]);
 
   useLayoutEffect(() => {
     const element = bubbleRef.current;
     if (!element) return;
-    const rect = element.getBoundingClientRect();
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
     if (
-      Math.abs(rect.width - bubbleSize.width) > 0.5 ||
-      Math.abs(rect.height - bubbleSize.height) > 0.5
+      Math.abs(width - bubbleSize.width) > 0.5 ||
+      Math.abs(height - bubbleSize.height) > 0.5
     ) {
-      setBubbleSize({ width: rect.width, height: rect.height });
+      setBubbleSize({ width, height });
     }
   });
 
-  const bubbleStyle = useMemo(() => {
-    const vars: Record<string, string> = {
-      ...messageFontVars(bubbleSettings.font, "bubble"),
-      "--bubble-alpha": `${bubbleSettings.opacity}%`,
-      "--bubble-font-size": `${bubbleSettings.fontSize}px`,
-      "--bubble-max-width": `${bubbleSettings.maxWidth}px`,
+  const bubbleViewportStyle = useMemo(() => {
+    if (!bubblePlacement) return undefined;
+    const { style } = bubblePlacement;
+    const next: Record<string, string> = {
+      left: `${Math.round(style.left)}px`,
+      maxHeight: `${Math.round(style.maxHeight)}px`,
     };
-    if (bubblePlacement) {
-      vars.left = `${Math.round(bubblePlacement.left)}px`;
-      vars.top = `${Math.round(bubblePlacement.top)}px`;
-      vars.right = "auto";
-      vars.bottom = "auto";
+    if (style.top !== undefined) {
+      next.top = `${Math.round(style.top)}px`;
+      next.bottom = "auto";
+    } else {
+      next.bottom = `${Math.round(style.bottom ?? 0)}px`;
+      next.top = "auto";
     }
-    return vars as CSSProperties;
-  }, [bubblePlacement, bubbleSettings]);
+    return next as CSSProperties;
+  }, [bubblePlacement]);
+
+  const bubbleStyle = useMemo(
+    () =>
+      ({
+        ...messageFontVars(bubbleSettings.font, "bubble"),
+        "--bubble-alpha": `${bubbleSettings.opacity}%`,
+        "--bubble-font-size": `${bubbleSettings.fontSize}px`,
+        "--bubble-max-width": `${bubbleSettings.maxWidth}px`,
+        "--bubble-indent": bubbleSettings.indent ? "2em" : "0",
+      }) as CSSProperties,
+    [bubbleSettings],
+  );
 
   const stackLayout = useMemo(() => {
     if (!panelPosition) return null;
@@ -2286,27 +2398,38 @@ export function Live2DCompanion() {
         >
           {bubbleMode ? (
             <div
-              ref={bubbleRef}
-              className={`${styles.bubble}${bubbleSettings.plainText ? ` ${styles.bubblePlain}` : ""}${bubblePlacement ? ` ${styles.bubbleAnchored}` : ""}`}
-              style={bubbleStyle}
-              role="status"
-              aria-live="polite"
+              className={`${styles.bubbleViewport}${bubblePlacement?.clipped ? ` ${styles.bubbleViewportClipped}` : ""}`}
+              style={bubbleViewportStyle}
             >
-              {bubbleMode === "plain" ? (
-                bubble
-              ) : bubbleMode === "preview" ? (
-                bubblePreview
-              ) : (
-                commentaryRounds.map((round) => (
-                  <div className={styles.commentaryRound} key={round.id}>
-                    {round.segments.map((segment, index) => (
-                      <p className={styles.commentarySegment} key={`${round.id}-${index}`}>
-                        {segment}
-                      </p>
-                    ))}
+              <div
+                ref={bubbleRef}
+                className={styles.bubbleStack}
+                style={bubbleStyle}
+                role="status"
+                aria-live="polite"
+              >
+                {bubbleMode === "commentary" ? (
+                  commentaryRounds.map((round) => (
+                    <div
+                      key={round.id}
+                      className={`${styles.bubble}${bubbleSettings.plainText ? ` ${styles.bubblePlain}` : ""}`}
+                    >
+                      {round.segments.map((segment, index) =>
+                        bubbleParagraphs(segment, `${round.id}-${index}`),
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div
+                    className={`${styles.bubble}${bubbleSettings.plainText ? ` ${styles.bubblePlain}` : ""}`}
+                  >
+                    {bubbleParagraphs(
+                      (bubbleMode === "plain" ? bubble : bubblePreview) ?? "",
+                      "single",
+                    )}
                   </div>
-                ))
-              )}
+                )}
+              </div>
             </div>
           ) : null}
           <div

@@ -18,6 +18,8 @@ import type {
   ChatResizeDirection,
   ChatSendOptions,
   ChatSendResult,
+  ChatSettingsExportResult,
+  ChatSettingsImportResult,
   ChatStatus,
   ChatStatusData,
   ChatStorageInfo,
@@ -93,6 +95,17 @@ export type PetApi = {
   chatSetTypewriter(
     patch: Partial<ChatTypewriterSettings>,
   ): Promise<ChatUiState | null>;
+  chatFontPresetSave(
+    name: string,
+  ): Promise<ChatUiState | { error: string } | null>;
+  chatFontPresetDelete(
+    id: string,
+  ): Promise<ChatUiState | { error: string } | null>;
+  chatFontPresetApply(
+    id: string,
+  ): Promise<ChatUiState | { error: string } | null>;
+  chatSettingsExport(): Promise<ChatSettingsExportResult | null>;
+  chatSettingsImport(): Promise<ChatSettingsImportResult | null>;
   chatSetBackground(patch: ChatBackgroundPatch): Promise<ChatUiState | null>;
   chatBackgroundGet(): Promise<string | null>;
   chatBackgroundUpload(dataUrl: string): Promise<ChatBackgroundUploadResult>;

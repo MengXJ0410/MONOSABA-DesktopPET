@@ -62,13 +62,37 @@
   visibility: hidden;
 }
 
-.bubble {
+/* 气泡可见区域：底边贴人物头顶，内容超长时从顶部渐隐。 */
+.bubbleViewport {
   position: absolute;
-  right: 6%;
-  bottom: calc(100% + 10px);
   z-index: 2;
-  max-width: min(var(--bubble-max-width, 260px), calc(100vw - 16px));
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bubbleViewportClipped {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 38px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 38px);
+}
+
+.bubbleStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+}
+
+.bubble {
   margin: 0;
+  max-width: min(var(--bubble-max-width, 260px), calc(100vw - 16px));
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--pet-bubble-border, color-mix(in srgb, var(--accent) 42%, transparent));
   border-radius: 14px;
@@ -79,7 +103,7 @@
   );
   color: var(--bubble-color, var(--pet-bubble-text, #eef4ff));
   font-family: var(--message-font-family, "Microsoft YaHei UI", "Microsoft YaHei", SimHei, "Heiti SC", sans-serif);
-  font-size: var(--bubble-font-size, 0.82rem);
+  font-size: var(--bubble-font-size, 1rem);
   font-weight: var(--bubble-weight, 400);
   -webkit-text-stroke: var(--bubble-stroke, 0 transparent);
   paint-order: stroke fill;
@@ -90,15 +114,7 @@
   overflow-wrap: anywhere;
   box-shadow: var(--pet-shadow, 0 12px 32px rgba(0, 0, 0, 0.34));
   backdrop-filter: blur(10px);
-  pointer-events: none;
   animation: bubble-in 0.22s ease-out;
-}
-
-/* 设置里选了正上方 / 左侧 / 右侧后，位置由脚本算好，这里只负责清掉默认锚点。 */
-.bubbleAnchored {
-  right: auto;
-  bottom: auto;
-  transform-origin: top center;
 }
 
 /* 无气泡纯文字：去掉底色、边框和模糊，只靠字体阴影/描边保证可读。 */
@@ -110,15 +126,12 @@
   backdrop-filter: none;
 }
 
-.commentaryRound + .commentaryRound {
-  margin-top: 0.9em;
-}
-
-.commentarySegment {
+.bubbleParagraph {
   margin: 0;
+  text-indent: var(--bubble-indent, 0);
 }
 
-.commentarySegment + .commentarySegment {
+.bubbleParagraph + .bubbleParagraph {
   margin-top: 0.45em;
 }
 
@@ -399,8 +412,6 @@ html[data-color-mode="light"] .controls .settingsButton.settingsActive .settings
   }
 
   .bubble {
-    right: 4%;
-    bottom: calc(100% + 8px);
     max-width: min(var(--bubble-max-width, 260px), calc(100vw - 16px));
   }
 }

@@ -15,6 +15,7 @@ import type {
   ChatTypewriterSettings,
   ChatUiConfig,
   CommentarySettings,
+  FontPreset,
   MessageFont,
   PetConfig,
 } from "../shared/types";
@@ -48,15 +49,18 @@ const DEFAULT_TYPEWRITER: ChatTypewriterSettings = {
 };
 
 const DEFAULT_BUBBLE: BubbleSettings = {
-  fontSize: 13,
+  fontSize: 20,
   opacity: 84,
   position: "top",
   maxWidth: 260,
   plainText: false,
+  indent: true,
   autoHideSeconds: 0,
   rounds: 3,
   font: DEFAULT_BUBBLE_FONT,
 };
+/** 旧默认字号 13 只迁移一次；之后手动改回 13 不再覆盖。 */
+const BUBBLE_FONT_MIGRATION = "bubble-fontsize-20";
 
 const DEFAULT_THEME: ChatTheme = {
   mode: "night",
@@ -83,6 +87,7 @@ const DEFAULT_CHAT_UI: ChatUiConfig = {
   lineHeight: "normal",
   messageFont: DEFAULT_MESSAGE_FONT,
   typewriter: DEFAULT_TYPEWRITER,
+  fontPresets: [],
   background: {
     chatOpacity: null,
     panelOpacity: 92,
@@ -99,6 +104,7 @@ const DEFAULT_CONFIG: PetConfig = {
     maxSeconds: 300,
   },
   bubble: DEFAULT_BUBBLE,
+  migrations: [],
   diary: {
     hosts: ["10.144.144.1", "192.168.124.47", "192.168.124.48"],
     port: 22,
@@ -259,7 +265,41 @@ function normalizeTypewriter(input: unknown): ChatTypewriterSettings {
 }
 
 function normalizeBubblePosition(value: unknown): BubblePosition {
-  return value === "left" || value === "right" ? value : "top";
+  return value === "left" || value === "right" || value === "auto" ? value : "top";
+}
+
+function normalizeFontPresetBubble(input: unknown): FontPreset["bubble"] {
+  const bubble = normalizeBubble(input);
+  return {
+    fontSize: bubble.fontSize,
+    opacity: bubble.opacity,
+    position: bubble.position,
+    maxWidth: bubble.maxWidth,
+    plainText: bubble.plainText,
+    indent: bubble.indent,
+    font: bubble.font,
+  };
+}
+
+function normalizeFontPresets(input: unknown): FontPreset[] {
+  const list = Array.isArray(input) ? input : [];
+  const presets: FontPreset[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (!isRecord(item)) continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    if (!id || !name || seen.has(id)) continue;
+    if (presets.length >= 10) break;
+    seen.add(id);
+    presets.push({
+      id,
+      name: name.slice(0, 12),
+      messageFont: normalizeMessageFont(item.messageFont, DEFAULT_MESSAGE_FONT),
+      bubble: normalizeFontPresetBubble(item.bubble),
+    });
+  }
+  return presets;
 }
 
 function normalizeBubble(input: unknown): BubbleSettings {
@@ -273,7 +313,7 @@ function normalizeBubble(input: unknown): BubbleSettings {
     fontSize:
       fontSize === null
         ? DEFAULT_BUBBLE.fontSize
-        : Math.max(12, Math.min(24, Math.round(fontSize))),
+        : Math.max(8, Math.min(64, Math.round(fontSize))),
     opacity:
       opacity === null
         ? DEFAULT_BUBBLE.opacity
@@ -284,6 +324,7 @@ function normalizeBubble(input: unknown): BubbleSettings {
         ? DEFAULT_BUBBLE.maxWidth
         : Math.max(180, Math.min(420, Math.round(maxWidth))),
     plainText: row.plainText === true,
+    indent: row.indent !== false,
     autoHideSeconds:
       autoHide === null
         ? DEFAULT_BUBBLE.autoHideSeconds
@@ -356,6 +397,7 @@ function normalizeChatUi(input: unknown): ChatUiConfig {
     lineHeight: normalizeLineHeight(ui.lineHeight),
     messageFont: normalizeMessageFont(ui.messageFont, DEFAULT_MESSAGE_FONT),
     typewriter: normalizeTypewriter(ui.typewriter),
+    fontPresets: normalizeFontPresets(ui.fontPresets),
     background: normalizeBackground(ui.background),
   };
 }
@@ -377,6 +419,13 @@ function normalizeConfig(input: unknown): PetConfig {
     autoLaunch: isRecord(input) && input.autoLaunch === true,
     commentary: normalizeCommentary(isRecord(input) ? input.commentary : null),
     bubble: normalizeBubble(isRecord(input) ? input.bubble : null),
+    migrations:
+      isRecord(input) && Array.isArray(input.migrations)
+        ? input.migrations.filter(
+            (item): item is string =>
+              typeof item === "string" && item.trim().length > 0,
+          )
+        : [],
     diary: {
       hosts: normalizedHosts,
       port:
@@ -445,9 +494,26 @@ async function readRawConfig(): Promise<Record<string, unknown>> {
 
 async function writeRawConfig(config: Record<string, unknown>): Promise<void> {
   const path = await ensureConfig();
-  const tmp = `${path}.tmp`;
+  // Windows 上杀毒 / 索引服务偶尔会短暂占用目标文件；用唯一临时名 + 重试避免写坏配置。
+  const tmp = `${path}.${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}.tmp`;
   await fs.writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  await fs.rename(tmp, path);
+  try {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        await fs.rename(tmp, path);
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") throw error;
+        await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)));
+      }
+    }
+    await fs.rename(tmp, path);
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+  }
 }
 
 export async function ensureConfig(): Promise<string> {
@@ -462,7 +528,32 @@ export async function ensureConfig(): Promise<string> {
 }
 
 export async function readConfig(): Promise<PetConfig> {
-  return normalizeConfig(await readRawConfig());
+  const raw = await readRawConfig();
+  const config = normalizeConfig(raw);
+  // 旧默认字号 13 → 新默认 20，只迁移一次；用户之后手动改回 13 不会被反复覆盖。
+  if (!config.migrations.includes(BUBBLE_FONT_MIGRATION)) {
+    const nextBubble =
+      config.bubble.fontSize === 13
+        ? { ...config.bubble, fontSize: DEFAULT_BUBBLE.fontSize }
+        : config.bubble;
+    const migrations = [...config.migrations, BUBBLE_FONT_MIGRATION];
+    config.bubble = nextBubble;
+    config.migrations = migrations;
+    try {
+      await writeRawConfig({
+        ...raw,
+        bubble: {
+          ...(isRecord(raw.bubble) ? raw.bubble : {}),
+          fontSize: nextBubble.fontSize,
+        },
+        migrations,
+      });
+    } catch (error) {
+      // 写盘失败也先把迁移后的值返回给当前进程，下次启动再试。
+      console.warn("[config] 保存字号迁移失败", error);
+    }
+  }
+  return config;
 }
 
 export async function updateChatUi(

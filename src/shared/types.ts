@@ -158,6 +158,25 @@ export type ChatTypewriterSettings = {
   charsPerSecond: number;
 };
 
+/** 字体预设里保存的气泡外观（不含自动隐藏 / 保留轮数等行为）。 */
+export type FontPresetBubble = {
+  fontSize: number;
+  opacity: number;
+  position: BubblePosition;
+  maxWidth: number;
+  plainText: boolean;
+  indent: boolean;
+  font: MessageFont;
+};
+
+/** 一套字体预设：聊天字体 + 气泡字体与外观，最多 10 个。 */
+export type FontPreset = {
+  id: string;
+  name: string;
+  messageFont: MessageFont;
+  bubble: FontPresetBubble;
+};
+
 /** 聊天窗口的外观设置，配置与运行态共用。 */
 export type ChatAppearance = {
   theme: ChatTheme;
@@ -166,13 +185,14 @@ export type ChatAppearance = {
   lineHeight: ChatLineHeight;
   messageFont: MessageFont;
   typewriter: ChatTypewriterSettings;
+  fontPresets: FontPreset[];
 };
 
-export type BubblePosition = "top" | "left" | "right";
+export type BubblePosition = "top" | "left" | "right" | "auto";
 
 /** 桌宠气泡的外观设置；桌宠和聊天设置共用同一份。 */
 export type BubbleSettings = {
-  /** 字号（px），12–24。 */
+  /** 字号（px），8–64。 */
   fontSize: number;
   /** 背景不透明度（%），20–100；纯文字模式下不生效。 */
   opacity: number;
@@ -181,6 +201,8 @@ export type BubbleSettings = {
   maxWidth: number;
   /** 无气泡纯文字：去掉底色和边框。 */
   plainText: boolean;
+  /** 每段首行缩进 2 字符。 */
+  indent: boolean;
   /** 最后一段到达后自动隐藏（秒），0 = 不自动隐藏。 */
   autoHideSeconds: number;
   /** 点评气泡保留多少轮，1–5。 */
@@ -453,6 +475,35 @@ export type ChatMediaResult =
   | { ok: true; dataUrl: string; mime: string }
   | { ok: false; error: string };
 
+/** 导出到本地 JSON 的聊天个性化设置（不含 API Key / 服务器 / 缓存路径）。 */
+export type ChatSettingsExport = {
+  format: "monosaba-chat-settings";
+  version: 1;
+  exportedAt: string;
+  appVersion: string;
+  appearance: {
+    theme: ChatTheme;
+    themePresets: ChatThemePreset[];
+    messageFont: MessageFont;
+    typewriter: ChatTypewriterSettings;
+  };
+  background: ChatBackground;
+  bubble: BubbleSettings;
+  commentary: {
+    minSeconds: number;
+    maxSeconds: number;
+  };
+  fontPresets: FontPreset[];
+};
+
+export type ChatSettingsExportResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string; canceled?: boolean };
+
+export type ChatSettingsImportResult =
+  | { ok: true; applied: string[] }
+  | { ok: false; error: string; canceled?: boolean };
+
 export type ChatUiState = ChatAppearance & {
   mode: ChatUiMode;
   pinned: boolean;
@@ -486,6 +537,8 @@ export type PetConfig = {
   commentary: CommentarySettings;
   /** 桌宠气泡外观（位置、字号、字体、透明度）。 */
   bubble: BubbleSettings;
+  /** 已经执行过的一次性配置迁移。 */
+  migrations: string[];
 };
 
 export type CommentarySettings = {
