@@ -21,6 +21,7 @@ order: 110
 
 | 变化 | 说明 |
 | --- | --- |
+| 设置合并 | 「桌宠气泡」和「消息」合并为「字体设置」，分组 10 → 9；气泡外观、气泡字体、聊天字号 / 行距、消息字体同组 |
 | 根因 | 桥接设 `mood_skip_appraisal`，mood 1.4.9 只读 `mood_skip_affection`，点评轮仍在评估心情 / 好感 |
 | mood 1.5.0 | `on_llm_request` / `on_llm_response` 看到 `mood_skip_appraisal` 或 `mood_skip_all` 整轮跳过，不改情绪、好感、冷战、记忆 |
 | 桥接 0.3.4 | 点评事件同时设置三个跳过标记；`/status` 返回睡眠状态；`/send` 睡着时直接回 zzZ，不注入回合 |

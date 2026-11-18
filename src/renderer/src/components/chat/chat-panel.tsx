@@ -73,7 +73,6 @@ const SETTINGS_SECTIONS = [
   "background",
   "bubble",
   "presets",
-  "messages",
   "typewriter",
   "commentary",
   "window",
@@ -2613,20 +2612,10 @@ function SettingsPanel({
           />
         </SettingsSection>
 
-        <SettingsSection title="桌宠气泡" {...sectionProps("bubble")}>
+        <SettingsSection title="字体设置" {...sectionProps("bubble")}>
+          <h4 className={styles.subHeading}>桌宠气泡</h4>
           <BubbleSection bubble={bubble} onChange={onBubble} />
-        </SettingsSection>
-
-        <SettingsSection title="字体预设" {...sectionProps("presets")}>
-          <FontPresetSection
-            presets={ui.fontPresets}
-            onSave={onSaveFontPreset}
-            onApply={onApplyFontPreset}
-            onDelete={onDeleteFontPreset}
-          />
-        </SettingsSection>
-
-        <SettingsSection title="消息" {...sectionProps("messages")}>
+          <h4 className={styles.subHeading}>聊天消息</h4>
           <div className={styles.settingsRow}>
             <span className={styles.settingsLabel}>字号</span>
             <div className={styles.segmented}>
@@ -2696,6 +2685,15 @@ function SettingsPanel({
           <p className={styles.storageHint}>
             文字颜色对希罗和我的气泡同时生效，自定义时注意对比度；留「自动」则跟随原配色。
           </p>
+        </SettingsSection>
+
+        <SettingsSection title="字体预设" {...sectionProps("presets")}>
+          <FontPresetSection
+            presets={ui.fontPresets}
+            onSave={onSaveFontPreset}
+            onApply={onApplyFontPreset}
+            onDelete={onDeleteFontPreset}
+          />
         </SettingsSection>
 
         <SettingsSection title="逐字输出" {...sectionProps("typewriter")}>
