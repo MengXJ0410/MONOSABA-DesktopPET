@@ -40,6 +40,9 @@ import type {
   MemoryUpdateInput,
   MemoryWriteResult,
   MessageFont,
+  PointerControl,
+  PointerPosition,
+  PointerUpdate,
 } from "../shared/types";
 
 export type DiaryResult =
@@ -311,6 +314,30 @@ const api = {
     ipcRenderer.on("pet:open-settings", listener);
     return () => {
       ipcRenderer.removeListener("pet:open-settings", listener);
+    };
+  },
+  /** 桌宠渲染层把第二指针的屏幕坐标交给主进程，由主进程转发给对应显示器的浮层。 */
+  pointerReport(position: PointerPosition): void {
+    ipcRenderer.send("pointer:position", position);
+  },
+  /** 指针浮层接收位置与显示状态。 */
+  onPointerUpdate(handler: (update: PointerUpdate) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, update: PointerUpdate) => {
+      handler(update);
+    };
+    ipcRenderer.on("pointer:update", listener);
+    return () => {
+      ipcRenderer.removeListener("pointer:update", listener);
+    };
+  },
+  /** 预留给以后 AI 接管指针：wander 自己游走，external 使用主进程给的坐标。 */
+  onPointerControl(handler: (control: PointerControl) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, control: PointerControl) => {
+      handler(control);
+    };
+    ipcRenderer.on("pointer:control", listener);
+    return () => {
+      ipcRenderer.removeListener("pointer:control", listener);
     };
   },
   captureDiaryCard(rect: {

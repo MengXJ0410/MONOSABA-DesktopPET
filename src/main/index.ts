@@ -28,6 +28,7 @@ import { chatService } from "./chat/service";
 import { initChatWindow, openChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
 import { logStartup } from "./logs";
+import { disposePointerWindows, initPointerWindows } from "./pointer-window";
 import { ensureNotificationShortcut, restoreNotificationShortcut } from "./notification-shortcut";
 import { startMousePassthrough } from "./mouse-passthrough";
 import { createTray } from "./tray";
@@ -275,6 +276,9 @@ if (!gotLock) {
     const win = createMainWindow(join(__dirname, "../preload/index.js"));
     startMousePassthrough(win);
     createTrayWithRetry();
+    initPointerWindows();
+    // 桌宠窗口关闭时先拆掉指针浮层，否则 window-all-closed 会被浮层托住。
+    win.on("closed", () => disposePointerWindows());
 
     // 自启维护要跑一次 PowerShell（约 1.5 秒），放在窗口之后后台执行，
     // 不要挡住启动：0.3.7 就是因为登录后迟迟看不到桌宠才被当成「没自启」。
@@ -300,6 +304,7 @@ if (!gotLock) {
   });
 
   app.on("before-quit", () => {
+    disposePointerWindows();
     disposeForceTop();
     void chatService.stop();
   });
@@ -311,5 +316,7 @@ if (!gotLock) {
     }
     const win = createMainWindow(join(__dirname, "../preload/index.js"));
     startMousePassthrough(win);
+    initPointerWindows();
+    win.on("closed", () => disposePointerWindows());
   });
 }

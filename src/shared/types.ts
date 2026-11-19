@@ -639,3 +639,25 @@ export type CommentaryDiagnostics = {
   /** 最近 8 次尝试，新的在前。 */
   history: CommentaryAttempt[];
 };
+
+/** 第二指针（希罗指针）。坐标统一用虚拟桌面的 DIP，size 是光标的 CSS 像素高度基准。 */
+export type PointerPosition = {
+  x: number;
+  y: number;
+  size: number;
+};
+
+/** 主进程发给指针浮层的坐标，相对该显示器左上角。 */
+export type PointerUpdate = {
+  x: number;
+  y: number;
+  size: number;
+  visible: boolean;
+};
+
+/** 主进程发给桌宠渲染层的指针状态；本版只使用 wander。 */
+export type PointerControl = {
+  mode: "wander" | "external";
+  x?: number;
+  y?: number;
+};

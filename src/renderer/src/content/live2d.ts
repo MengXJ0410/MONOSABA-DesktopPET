@@ -110,6 +110,14 @@ export const LIVE2D_SIZE_MAX = 300;
 export const LIVE2D_SIZE_DEFAULT = 100;
 export const LIVE2D_MIN_TOP_PX = 64;
 
+/** 第二指针大小：相对 Windows 默认光标（32 DIP）的倍数。 */
+export const LIVE2D_POINTER_BASE_SIZE = 32;
+export const LIVE2D_POINTER_SIZE_MIN = 1;
+export const LIVE2D_POINTER_SIZE_MAX = 4;
+export const LIVE2D_POINTER_SIZE_STEP = 0.5;
+export const LIVE2D_POINTER_SIZE_DEFAULT = 1.5;
+export const LIVE2D_POINTER_SIZE_STORAGE_KEY = "jxmfun-live2d-pointer-size";
+
 export const LIVE2D_EXPRESSIONS = ["monvhua", "taishou", "zuibu", "liulei"] as const;
 export type Live2DExpression = (typeof LIVE2D_EXPRESSIONS)[number];
 

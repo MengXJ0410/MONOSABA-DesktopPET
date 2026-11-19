@@ -56,6 +56,9 @@ function startTopmostLoop() {
       stopTopmostLoop();
       return;
     }
+    // 某些操作（setBounds、创建 owned 的指针浮层）会把窗口踢出置顶层；
+    // 先补一次 setAlwaysOnTop，再 moveTop 调整 Z 序。
+    win.setAlwaysOnTop(true, "screen-saver");
     // moveTop 只调整 Z 序、不抢前台焦点，正好配合 focusable: false。
     win.moveTop();
   }, TOPMOST_INTERVAL_MS);

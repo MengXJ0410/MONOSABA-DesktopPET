@@ -43,6 +43,7 @@ import {
   FULL_MIN_WIDTH,
   WINDOW_PADDING,
 } from "./chat/layout";
+import { isPointerWindow } from "./pointer-window";
 import { logChatWindow } from "./logs";
 
 function broadcastToWindows(channel: string, payload: unknown): void {
@@ -909,7 +910,12 @@ export function initChatWindow(): void {
   ipcMain.handle("chat:open-settings", (event) => {
     if (!isCurrentChatSender(event.sender)) return;
     for (const win of BrowserWindow.getAllWindows()) {
-      if (win === chatWindow || pendingChatWindows.has(win) || win.isDestroyed()) {
+      if (
+        win === chatWindow ||
+        pendingChatWindows.has(win) ||
+        isPointerWindow(win) ||
+        win.isDestroyed()
+      ) {
         continue;
       }
       win.webContents.send("pet:open-settings");

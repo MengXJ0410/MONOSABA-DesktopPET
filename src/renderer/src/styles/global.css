@@ -54,3 +54,22 @@ button:disabled {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* 第二指针浮层：只画光标，不接收鼠标、不参与文档流。 */
+.pointer-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: fit-content;
+  height: fit-content;
+  display: none;
+  pointer-events: none;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+.pointer-cursor canvas {
+  display: block;
+  pointer-events: none;
+  image-rendering: pixelated;
+}

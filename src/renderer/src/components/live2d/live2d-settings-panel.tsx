@@ -10,8 +10,9 @@ import {
 import { Live2DRotatePopover } from "./live2d-rotate-popover";
 import { Live2DPassthroughPopover } from "./live2d-passthrough-popover";
 import { Live2DCommentaryPopover } from "./live2d-commentary-popover";
+import { Live2DPointerPopover } from "./live2d-pointer-popover";
 
-type PopoverKind = "rotate" | "passthrough" | "commentary";
+type PopoverKind = "rotate" | "passthrough" | "commentary" | "pointer";
 
 type Live2DSettingsPanelProps = {
   visible: boolean;
@@ -28,6 +29,8 @@ type Live2DSettingsPanelProps = {
   opacityHover: number;
   opacityBase: number;
   forceTop: boolean;
+  /** 希罗指针大小（相对 Windows 默认光标 32 DIP 的倍数）。 */
+  pointerSize: number;
   scale: number;
   character: Live2DCharacterId;
   characterName: string;
@@ -47,6 +50,7 @@ type Live2DSettingsPanelProps = {
   onToggleOpacityHoverFade: () => void;
   onOpacityChange: (hoverOpacity: number, baseOpacity: number) => void;
   onToggleForceTop: () => void;
+  onPointerSizeChange: (size: number) => void;
   /** 管理员 + 希罗时才显示「查看日记」。 */
   canViewDiary: boolean;
   onOpenDiary: () => void;
@@ -77,6 +81,7 @@ export function Live2DSettingsPanel({
   opacityHover,
   opacityBase,
   forceTop,
+  pointerSize,
   scale,
   character,
   characterName,
@@ -94,6 +99,7 @@ export function Live2DSettingsPanel({
   onToggleOpacityHoverFade,
   onOpacityChange,
   onToggleForceTop,
+  onPointerSizeChange,
   canViewDiary,
   onOpenDiary,
   onClose,
@@ -107,17 +113,11 @@ export function Live2DSettingsPanel({
   const progress =
     ((scale - LIVE2D_SIZE_MIN) / (LIVE2D_SIZE_MAX - LIVE2D_SIZE_MIN)) * 100;
 
-  /**
-   * 希罗指针：后续接「AI 操控第二指针」。
-   * 功能未实现前强制关闭；接入时把这里改成 true，并给按钮补 onClick / 配置。
-   */
-  const POINTER_IMPLEMENTED = false;
-  const pointerReady = POINTER_IMPLEMENTED && commentaryEnabled;
-
   const rootRef = useRef<HTMLDivElement | null>(null);
   const rotateButtonRef = useRef<HTMLButtonElement | null>(null);
   const passthroughButtonRef = useRef<HTMLButtonElement | null>(null);
   const commentaryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const pointerButtonRef = useRef<HTMLButtonElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   // 鼠标在小窗里（或正在拖滑杆）时不能收，否则点到滑杆的瞬间就把面板关了。
   const popoverHoverRef = useRef(false);
@@ -142,7 +142,9 @@ export function Live2DSettingsPanel({
         ? rotateButtonRef.current
         : kind === "commentary"
           ? commentaryButtonRef.current
-          : passthroughButtonRef.current;
+          : kind === "pointer"
+            ? pointerButtonRef.current
+            : passthroughButtonRef.current;
     const root = rootRef.current;
     if (!button || !root) return;
     setActivePopover({
@@ -330,28 +332,20 @@ export function Live2DSettingsPanel({
               随机点评
             </button>
             {/*
-             * 希罗指针：后续接「AI 操控第二指针」。
-             * 规则：必须先开启随机点评；POINTER_IMPLEMENTED 为 false 时强制关闭。
+             * 希罗指针：本版常开，负责待机游走和视线跟随。
+             * 悬停 / 聚焦打开大小小窗；开关等接入 AstrBot 的「AI 操控」后再开放。
              */}
             <button
+              ref={pointerButtonRef}
               type="button"
-              className={`appearance-choice appearance-region-item appearance-system${pointerReady ? " is-on" : ""}`}
-              aria-pressed={pointerReady}
-              aria-label={
-                !commentaryEnabled
-                  ? "希罗指针，需先开启随机点评"
-                  : pointerReady
-                    ? "希罗指针，当前已开启"
-                    : "希罗指针，即将上线，当前版本暂不可用"
-              }
-              title={
-                !commentaryEnabled
-                  ? "先开启随机点评，才能使用希罗指针"
-                  : pointerReady
-                    ? "希罗指针已开启，点击关闭"
-                    : "希罗指针即将上线，当前版本暂不可用"
-              }
-              disabled={!pointerReady}
+              className="appearance-choice appearance-region-item appearance-system is-on"
+              aria-label={`希罗指针，当前常开，大小 ${pointerSize.toFixed(1)} 倍，悬停可调整`}
+              title="希罗指针常开；悬停调整大小，AI 操控后续开放"
+              onPointerEnter={(event) => {
+                if (event.pointerType === "mouse") openPopover("pointer");
+              }}
+              onPointerLeave={() => scheduleClosePopover()}
+              onFocus={() => openPopover("pointer")}
             >
               希罗指针
             </button>
@@ -422,6 +416,19 @@ export function Live2DSettingsPanel({
           maxSeconds={commentaryMaxSeconds}
           popoverRef={popoverRef}
           onChange={onCommentaryRangeChange}
+          onPointerEnter={handlePopoverPointerEnter}
+          onPointerLeave={handlePopoverPointerLeave}
+          onPointerDown={handlePopoverPointerDown}
+          onPointerUp={handlePopoverPointerUp}
+        />
+      ) : null}
+      {activePopover?.kind === "pointer" && character === "hiro" ? (
+        <Live2DPointerPopover
+          anchor={activePopover.anchor}
+          panel={activePopover.panel}
+          size={pointerSize}
+          popoverRef={popoverRef}
+          onChange={onPointerSizeChange}
           onPointerEnter={handlePopoverPointerEnter}
           onPointerLeave={handlePopoverPointerLeave}
           onPointerDown={handlePopoverPointerDown}

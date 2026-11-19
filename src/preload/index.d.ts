@@ -39,6 +39,9 @@ import type {
   MemoryUpdateInput,
   MemoryWriteResult,
   MessageFont,
+  PointerControl,
+  PointerPosition,
+  PointerUpdate,
 } from "../shared/types";
 
 export type DiaryResult =
@@ -134,6 +137,9 @@ export type PetApi = {
   onChatCommands(handler: (data: ChatCommandsData) => void): () => void;
   onChatUiState(handler: (state: ChatUiState) => void): () => void;
   onOpenSettings(handler: () => void): () => void;
+  pointerReport(position: PointerPosition): void;
+  onPointerUpdate(handler: (update: PointerUpdate) => void): () => void;
+  onPointerControl(handler: (control: PointerControl) => void): () => void;
   captureDiaryCard(rect: {
     x: number;
     y: number;

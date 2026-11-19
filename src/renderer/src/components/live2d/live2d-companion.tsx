@@ -43,6 +43,12 @@ import {
   LIVE2D_OPACITY_STEP,
   LIVE2D_OPACITY_STORAGE_KEY,
   LIVE2D_PASSTHROUGH_STORAGE_KEY,
+  LIVE2D_POINTER_BASE_SIZE,
+  LIVE2D_POINTER_SIZE_DEFAULT,
+  LIVE2D_POINTER_SIZE_MAX,
+  LIVE2D_POINTER_SIZE_MIN,
+  LIVE2D_POINTER_SIZE_STEP,
+  LIVE2D_POINTER_SIZE_STORAGE_KEY,
   LIVE2D_POSITION_STORAGE_KEY,
   LIVE2D_ROTATE_DEFAULT_MAX_SECONDS,
   LIVE2D_ROTATE_DEFAULT_MIN_SECONDS,
@@ -99,6 +105,12 @@ type PanelPlacement = { left: number; top: number; width: number };
 
 const PANEL_HEIGHT = 278;
 const PANEL_SETTLE_MS = 180;
+
+/**
+ * 第二指针（希罗指针）：本版常开。
+ * 以后接入 AstrBot 时改由主进程 / 配置控制，关闭后视线回退到真实鼠标。
+ */
+const POINTER_ENABLED = true;
 
 type ParameterCore = {
   setParameterValueById: (id: unknown, value: number, weight?: number) => void;
@@ -357,6 +369,18 @@ function readStoredScale() {
   return clamp(raw, LIVE2D_SIZE_MIN, LIVE2D_SIZE_MAX);
 }
 
+function readStoredPointerSize() {
+  try {
+    const raw = Number(
+      window.localStorage.getItem(LIVE2D_POINTER_SIZE_STORAGE_KEY),
+    );
+    if (!Number.isFinite(raw) || raw <= 0) return LIVE2D_POINTER_SIZE_DEFAULT;
+    return clamp(raw, LIVE2D_POINTER_SIZE_MIN, LIVE2D_POINTER_SIZE_MAX);
+  } catch {
+    return LIVE2D_POINTER_SIZE_DEFAULT;
+  }
+}
+
 function readStoredCharacter(): Live2DCharacterId {
   try {
     const raw = window.localStorage.getItem(LIVE2D_CHARACTER_STORAGE_KEY);
@@ -520,6 +544,9 @@ export function Live2DCompanion() {
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [autoLaunchPending, setAutoLaunchPending] = useState(false);
   const [scale, setScale] = useState(LIVE2D_SIZE_DEFAULT);
+  const [pointerSize, setPointerSize] = useState(readStoredPointerSize);
+  const pointerSizeRef = useRef(pointerSize);
+  pointerSizeRef.current = pointerSize;
   const [character, setCharacter] = useState<Live2DCharacterId>(LIVE2D_DEFAULT_CHARACTER);
   const [position, setPosition] = useState<StoredPosition | null>(null);
   const [characterBox, setCharacterBox] = useState<CharacterBox | null>(null);
@@ -999,6 +1026,17 @@ export function Live2DCompanion() {
       // Ignore storage failures.
     }
   }, [freezePanel, schedulePanelSettle]);
+
+  const changePointerSize = useCallback((value: number) => {
+    const next = clamp(value, LIVE2D_POINTER_SIZE_MIN, LIVE2D_POINTER_SIZE_MAX);
+    setPointerSize(next);
+    pointerSizeRef.current = next;
+    try {
+      window.localStorage.setItem(LIVE2D_POINTER_SIZE_STORAGE_KEY, String(next));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, []);
 
   const startScale = useCallback(() => {
     scaleDraggingRef.current = true;
@@ -1747,7 +1785,16 @@ export function Live2DCompanion() {
     let expressionMode: "none" | "idle-pose" | "click" = "none";
     let idleGazeState: IdleGazeState | null = null;
 
+    // 第二指针：pointerScreen 是虚拟桌面 DIP 坐标，pointerClient 是相对桌宠窗口的坐标。
+    let pointerScreen: { x: number; y: number } | null = null;
+    let pointerClient: { x: number; y: number } | null = null;
+    let pointerWander: IdleGazeState | null = null;
+    let pointerWanderRaf = 0;
+    let pointerHeadAtSeed: { x: number; y: number } | null = null;
+
     const headAnchorRef: { current: { x: number; y: number } | null } = { current: null };
+
+    const idleNow = () => POINTER_ENABLED || gazeMode === "idle";
 
     const fitModel = () => {
       if (!model || !app) return;
@@ -1764,19 +1811,76 @@ export function Live2DCompanion() {
     };
 
     const updateGaze = () => {
-      const pointer = pointerRef.current;
       const head = headAnchorRef.current;
-      if (!pointer || !head) return;
+      if (!head) return;
+      const source = POINTER_ENABLED
+        ? pointerClient
+        : pointerRef.current;
+      if (!source) return;
       targetX = clamp(
-        (pointer.x - head.x) / (window.innerWidth * 0.5),
+        (source.x - head.x) / (window.innerWidth * 0.5),
         -1,
         1,
       );
       targetY = clamp(
-        (pointer.y - head.y) / (window.innerHeight * 0.5),
+        (source.y - head.y) / (window.innerHeight * 0.5),
         -1,
         1,
       );
+    };
+
+    /**
+     * 第二指针待机游走：复用原来的随机视线曲线，把它从「眼睛的目标」
+     * 变成「屏幕上可见的光标」，再让眼睛去看这个光标。
+     */
+    const startPointerWander = () => {
+      if (!POINTER_ENABLED) return;
+      const tick = (now: number) => {
+        if (cancelled) return;
+        const head = headAnchorRef.current;
+        if (head) {
+          const winX = window.screenX;
+          const winY = window.screenY;
+          const width = Math.max(1, window.innerWidth);
+          const height = Math.max(1, window.innerHeight);
+          const headScreen = { x: winX + head.x, y: winY + head.y };
+
+          if (!pointerWander) {
+            pointerWander = createIdleGaze(now, 0.28, 0.12).state;
+            pointerHeadAtSeed = headScreen;
+          } else if (pointerHeadAtSeed) {
+            const headMoved =
+              Math.abs(headScreen.x - pointerHeadAtSeed.x) > 24 ||
+              Math.abs(headScreen.y - pointerHeadAtSeed.y) > 24;
+            if (headMoved) {
+              // 拖动 / 缩放 / 切屏后头顶变了：按当前指针的归一化偏移重新起步，
+              // 避免第二指针被人物拽着一起跳。
+              const nx = (pointerScreen ? pointerScreen.x - headScreen.x : 0) / (width * 0.5);
+              const ny = (pointerScreen ? pointerScreen.y - headScreen.y : 0) / (height * 0.5);
+              pointerWander = createIdleGaze(now, nx, ny).state;
+              pointerHeadAtSeed = headScreen;
+            }
+          }
+
+          const step = advanceIdleGaze(pointerWander, now);
+          pointerWander = step.state;
+          pointerScreen = {
+            x: clamp(headScreen.x + step.x * width * 0.5, winX, winX + width - 1),
+            y: clamp(headScreen.y + step.y * height * 0.5, winY, winY + height - 1),
+          };
+          pointerClient = {
+            x: pointerScreen.x - winX,
+            y: pointerScreen.y - winY,
+          };
+          window.petApi.pointerReport({
+            x: pointerScreen.x,
+            y: pointerScreen.y,
+            size: LIVE2D_POINTER_BASE_SIZE * pointerSizeRef.current,
+          });
+        }
+        pointerWanderRaf = window.requestAnimationFrame(tick);
+      };
+      pointerWanderRaf = window.requestAnimationFrame(tick);
     };
 
     const scheduleIdleSpeech = () => {
@@ -1812,7 +1916,7 @@ export function Live2DCompanion() {
         if (cancelled) return;
         model?.internalModel.motionManager.expressionManager?.resetExpression();
         expressionMode = "none";
-        if (gazeMode === "idle") {
+        if (idleNow()) {
           scheduleIdlePose(
             LIVE2D_IDLE_POSE_REPEAT_MIN_MS,
             LIVE2D_IDLE_POSE_REPEAT_MAX_MS,
@@ -1826,12 +1930,12 @@ export function Live2DCompanion() {
         window.clearTimeout(idlePoseTimer);
         idlePoseTimer = null;
       }
-      if (cancelled || gazeMode !== "idle") return;
+      if (cancelled || !idleNow()) return;
       const delay =
         minimumMs + Math.random() * Math.max(0, maximumMs - minimumMs);
       idlePoseTimer = window.setTimeout(() => {
         idlePoseTimer = null;
-        if (cancelled || gazeMode !== "idle") return;
+        if (cancelled || !idleNow()) return;
         if (document.visibilityState !== "visible") return;
         if (expressionMode !== "none") {
           scheduleIdlePose(
@@ -1972,28 +2076,41 @@ export function Live2DCompanion() {
 
         updateHeadAnchor();
 
+        if (POINTER_ENABLED) {
+          startPointerWander();
+          scheduleIdlePose(
+            LIVE2D_IDLE_POSE_FIRST_MIN_MS,
+            LIVE2D_IDLE_POSE_FIRST_MAX_MS,
+          );
+        }
+
         pixiApp.ticker.add((ticker) => {
           const now = performance.now();
-          if (gazeMode === "follow") {
-            if (pointerRef.current) {
-              if (now - pointerLastAtRef.current > LIVE2D_IDLE_STILL_MS) enterIdle();
-            } else if (now - pointerLeftAtRef.current > LIVE2D_IDLE_LEAVE_MS) {
-              enterIdle();
-            }
-          } else if (
-            gazeMode === "idle" &&
-            pointerRef.current &&
-            now - pointerLastAtRef.current < 500
-          ) {
-            // 主进程的系统鼠标事件在穿透状态下也能到达，用它把人物叫醒。
-            leaveIdle();
+          if (POINTER_ENABLED) {
+            // 视线只跟第二指针；真实鼠标不再影响视线。
             updateGaze();
-          }
-          if (gazeMode === "idle" && idleGazeState) {
-            const step = advanceIdleGaze(idleGazeState, now);
-            idleGazeState = step.state;
-            targetX = step.x;
-            targetY = step.y;
+          } else {
+            if (gazeMode === "follow") {
+              if (pointerRef.current) {
+                if (now - pointerLastAtRef.current > LIVE2D_IDLE_STILL_MS) enterIdle();
+              } else if (now - pointerLeftAtRef.current > LIVE2D_IDLE_LEAVE_MS) {
+                enterIdle();
+              }
+            } else if (
+              gazeMode === "idle" &&
+              pointerRef.current &&
+              now - pointerLastAtRef.current < 500
+            ) {
+              // 主进程的系统鼠标事件在穿透状态下也能到达，用它把人物叫醒。
+              leaveIdle();
+              updateGaze();
+            }
+            if (gazeMode === "idle" && idleGazeState) {
+              const step = advanceIdleGaze(idleGazeState, now);
+              idleGazeState = step.state;
+              targetX = step.x;
+              targetY = step.y;
+            }
           }
 
           const delta = Math.min(ticker.deltaMS, 50);
@@ -2010,8 +2127,10 @@ export function Live2DCompanion() {
         const onPointerMove = (event: PointerEvent) => {
           pointerRef.current = { x: event.clientX, y: event.clientY };
           pointerLastAtRef.current = performance.now();
-          if (gazeMode === "idle") leaveIdle();
-          updateGaze();
+          if (!POINTER_ENABLED) {
+            if (gazeMode === "idle") leaveIdle();
+            updateGaze();
+          }
         };
         const resetPointer = () => {
           pointerRef.current = null;
@@ -2188,8 +2307,10 @@ export function Live2DCompanion() {
         const noteInteraction = (event: PointerEvent) => {
           pointerRef.current = { x: event.clientX, y: event.clientY };
           pointerLastAtRef.current = performance.now();
-          if (gazeMode === "idle") leaveIdle();
-          updateGaze();
+          if (!POINTER_ENABLED) {
+            if (gazeMode === "idle") leaveIdle();
+            updateGaze();
+          }
         };
         const onCanvasPointerDown = (event: PointerEvent) => {
           noteInteraction(event);
@@ -2229,7 +2350,7 @@ export function Live2DCompanion() {
           }
           app.ticker.start();
           if (
-            gazeMode === "idle" &&
+            idleNow() &&
             !idlePoseTimer &&
             expressionMode === "none"
           ) {
@@ -2297,6 +2418,7 @@ export function Live2DCompanion() {
     return () => {
       cancelled = true;
       if (startTimer) window.clearTimeout(startTimer);
+      if (pointerWanderRaf) window.cancelAnimationFrame(pointerWanderRaf);
       if (idleSpeechTimer) window.clearTimeout(idleSpeechTimer);
       if (idlePoseTimer) window.clearTimeout(idlePoseTimer);
       if (expressionTimer) window.clearTimeout(expressionTimer);
@@ -2572,6 +2694,7 @@ export function Live2DCompanion() {
             opacityHover={opacitySettings.hoverOpacity}
             opacityBase={opacitySettings.baseOpacity}
             forceTop={forceTop}
+            pointerSize={pointerSize}
             popoverRef={settingsPopoverRef}
             onSwitchCharacter={switchCharacter}
             onSelectDisplay={selectDisplay}
@@ -2582,6 +2705,7 @@ export function Live2DCompanion() {
             onToggleOpacityHoverFade={toggleOpacityHoverFade}
             onOpacityChange={changeOpacity}
             onToggleForceTop={toggleForceTop}
+            onPointerSizeChange={changePointerSize}
             canViewDiary
             onOpenDiary={() => {
               settingsOpenRef.current = false;
