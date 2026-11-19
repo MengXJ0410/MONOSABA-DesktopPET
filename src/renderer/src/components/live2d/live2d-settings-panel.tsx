@@ -283,28 +283,6 @@ export function Live2DSettingsPanel({
         >
           自动轮换
         </button>
-        {character === "hiro" ? (
-          <button
-            ref={commentaryButtonRef}
-            type="button"
-            className={`appearance-choice appearance-system appearance-wide${commentaryEnabled ? " is-on" : ""}`}
-            aria-pressed={commentaryEnabled}
-            aria-label={`随机点评，当前${commentaryEnabled ? "已开启" : "已关闭"}，悬停可设置间隔`}
-            title={
-              commentaryEnabled
-                ? "随机点评已开启，悬停设置间隔，点击关闭"
-                : "随机点评已关闭，悬停设置间隔，点击开启"
-            }
-            onClick={onToggleCommentary}
-            onPointerEnter={(event) => {
-              if (event.pointerType === "mouse") openPopover("commentary");
-            }}
-            onPointerLeave={() => scheduleClosePopover()}
-            onFocus={() => openPopover("commentary")}
-          >
-            随机点评
-          </button>
-        ) : null}
         <button
           type="button"
           className={`appearance-choice appearance-system appearance-wide${forceTop ? " is-on" : ""}`}
@@ -320,17 +298,66 @@ export function Live2DSettingsPanel({
           强制顶层
         </button>
       </div>
+      {character === "hiro" ? (
+        <div className="appearance-region">
+          <span className="appearance-label">真实交互</span>
+          <div className="appearance-region-list" role="group" aria-label="真实交互">
+            <button
+              ref={commentaryButtonRef}
+              type="button"
+              className={`appearance-choice appearance-region-item appearance-system${commentaryEnabled ? " is-on" : ""}`}
+              aria-pressed={commentaryEnabled}
+              aria-label={`随机点评，当前${commentaryEnabled ? "已开启" : "已关闭"}，悬停可设置间隔`}
+              title={
+                commentaryEnabled
+                  ? "随机点评已开启，悬停设置间隔，点击关闭"
+                  : "随机点评已关闭，悬停设置间隔，点击开启"
+              }
+              onClick={onToggleCommentary}
+              onPointerEnter={(event) => {
+                if (event.pointerType === "mouse") openPopover("commentary");
+              }}
+              onPointerLeave={() => scheduleClosePopover()}
+              onFocus={() => openPopover("commentary")}
+            >
+              随机点评
+            </button>
+            {/*
+             * 希罗指针：后续接「AI 操控第二指针」。现在功能未实现，强制关闭。
+             * 交互规则：必须先开启随机点评；实现后把 pointerImplemented 改 true 并补 onClick。
+             */}
+            <button
+              type="button"
+              className="appearance-choice appearance-region-item appearance-system"
+              aria-pressed={false}
+              aria-label={
+                commentaryEnabled
+                  ? "希罗指针，即将上线，当前版本暂不可用"
+                  : "希罗指针，需先开启随机点评"
+              }
+              title={
+                commentaryEnabled
+                  ? "希罗指针即将上线，当前版本暂不可用"
+                  : "先开启随机点评，才能使用希罗指针"
+              }
+              disabled
+            >
+              希罗指针
+            </button>
+          </div>
+        </div>
+      ) : null}
       {displays.length > 1 ? (
-        <div className="appearance-screens">
+        <div className="appearance-region">
           <span className="appearance-label">显示屏幕</span>
-          <div className="appearance-screen-list" role="group" aria-label="显示屏幕">
+          <div className="appearance-region-list" role="group" aria-label="显示屏幕">
             {displays.map((display) => {
               const active = display.id === currentDisplayId;
               return (
                 <button
                   key={display.id}
                   type="button"
-                  className={`appearance-choice appearance-screen appearance-system${active ? " is-on" : ""}`}
+                  className={`appearance-choice appearance-region-item appearance-system${active ? " is-on" : ""}`}
                   aria-pressed={active}
                   title={`${display.label}${display.primary ? "（主屏）" : ""} · ${display.width}×${display.height}`}
                   onClick={() => onSelectDisplay(display.id)}

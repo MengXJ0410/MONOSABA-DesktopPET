@@ -226,19 +226,19 @@
     0 0 22px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-/* 多屏时的「显示屏幕」一行：标题 + 等宽按钮组，放不下会自动换行。 */
-.appearance-screens {
+/* 「真实交互」「显示屏幕」这类区域：小标题 + 等宽按钮组，放不下会自动换行。 */
+.appearance-region {
   display: grid;
   gap: 0.45rem;
 }
 
-.appearance-screen-list {
+.appearance-region-list {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
 }
 
-.appearance-screen-list .appearance-screen {
+.appearance-region-list .appearance-region-item {
   flex: 1 1 4.6rem;
   width: auto;
   min-width: 0;
