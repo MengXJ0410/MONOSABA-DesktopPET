@@ -15,8 +15,11 @@ type Live2DPointerPopoverProps = {
   panel: DOMRect;
   /** 相对 Windows 默认光标（32 DIP）的倍数。 */
   size: number;
+  /** 闲时是否让指针自己游走。 */
+  idleMove: boolean;
   popoverRef?: RefObject<HTMLDivElement | null>;
   onChange: (size: number) => void;
+  onToggleIdleMove: () => void;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
   onPointerDown: () => void;
@@ -28,13 +31,15 @@ function progressOf(size: number) {
   return ((size - LIVE2D_POINTER_SIZE_MIN) / span) * 100;
 }
 
-/** 希罗指针的大小设置小窗。 */
+/** 希罗指针的大小 / 闲时游走设置小窗。 */
 export function Live2DPointerPopover({
   anchor,
   panel,
   size,
+  idleMove,
   popoverRef,
   onChange,
+  onToggleIdleMove,
   onPointerEnter,
   onPointerLeave,
   onPointerDown,
@@ -44,7 +49,7 @@ export function Live2DPointerPopover({
     <Live2DHoverPopover
       anchor={anchor}
       panel={panel}
-      label="希罗指针大小"
+      label="希罗指针设置"
       popoverRef={popoverRef}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
@@ -52,9 +57,24 @@ export function Live2DPointerPopover({
       onPointerUp={onPointerUp}
     >
       <div className="appearance-rotate-heading">
-        <span>指针大小</span>
-        <span className="appearance-rotate-current">×{size.toFixed(1)}</span>
+        <span>希罗指针</span>
+        <span className="appearance-rotate-current">
+          {idleMove ? "闲时游走" : "停在原地"}
+        </span>
       </div>
+      <button
+        type="button"
+        className={`appearance-popover-switch${idleMove ? " is-on" : ""}`}
+        aria-pressed={idleMove}
+        title={
+          idleMove
+            ? "闲时指针自己随机游走，视线跟着它；点击关闭"
+            : "指针停在原地，只等 AI 操控；人物闲时仍会自己看来看去"
+        }
+        onClick={onToggleIdleMove}
+      >
+        闲时随机移动
+      </button>
       <label className="appearance-range appearance-rotate-row">
         <span className="appearance-rotate-label">大小</span>
         <input
@@ -70,7 +90,9 @@ export function Live2DPointerPopover({
         <span className="appearance-rotate-value">×{size.toFixed(1)}</span>
       </label>
       <p className="appearance-rotate-hint">
-        相对 Windows 默认光标；拖动即时生效，设置会记住。
+        {idleMove
+          ? "相对 Windows 默认光标；人物视线跟随指针。"
+          : "指针停在原地；人物闲时仍会自己随机看。"}
       </p>
     </Live2DHoverPopover>
   );

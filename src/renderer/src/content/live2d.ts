@@ -117,6 +117,9 @@ export const LIVE2D_POINTER_SIZE_MAX = 4;
 export const LIVE2D_POINTER_SIZE_STEP = 0.5;
 export const LIVE2D_POINTER_SIZE_DEFAULT = 1.5;
 export const LIVE2D_POINTER_SIZE_STORAGE_KEY = "jxmfun-live2d-pointer-size";
+/** 闲时让第二指针自己游走；关闭后指针停在原地，只等 AI 操控。 */
+export const LIVE2D_POINTER_IDLE_MOVE_DEFAULT = true;
+export const LIVE2D_POINTER_IDLE_MOVE_STORAGE_KEY = "jxmfun-live2d-pointer-idle-move";
 
 export const LIVE2D_EXPRESSIONS = ["monvhua", "taishou", "zuibu", "liulei"] as const;
 export type Live2DExpression = (typeof LIVE2D_EXPRESSIONS)[number];

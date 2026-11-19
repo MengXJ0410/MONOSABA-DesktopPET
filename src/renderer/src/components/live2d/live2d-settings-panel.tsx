@@ -31,6 +31,8 @@ type Live2DSettingsPanelProps = {
   forceTop: boolean;
   /** 希罗指针大小（相对 Windows 默认光标 32 DIP 的倍数）。 */
   pointerSize: number;
+  /** 闲时是否让第二指针自己游走。 */
+  pointerIdleMove: boolean;
   scale: number;
   character: Live2DCharacterId;
   characterName: string;
@@ -51,6 +53,7 @@ type Live2DSettingsPanelProps = {
   onOpacityChange: (hoverOpacity: number, baseOpacity: number) => void;
   onToggleForceTop: () => void;
   onPointerSizeChange: (size: number) => void;
+  onPointerIdleMoveChange: (enabled: boolean) => void;
   /** 管理员 + 希罗时才显示「查看日记」。 */
   canViewDiary: boolean;
   onOpenDiary: () => void;
@@ -82,6 +85,7 @@ export function Live2DSettingsPanel({
   opacityBase,
   forceTop,
   pointerSize,
+  pointerIdleMove,
   scale,
   character,
   characterName,
@@ -100,6 +104,7 @@ export function Live2DSettingsPanel({
   onOpacityChange,
   onToggleForceTop,
   onPointerSizeChange,
+  onPointerIdleMoveChange,
   canViewDiary,
   onOpenDiary,
   onClose,
@@ -427,8 +432,10 @@ export function Live2DSettingsPanel({
           anchor={activePopover.anchor}
           panel={activePopover.panel}
           size={pointerSize}
+          idleMove={pointerIdleMove}
           popoverRef={popoverRef}
           onChange={onPointerSizeChange}
+          onToggleIdleMove={() => onPointerIdleMoveChange(!pointerIdleMove)}
           onPointerEnter={handlePopoverPointerEnter}
           onPointerLeave={handlePopoverPointerLeave}
           onPointerDown={handlePopoverPointerDown}

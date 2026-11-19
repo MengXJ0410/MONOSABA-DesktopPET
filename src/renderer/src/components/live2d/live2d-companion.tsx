@@ -44,6 +44,8 @@ import {
   LIVE2D_OPACITY_STORAGE_KEY,
   LIVE2D_PASSTHROUGH_STORAGE_KEY,
   LIVE2D_POINTER_BASE_SIZE,
+  LIVE2D_POINTER_IDLE_MOVE_DEFAULT,
+  LIVE2D_POINTER_IDLE_MOVE_STORAGE_KEY,
   LIVE2D_POINTER_SIZE_DEFAULT,
   LIVE2D_POINTER_SIZE_MAX,
   LIVE2D_POINTER_SIZE_MIN,
@@ -381,6 +383,18 @@ function readStoredPointerSize() {
   }
 }
 
+function readStoredPointerIdleMove() {
+  try {
+    const raw = window.localStorage.getItem(
+      LIVE2D_POINTER_IDLE_MOVE_STORAGE_KEY,
+    );
+    if (raw === null) return LIVE2D_POINTER_IDLE_MOVE_DEFAULT;
+    return raw !== "0";
+  } catch {
+    return LIVE2D_POINTER_IDLE_MOVE_DEFAULT;
+  }
+}
+
 function readStoredCharacter(): Live2DCharacterId {
   try {
     const raw = window.localStorage.getItem(LIVE2D_CHARACTER_STORAGE_KEY);
@@ -547,6 +561,9 @@ export function Live2DCompanion() {
   const [pointerSize, setPointerSize] = useState(readStoredPointerSize);
   const pointerSizeRef = useRef(pointerSize);
   pointerSizeRef.current = pointerSize;
+  const [pointerIdleMove, setPointerIdleMove] = useState(readStoredPointerIdleMove);
+  const pointerIdleMoveRef = useRef(pointerIdleMove);
+  pointerIdleMoveRef.current = pointerIdleMove;
   const [character, setCharacter] = useState<Live2DCharacterId>(LIVE2D_DEFAULT_CHARACTER);
   const [position, setPosition] = useState<StoredPosition | null>(null);
   const [characterBox, setCharacterBox] = useState<CharacterBox | null>(null);
@@ -1033,6 +1050,19 @@ export function Live2DCompanion() {
     pointerSizeRef.current = next;
     try {
       window.localStorage.setItem(LIVE2D_POINTER_SIZE_STORAGE_KEY, String(next));
+    } catch {
+      // Ignore storage failures.
+    }
+  }, []);
+
+  const changePointerIdleMove = useCallback((next: boolean) => {
+    setPointerIdleMove(next);
+    pointerIdleMoveRef.current = next;
+    try {
+      window.localStorage.setItem(
+        LIVE2D_POINTER_IDLE_MOVE_STORAGE_KEY,
+        next ? "1" : "0",
+      );
     } catch {
       // Ignore storage failures.
     }
@@ -1791,6 +1821,8 @@ export function Live2DCompanion() {
     let pointerWander: IdleGazeState | null = null;
     let pointerWanderRaf = 0;
     let pointerHeadAtSeed: { x: number; y: number } | null = null;
+    // 关闭「闲时随机移动」后，指针冻结，改用这套随机视线直接驱动眼睛。
+    let eyeIdleGaze: IdleGazeState | null = null;
 
     const headAnchorRef: { current: { x: number; y: number } | null } = { current: null };
 
@@ -1811,6 +1843,8 @@ export function Live2DCompanion() {
     };
 
     const updateGaze = () => {
+      // 关掉「闲时随机移动」时，指针停在原地，眼睛由 eyeIdleGaze 自己随机看。
+      if (POINTER_ENABLED && !pointerIdleMoveRef.current) return;
       const head = headAnchorRef.current;
       if (!head) return;
       const source = POINTER_ENABLED
@@ -1845,33 +1879,56 @@ export function Live2DCompanion() {
           const height = Math.max(1, window.innerHeight);
           const headScreen = { x: winX + head.x, y: winY + head.y };
 
-          if (!pointerWander) {
-            pointerWander = createIdleGaze(now, 0.28, 0.12).state;
-            pointerHeadAtSeed = headScreen;
-          } else if (pointerHeadAtSeed) {
-            const headMoved =
-              Math.abs(headScreen.x - pointerHeadAtSeed.x) > 24 ||
-              Math.abs(headScreen.y - pointerHeadAtSeed.y) > 24;
-            if (headMoved) {
-              // 拖动 / 缩放 / 切屏后头顶变了：按当前指针的归一化偏移重新起步，
-              // 避免第二指针被人物拽着一起跳。
-              const nx = (pointerScreen ? pointerScreen.x - headScreen.x : 0) / (width * 0.5);
-              const ny = (pointerScreen ? pointerScreen.y - headScreen.y : 0) / (height * 0.5);
-              pointerWander = createIdleGaze(now, nx, ny).state;
-              pointerHeadAtSeed = headScreen;
-            }
+          if (!pointerScreen) {
+            // 初始落点：即使关掉「闲时随机移动」，指针也要有个静止的位置。
+            pointerScreen = {
+              x: clamp(headScreen.x + width * 0.14, winX, winX + width - 1),
+              y: clamp(headScreen.y + height * 0.06, winY, winY + height - 1),
+            };
+            pointerClient = {
+              x: pointerScreen.x - winX,
+              y: pointerScreen.y - winY,
+            };
           }
 
-          const step = advanceIdleGaze(pointerWander, now);
-          pointerWander = step.state;
-          pointerScreen = {
-            x: clamp(headScreen.x + step.x * width * 0.5, winX, winX + width - 1),
-            y: clamp(headScreen.y + step.y * height * 0.5, winY, winY + height - 1),
-          };
-          pointerClient = {
-            x: pointerScreen.x - winX,
-            y: pointerScreen.y - winY,
-          };
+          if (pointerIdleMoveRef.current) {
+            if (!pointerWander) {
+              // 从当前位置的归一化偏移重新起步；关闭再开启时不会瞬移。
+              const nx = (pointerScreen.x - headScreen.x) / (width * 0.5);
+              const ny = (pointerScreen.y - headScreen.y) / (height * 0.5);
+              pointerWander = createIdleGaze(now, nx, ny).state;
+              pointerHeadAtSeed = headScreen;
+            } else if (pointerHeadAtSeed) {
+              const headMoved =
+                Math.abs(headScreen.x - pointerHeadAtSeed.x) > 24 ||
+                Math.abs(headScreen.y - pointerHeadAtSeed.y) > 24;
+              if (headMoved) {
+                // 拖动 / 缩放 / 切屏后头顶变了：按当前指针的归一化偏移重新起步，
+                // 避免第二指针被人物拽着一起跳。
+                const nx = (pointerScreen.x - headScreen.x) / (width * 0.5);
+                const ny = (pointerScreen.y - headScreen.y) / (height * 0.5);
+                pointerWander = createIdleGaze(now, nx, ny).state;
+                pointerHeadAtSeed = headScreen;
+              }
+            }
+
+            const step = advanceIdleGaze(pointerWander, now);
+            pointerWander = step.state;
+            pointerScreen = {
+              x: clamp(headScreen.x + step.x * width * 0.5, winX, winX + width - 1),
+              y: clamp(headScreen.y + step.y * height * 0.5, winY, winY + height - 1),
+            };
+            pointerClient = {
+              x: pointerScreen.x - winX,
+              y: pointerScreen.y - winY,
+            };
+          } else {
+            // 冻结：指针停在最后一次位置，只等 AI 接管。
+            // 下次开启随机移动时 pointerWander 为 null，会从当前点重新起步。
+            pointerWander = null;
+            pointerHeadAtSeed = null;
+          }
+
           window.petApi.pointerReport({
             x: pointerScreen.x,
             y: pointerScreen.y,
@@ -2087,8 +2144,20 @@ export function Live2DCompanion() {
         pixiApp.ticker.add((ticker) => {
           const now = performance.now();
           if (POINTER_ENABLED) {
-            // 视线只跟第二指针；真实鼠标不再影响视线。
-            updateGaze();
+            if (pointerIdleMoveRef.current) {
+              // 视线只跟第二指针；真实鼠标不再影响视线。
+              eyeIdleGaze = null;
+              updateGaze();
+            } else {
+              // 关闭「闲时随机移动」：指针冻结，人物闲时仍然自己随机看。
+              if (!eyeIdleGaze) {
+                eyeIdleGaze = createIdleGaze(now, targetX, targetY).state;
+              }
+              const step = advanceIdleGaze(eyeIdleGaze, now);
+              eyeIdleGaze = step.state;
+              targetX = step.x;
+              targetY = step.y;
+            }
           } else {
             if (gazeMode === "follow") {
               if (pointerRef.current) {
@@ -2695,6 +2764,7 @@ export function Live2DCompanion() {
             opacityBase={opacitySettings.baseOpacity}
             forceTop={forceTop}
             pointerSize={pointerSize}
+            pointerIdleMove={pointerIdleMove}
             popoverRef={settingsPopoverRef}
             onSwitchCharacter={switchCharacter}
             onSelectDisplay={selectDisplay}
@@ -2706,6 +2776,7 @@ export function Live2DCompanion() {
             onOpacityChange={changeOpacity}
             onToggleForceTop={toggleForceTop}
             onPointerSizeChange={changePointerSize}
+            onPointerIdleMoveChange={changePointerIdleMove}
             canViewDiary
             onOpenDiary={() => {
               settingsOpenRef.current = false;
