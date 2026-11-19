@@ -107,6 +107,13 @@ export function Live2DSettingsPanel({
   const progress =
     ((scale - LIVE2D_SIZE_MIN) / (LIVE2D_SIZE_MAX - LIVE2D_SIZE_MIN)) * 100;
 
+  /**
+   * 希罗指针：后续接「AI 操控第二指针」。
+   * 功能未实现前强制关闭；接入时把这里改成 true，并给按钮补 onClick / 配置。
+   */
+  const POINTER_IMPLEMENTED = false;
+  const pointerReady = POINTER_IMPLEMENTED && commentaryEnabled;
+
   const rootRef = useRef<HTMLDivElement | null>(null);
   const rotateButtonRef = useRef<HTMLButtonElement | null>(null);
   const passthroughButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -323,24 +330,28 @@ export function Live2DSettingsPanel({
               随机点评
             </button>
             {/*
-             * 希罗指针：后续接「AI 操控第二指针」。现在功能未实现，强制关闭。
-             * 交互规则：必须先开启随机点评；实现后把 pointerImplemented 改 true 并补 onClick。
+             * 希罗指针：后续接「AI 操控第二指针」。
+             * 规则：必须先开启随机点评；POINTER_IMPLEMENTED 为 false 时强制关闭。
              */}
             <button
               type="button"
-              className="appearance-choice appearance-region-item appearance-system"
-              aria-pressed={false}
+              className={`appearance-choice appearance-region-item appearance-system${pointerReady ? " is-on" : ""}`}
+              aria-pressed={pointerReady}
               aria-label={
-                commentaryEnabled
-                  ? "希罗指针，即将上线，当前版本暂不可用"
-                  : "希罗指针，需先开启随机点评"
+                !commentaryEnabled
+                  ? "希罗指针，需先开启随机点评"
+                  : pointerReady
+                    ? "希罗指针，当前已开启"
+                    : "希罗指针，即将上线，当前版本暂不可用"
               }
               title={
-                commentaryEnabled
-                  ? "希罗指针即将上线，当前版本暂不可用"
-                  : "先开启随机点评，才能使用希罗指针"
+                !commentaryEnabled
+                  ? "先开启随机点评，才能使用希罗指针"
+                  : pointerReady
+                    ? "希罗指针已开启，点击关闭"
+                    : "希罗指针即将上线，当前版本暂不可用"
               }
-              disabled
+              disabled={!pointerReady}
             >
               希罗指针
             </button>
