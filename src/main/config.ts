@@ -2,6 +2,7 @@ import { app } from "electron";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { FULL_CARD_HEIGHT, FULL_CARD_WIDTH } from "./chat/layout";
 import type {
   BubblePosition,
   BubbleSettings,
@@ -61,6 +62,8 @@ const DEFAULT_BUBBLE: BubbleSettings = {
 };
 /** 旧默认字号 13 只迁移一次；之后手动改回 13 不再覆盖。 */
 const BUBBLE_FONT_MIGRATION = "bubble-fontsize-20";
+/** 0.3.7 的尺寸来回累积把完整版越写越大，统一归一到 1040×700。 */
+const FULL_BOUNDS_MIGRATION = "full-bounds-1040x700";
 
 const DEFAULT_THEME: ChatTheme = {
   mode: "night",
@@ -539,27 +542,50 @@ export async function ensureConfig(): Promise<string> {
 export async function readConfig(): Promise<PetConfig> {
   const raw = await readRawConfig();
   const config = normalizeConfig(raw);
+  const pendingMigrations: string[] = [];
+  const nextRaw: Record<string, unknown> = { ...raw };
+
   // 旧默认字号 13 → 新默认 20，只迁移一次；用户之后手动改回 13 不会被反复覆盖。
   if (!config.migrations.includes(BUBBLE_FONT_MIGRATION)) {
-    const nextBubble =
-      config.bubble.fontSize === 13
-        ? { ...config.bubble, fontSize: DEFAULT_BUBBLE.fontSize }
-        : config.bubble;
-    const migrations = [...config.migrations, BUBBLE_FONT_MIGRATION];
-    config.bubble = nextBubble;
-    config.migrations = migrations;
+    if (config.bubble.fontSize === 13) {
+      config.bubble = { ...config.bubble, fontSize: DEFAULT_BUBBLE.fontSize };
+    }
+    pendingMigrations.push(BUBBLE_FONT_MIGRATION);
+    nextRaw.bubble = {
+      ...(isRecord(raw.bubble) ? raw.bubble : {}),
+      fontSize: config.bubble.fontSize,
+    };
+  }
+
+  // 0.3.7 每轮完整版切换都会 +4px，配置里的 fullBounds 被写到了 1024×866。
+  // 只改尺寸、保留位置；真正创建窗口时再按屏幕工作区夹回。
+  if (!config.migrations.includes(FULL_BOUNDS_MIGRATION)) {
+    const bounds = config.chat.ui.fullBounds;
+    if (bounds) {
+      const normalized = {
+        ...bounds,
+        width: FULL_CARD_WIDTH,
+        height: FULL_CARD_HEIGHT,
+      };
+      config.chat.ui = { ...config.chat.ui, fullBounds: normalized };
+      const chatRaw = isRecord(raw.chat) ? raw.chat : {};
+      const uiRaw = isRecord(chatRaw.ui) ? chatRaw.ui : {};
+      nextRaw.chat = {
+        ...chatRaw,
+        ui: { ...uiRaw, fullBounds: normalized },
+      };
+    }
+    pendingMigrations.push(FULL_BOUNDS_MIGRATION);
+  }
+
+  if (pendingMigrations.length > 0) {
+    config.migrations = [...config.migrations, ...pendingMigrations];
+    nextRaw.migrations = config.migrations;
     try {
-      await writeRawConfig({
-        ...raw,
-        bubble: {
-          ...(isRecord(raw.bubble) ? raw.bubble : {}),
-          fontSize: nextBubble.fontSize,
-        },
-        migrations,
-      });
+      await writeRawConfig(nextRaw);
     } catch (error) {
       // 写盘失败也先把迁移后的值返回给当前进程，下次启动再试。
-      console.warn("[config] 保存字号迁移失败", error);
+      console.warn("[config] 保存配置迁移失败", error);
     }
   }
   return config;

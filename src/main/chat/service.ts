@@ -846,12 +846,20 @@ export class ChatService {
     return this.media.get(media, kind);
   }
 
-  async setMode(mode: ChatUiMode): Promise<ChatUiState> {
+  async setMode(
+    mode: ChatUiMode,
+    options: { broadcast?: boolean } = {},
+  ): Promise<ChatUiState> {
     const next = await updateChatUi({ mode });
     this.uiConfig = next;
     this.ui = { ...this.ui, mode: next.mode };
-    broadcast("chat:ui-state", this.getUiState());
+    if (options.broadcast !== false) this.broadcastUiState();
     return this.getUiState();
+  }
+
+  /** 窗口切换成功后再广播，旧窗口不会提前收到新布局。 */
+  broadcastUiState(): void {
+    broadcast("chat:ui-state", this.getUiState());
   }
 
   async setPinned(pinned: boolean): Promise<ChatUiState> {

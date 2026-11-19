@@ -15,7 +15,24 @@ order: 110
 
 按时间倒序记录桌面端的实际变化。时间以提交和打包产物为准，时区 `Asia/Shanghai`。
 
-当前版本：**0.3.7**（便携版 `MONOSABA-DesktopPET-0.3.7-portable.exe`）；服务器桥接插件：**0.3.4**，心情插件：**1.5.0**。
+当前版本：**0.3.8**（便携版 `MONOSABA-DesktopPET-0.3.8-portable.exe`）；服务器桥接插件：**0.3.4**，心情插件：**1.5.0**。
+
+## 2026-11-19 · 0.3.8：修复开机自启失效、完整版偶发全透明
+
+| 变化 | 说明 |
+| --- | --- |
+| 现象 1 | 设置里开着「开机自启」，登录后却经常看不到桌宠，或等很久才出现 |
+| 根因 1 | Run 项实际比登录晚约 100 秒才执行；用户这期间手动启动过，第二实例被单实例锁吞掉 |
+| 修复 1 | 改用当前用户登录计划任务（延迟 12 秒、`RunLevel=Limited`、`IgnoreNew`），动作 `<便携 exe> --autostart`；成功删除旧 Run 项，失败回退 Run 项；托盘创建失败重试两次 |
+| 自启实例 | `--autostart` 只把桌宠带到前台，不打开聊天；点通知 / 双击仍然打开聊天 |
+| 现象 2 | 小窗切完整版时偶发只剩任务栏图标，窗口完全透明 |
+| 根因 2 | 先 `destroy()` 旧窗口、同一拍建新窗口，导航 / 渲染进程分配失败，但 `ready-to-show` 仍 show 了空白页 |
+| 修复 2 | 双缓冲：隐藏创建新窗口 → `did-finish-load` + DOM 健康检查（聊天 section 存在、正文非空、`view=chat`）→ 两帧复查 → show 新窗口 → destroy 旧窗口；10 秒失败回滚并保留旧窗口 |
+| 尺寸 | 统一内容区（`useContentSize`、`getContentBounds`/`setContentBounds`）；切换以卡片右上角锚定；`fullBounds` 迁移归一到 1040×700；最小化 / 异常尺寸不写配置 |
+| 连点 | `chat:set-mode` 立即返回，`switching` 互斥，20 次 80ms 连点只切换一次 |
+| 日志 | 新增 `logs/startup.log`、`logs/chat-window.log` |
+| 验证 | 30 轮切换 0 失败；10 次强杀重启均正常；计划任务实测约 13 秒拉起；`--autostart` 第二实例不弹聊天 |
+| 产物 | `MONOSABA-DesktopPET-0.3.8-portable.exe` |
 
 ## 2026-11-18 · 0.3.7：设置开关、窄窗自适应、光标抖动
 

@@ -27,6 +27,7 @@ import {
 import { chatService } from "./chat/service";
 import { initChatWindow, openChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
+import { logStartup } from "./logs";
 import { ensureNotificationShortcut, restoreNotificationShortcut } from "./notification-shortcut";
 import { startMousePassthrough } from "./mouse-passthrough";
 import { createTray } from "./tray";
@@ -41,6 +42,18 @@ function broadcastToAll(channel: string, payload: unknown): void {
       win.webContents.send(channel, payload);
     } catch {
       // 窗口正在销毁时忽略。
+    }
+  }
+}
+
+/** Explorer 还没准备好时创建托盘会失败，隔一会儿重试，别让用户没有托盘图标。 */
+function createTrayWithRetry(attempt = 0): void {
+  try {
+    createTray();
+  } catch (error) {
+    logStartup(`托盘创建失败 attempt=${attempt} ${String(error)}`);
+    if (attempt < 2) {
+      setTimeout(() => createTrayWithRetry(attempt + 1), 1500);
     }
   }
 }
@@ -60,11 +73,14 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
     // 点通知时 Windows 会按 AUMID 启动快捷方式，第二个实例在这里被转发回来：
     // 直接把聊天窗口调出来，用户才觉得“点通知跳到了聊天”。
+    // 开机自启拉起的第二实例只露桌宠，不弹聊天窗口。
+    const autoStart = argv.includes("--autostart");
+    logStartup(`second-instance autoStart=${autoStart} argv=${argv.join(" ")}`);
     getMainWindow()?.showInactive();
-    openChatWindow(null);
+    if (!autoStart) openChatWindow(null);
   });
 
   // 退出后临时解压目录会失效：把开始菜单入口指回外层便携 exe。
@@ -73,9 +89,11 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    logStartup(
+      `app ready version=${app.getVersion()} packaged=${app.isPackaged} argv=${process.argv.join(" ")}`,
+    );
     Menu.setApplicationMenu(null);
     await ensureConfig();
-    await ensureAutoLaunch();
     registerAppProtocol();
     initDiaryWindow();
     initChatWindow();
@@ -256,7 +274,13 @@ if (!gotLock) {
 
     const win = createMainWindow(join(__dirname, "../preload/index.js"));
     startMousePassthrough(win);
-    createTray();
+    createTrayWithRetry();
+
+    // 自启维护要跑一次 PowerShell（约 1.5 秒），放在窗口之后后台执行，
+    // 不要挡住启动：0.3.7 就是因为登录后迟迟看不到桌宠才被当成「没自启」。
+    void ensureAutoLaunch().catch((error) => {
+      logStartup(`ensureAutoLaunch failed ${String(error)}`);
+    });
 
     // 拔掉 / 接入屏幕、分辨率或缩放变化时，把窗口重新贴回所在屏并通知渲染层刷新按钮。
     const handleDisplayChange = () => {

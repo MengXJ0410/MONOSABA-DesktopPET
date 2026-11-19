@@ -34,14 +34,16 @@ import {
   chatService,
   type ChatService,
 } from "./chat/service";
-
-const WINDOW_PADDING = 8;
-const COMPACT_CARD_WIDTH = 420;
-const COMPACT_CARD_HEIGHT = 600;
-const FULL_CARD_WIDTH = 1040;
-const FULL_CARD_HEIGHT = 700;
-const FULL_MIN_WIDTH = 360;
-const FULL_MIN_HEIGHT = 420;
+import {
+  COMPACT_CARD_HEIGHT,
+  COMPACT_CARD_WIDTH,
+  FULL_CARD_HEIGHT,
+  FULL_CARD_WIDTH,
+  FULL_MIN_HEIGHT,
+  FULL_MIN_WIDTH,
+  WINDOW_PADDING,
+} from "./chat/layout";
+import { logChatWindow } from "./logs";
 
 function broadcastToWindows(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -56,9 +58,18 @@ function broadcastToWindows(channel: string, payload: unknown): void {
 
 let chatWindow: BrowserWindow | null = null;
 let chatWindowMode: ChatUiMode = "compact";
+/** 正在后台加载、还没换上台的新窗口；它们也要能收到 chat:* IPC。 */
+const pendingChatWindows = new Set<BrowserWindow>();
+let creating: Promise<BrowserWindow | null> | null = null;
+/** 完整版 / 小窗切换互斥，避免连点同时建两个窗口。 */
+let switching = false;
 let initialized = false;
 let boundsTimer: ReturnType<typeof setTimeout> | null = null;
 let quitting = false;
+
+function isLiveWindow(win: BrowserWindow | null): win is BrowserWindow {
+  return Boolean(win && !win.isDestroyed());
+}
 
 type ResizeSession = {
   windowId: number;
@@ -162,14 +173,14 @@ function applyResizeFrame(): void {
     point.x - resizeSession.startPoint.x,
     point.y - resizeSession.startPoint.y,
   );
-  const current = chatWindow.getBounds();
+  const current = chatWindow.getContentBounds();
   if (
     current.x !== next.x ||
     current.y !== next.y ||
     current.width !== next.width ||
     current.height !== next.height
   ) {
-    chatWindow.setBounds(next);
+    chatWindow.setContentBounds(next);
   }
 }
 
@@ -191,7 +202,8 @@ function loadChatPage(win: BrowserWindow): void {
   void win.loadURL(url);
 }
 
-function windowSizeForMode(mode: ChatUiMode): { width: number; height: number } {
+/** 窗口内容区尺寸：小窗是卡片 + 四周透明留白，完整版就是卡片本身。 */
+function contentSizeForMode(mode: ChatUiMode): { width: number; height: number } {
   if (mode === "full") {
     return { width: FULL_CARD_WIDTH, height: FULL_CARD_HEIGHT };
   }
@@ -201,7 +213,8 @@ function windowSizeForMode(mode: ChatUiMode): { width: number; height: number } 
   };
 }
 
-function cardBoundsFromWindow(mode: ChatUiMode, bounds: Rect): Rect {
+/** 配置里存的是用户看到的卡片位置；窗口内容区比卡片多一圈透明留白。 */
+function cardBoundsFromContent(mode: ChatUiMode, bounds: Rect): Rect {
   const padding = mode === "compact" ? WINDOW_PADDING : 0;
   return {
     x: bounds.x + padding,
@@ -211,7 +224,7 @@ function cardBoundsFromWindow(mode: ChatUiMode, bounds: Rect): Rect {
   };
 }
 
-function windowBoundsFromCard(mode: ChatUiMode, card: Rect): Rect {
+function contentBoundsFromCard(mode: ChatUiMode, card: Rect): Rect {
   const padding = mode === "compact" ? WINDOW_PADDING : 0;
   return {
     x: card.x - padding,
@@ -245,7 +258,7 @@ function targetBounds(
   anchor: { x: number; y: number } | null,
 ): Rect {
   const ui = service().getUiConfig();
-  const size = windowSizeForMode(mode);
+  const size = contentSizeForMode(mode);
   const saved = mode === "full" ? ui.fullBounds : ui.compactBounds;
 
   if (saved) {
@@ -264,7 +277,7 @@ function targetBounds(
             width: COMPACT_CARD_WIDTH,
             height: COMPACT_CARD_HEIGHT,
           };
-    return clampToArea(windowBoundsFromCard(mode, card), display.workArea);
+    return contentBoundsFromCard(mode, clampToArea(card, display.workArea));
   }
 
   if (mode === "compact" && anchor) {
@@ -298,35 +311,64 @@ function targetBounds(
   );
 }
 
+/**
+ * 取可以写回配置的卡片尺寸。
+ * 窗口最小化 / 正在切换时 `getContentBounds()` 会返回 0×0 或屏幕外的占位值，
+ * 直接存进去会把用户的位置和大小抹掉（配置归一化会判成无效 → null）。
+ */
+function saveableCardBounds(win: BrowserWindow, mode: ChatUiMode): Rect | null {
+  if (win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return null;
+  const content = win.getContentBounds();
+  if (content.width < 200 || content.height < 200) return null;
+  const card = cardBoundsFromContent(mode, content);
+  const minWidth = mode === "full" ? FULL_MIN_WIDTH : COMPACT_CARD_WIDTH;
+  const minHeight = mode === "full" ? FULL_MIN_HEIGHT : COMPACT_CARD_HEIGHT;
+  if (card.width < minWidth - 1 || card.height < minHeight - 1) return null;
+  return card;
+}
+
 function persistBoundsSoon(): void {
   if (boundsTimer) clearTimeout(boundsTimer);
   boundsTimer = setTimeout(() => {
     boundsTimer = null;
-    if (!chatWindow || chatWindow.isDestroyed()) return;
-    const card = cardBoundsFromWindow(chatWindowMode, chatWindow.getBounds());
+    if (!isLiveWindow(chatWindow)) return;
+    const card = saveableCardBounds(chatWindow, chatWindowMode);
+    if (!card) return;
     void service().updateBounds(chatWindowMode, card);
   }, 450);
 }
 
 function saveWindowBounds(win: BrowserWindow, mode: ChatUiMode): void {
-  if (win.isDestroyed()) return;
-  const card = cardBoundsFromWindow(mode, win.getBounds());
+  const card = saveableCardBounds(win, mode);
+  if (!card) return;
   void service().updateBounds(mode, card);
 }
 
 function notifyWindowState(win: BrowserWindow): void {
-  if (win.isDestroyed()) return;
+  if (!isLiveWindow(win) || win !== chatWindow) return;
   const active = win.isVisible() && win.isFocused();
   service().setWindowActive(active);
 }
 
-function createChatWindow(mode: ChatUiMode, bounds: Rect): BrowserWindow {
+/** 页面真正画出聊天卡片的判定：DOM 里有聊天 section，且正文不是空的。 */
+const HEALTH_SCRIPT = `(() => {
+  const section =
+    document.querySelector('section[aria-label="与希罗的聊天"]') ||
+    document.querySelector("section[data-layout]");
+  if (!section) return false;
+  const text = ((document.body && document.body.innerText) || "").trim();
+  return text.length > 0;
+})()`;
+
+function buildChatWindow(mode: ChatUiMode, bounds: Rect): BrowserWindow {
   const full = mode === "full";
   const win = new BrowserWindow({
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
     height: bounds.height,
+    // 宽度 / 高度按内容区解释，保存和恢复都用 getContentBounds，避免边框来回累积。
+    useContentSize: true,
     show: false,
     frame: false,
     transparent: true,
@@ -352,8 +394,6 @@ function createChatWindow(mode: ChatUiMode, bounds: Rect): BrowserWindow {
     },
   });
 
-  chatWindow = win;
-  chatWindowMode = mode;
   const icon = chatWindowIcon();
   try {
     win.setIcon(icon);
@@ -370,15 +410,10 @@ function createChatWindow(mode: ChatUiMode, bounds: Rect): BrowserWindow {
   } catch (error) {
     console.warn("[chat] set taskbar icon failed", error);
   }
-  if (resizeTimer) {
-    clearInterval(resizeTimer);
-    resizeTimer = null;
-  }
-  resizeSession = null;
   win.setMenu(null);
   win.setMinimumSize(
-    full ? FULL_MIN_WIDTH : windowSizeForMode("compact").width,
-    full ? FULL_MIN_HEIGHT : windowSizeForMode("compact").height,
+    full ? FULL_MIN_WIDTH : contentSizeForMode("compact").width,
+    full ? FULL_MIN_HEIGHT : contentSizeForMode("compact").height,
   );
   win.setVisibleOnAllWorkspaces(false);
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -389,61 +424,220 @@ function createChatWindow(mode: ChatUiMode, bounds: Rect): BrowserWindow {
     if (!allowed) event.preventDefault();
   });
 
-  win.once("ready-to-show", () => {
-    if (win.isDestroyed()) return;
-    win.show();
-    // Electron 45 在 Windows 上只有 screen-saver 层级能真正置顶。
-    win.setAlwaysOnTop(!full || service().getUiState().pinned, "screen-saver");
-    win.focus();
-    notifyWindowState(win);
-  });
+  // Windows 下 useContentSize 偶尔会有 1px 偏差，创建后再按内容区校正一次。
+  try {
+    win.setContentBounds(bounds);
+  } catch {
+    // 窗口还没 ready 时个别平台会抛错，忽略即可。
+  }
 
   win.on("move", persistBoundsSoon);
   win.on("resize", persistBoundsSoon);
-  win.on("focus", () => service().setWindowActive(true));
-  win.on("blur", () => service().setWindowActive(false));
+  win.on("focus", () => {
+    if (win === chatWindow) service().setWindowActive(true);
+  });
+  win.on("blur", () => {
+    if (win === chatWindow) service().setWindowActive(false);
+  });
   win.on("show", () => notifyWindowState(win));
-  win.on("hide", () => service().setWindowActive(false));
+  win.on("hide", () => {
+    if (win === chatWindow) service().setWindowActive(false);
+  });
 
   win.on("close", (event) => {
     if (quitting) return;
     event.preventDefault();
-    hideChatWindow();
+    if (win === chatWindow) hideChatWindow();
   });
 
   win.on("closed", () => {
-    if (chatWindow === win) chatWindow = null;
-    stopResize();
-    service().setWindowActive(false);
+    pendingChatWindows.delete(win);
+    if (chatWindow === win) {
+      chatWindow = null;
+      stopResize();
+      service().setWindowActive(false);
+    }
   });
 
-  loadChatPage(win);
   return win;
 }
 
-function showChatWindow(anchor: { x: number; y: number } | null): BrowserWindow {
-  if (chatWindow && !chatWindow.isDestroyed()) {
+/**
+ * 等页面真正加载完成并画出内容。
+ * ready-to-show 只代表窗口“可以显示”，不代表 loadURL 成功；0.3.7 的全透明故障
+ * 就是 ready-to-show 已触发、页面还是空白时把窗口 show 了出来。
+ */
+function waitForChatReady(win: BrowserWindow, timeoutMs = 10_000): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (pollTimer) clearInterval(pollTimer);
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      pollTimer = null;
+      deadlineTimer = null;
+      win.webContents.off("did-fail-load", onFail);
+      win.webContents.off("render-process-gone", onGone);
+    };
+    const finish = (ok: boolean, reason?: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (!ok && reason) logChatWindow(reason);
+      resolve(ok);
+    };
+    const onFail = (
+      _event: Electron.Event,
+      code: number,
+      description: string,
+      _url: string,
+      isMainFrame: boolean,
+    ) => {
+      if (!isMainFrame) return;
+      finish(false, `did-fail-load ${code} ${description}`);
+    };
+    const onGone = (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) => {
+      finish(false, `render-process-gone ${details.reason}`);
+    };
+
+    const probe = async () => {
+      if (settled || win.isDestroyed()) return;
+      let url = "";
+      try {
+        url = win.webContents.getURL();
+      } catch {
+        return;
+      }
+      // 刚建出来的 about:blank 也会触发加载事件，等到真正的聊天页再检查。
+      if (!url.includes("view=chat")) return;
+      let ok = false;
+      try {
+        ok = (await win.webContents.executeJavaScript(HEALTH_SCRIPT, true)) === true;
+      } catch {
+        ok = false;
+      }
+      if (!ok || settled || win.isDestroyed()) return;
+      // 再等两帧，避免 React 刚提交、样式还没生效就切上台。
+      await new Promise((next) => setTimeout(next, 120));
+      if (settled || win.isDestroyed()) return;
+      let again = false;
+      try {
+        again = (await win.webContents.executeJavaScript(HEALTH_SCRIPT, true)) === true;
+      } catch {
+        again = false;
+      }
+      if (again) finish(true);
+    };
+
+    win.webContents.on("did-fail-load", onFail);
+    win.webContents.on("render-process-gone", onGone);
+    pollTimer = setInterval(() => {
+      void probe();
+    }, 250);
+    deadlineTimer = setTimeout(() => finish(false, "聊天页面 10 秒内没有准备好"), timeoutMs);
+    void probe();
+  });
+}
+
+/** 建一个隐藏窗口并等它真正画出聊天内容；失败时自己清理，不留幽灵窗口。 */
+async function createPreparedWindow(
+  mode: ChatUiMode,
+  bounds: Rect,
+): Promise<BrowserWindow | null> {
+  const win = buildChatWindow(mode, bounds);
+  pendingChatWindows.add(win);
+  const ready = waitForChatReady(win);
+  loadChatPage(win);
+  const ok = await ready;
+  if (quitting || !ok || win.isDestroyed()) {
+    pendingChatWindows.delete(win);
+    if (!win.isDestroyed()) win.destroy();
+    return null;
+  }
+  return win;
+}
+
+function revealChatWindow(win: BrowserWindow): void {
+  if (!isLiveWindow(win)) return;
+  win.show();
+  // Electron 45 在 Windows 上只有 screen-saver 层级能真正置顶。
+  win.setAlwaysOnTop(chatWindowMode === "compact" || service().getUiState().pinned, "screen-saver");
+  win.focus();
+  notifyWindowState(win);
+}
+
+/** 首次创建：失败等 2 秒重试一次，避免一次渲染进程分配失败就永远打不开。 */
+function ensureChatWindow(
+  anchor: { x: number; y: number } | null,
+): Promise<BrowserWindow | null> {
+  if (isLiveWindow(chatWindow)) return Promise.resolve(chatWindow);
+  if (creating) return creating;
+
+  const mode = service().getUiState().mode;
+  creating = (async () => {
+    const bounds = targetBounds(mode, anchor);
+    let win = await createPreparedWindow(mode, bounds);
+    if (!win && !quitting) {
+      logChatWindow(`首次创建失败，2 秒后重试 mode=${mode}`);
+      await new Promise((next) => setTimeout(next, 2000));
+      win = await createPreparedWindow(mode, bounds);
+    }
+    if (!win) {
+      logChatWindow(`聊天窗口创建失败 mode=${mode}`);
+      return null;
+    }
+    if (isLiveWindow(chatWindow) && chatWindow !== win) {
+      // 另一条路径已经创建好了窗口，丢掉这个重复的。
+      pendingChatWindows.delete(win);
+      if (!win.isDestroyed()) win.destroy();
+      return chatWindow;
+    }
+    pendingChatWindows.delete(win);
+    chatWindow = win;
+    chatWindowMode = mode;
+    revealChatWindow(win);
+    logChatWindow(`聊天窗口已创建 mode=${mode} bounds=${JSON.stringify(bounds)}`);
+    return win;
+  })().finally(() => {
+    creating = null;
+  });
+  return creating;
+}
+
+function showChatWindow(anchor: { x: number; y: number } | null): void {
+  if (isLiveWindow(chatWindow)) {
     if (chatWindow.isMinimized()) chatWindow.restore();
     chatWindow.show();
     chatWindow.focus();
     notifyWindowState(chatWindow);
-    return chatWindow;
-  }
-
-  const mode = service().getUiState().mode;
-  const bounds = targetBounds(mode, anchor);
-  return createChatWindow(mode, bounds);
-}
-
-function rebuildChatWindow(previous: ChatUiMode, next: ChatUiMode): void {
-  const old = chatWindow;
-  if (!old || old.isDestroyed()) {
-    showChatWindow(null);
     return;
   }
+  void ensureChatWindow(anchor);
+}
+
+/**
+ * 双缓冲切换：先把新窗口藏在后台加载好，确认 DOM 健康后再 show 新窗口、销毁旧窗口。
+ * 直接 destroy 旧窗口再同一拍创建新窗口，会让新窗口的导航 / 渲染进程分配失败，
+ * 留下一个永远空白的全透明窗口。
+ */
+async function swapChatWindow(next: ChatUiMode): Promise<boolean> {
+  const old = chatWindow;
+  if (!isLiveWindow(old)) return false;
+  const previous = chatWindowMode;
+  if (next === previous) return true;
 
   stopResize();
-  const oldCard = cardBoundsFromWindow(previous, old.getBounds());
+  if (boundsTimer) {
+    clearTimeout(boundsTimer);
+    boundsTimer = null;
+  }
+
+  const oldCard = cardBoundsFromContent(previous, old.getContentBounds());
+  logChatWindow(
+    `切换开始 ${previous} -> ${next} oldContent=${JSON.stringify(old.getContentBounds())} oldCard=${JSON.stringify(oldCard)}`,
+  );
   void service().updateBounds(previous, oldCard);
 
   const display = screen.getDisplayNearestPoint({
@@ -451,32 +645,40 @@ function rebuildChatWindow(previous: ChatUiMode, next: ChatUiMode): void {
     y: oldCard.y,
   });
   const saved = next === "full" ? service().getUiConfig().fullBounds : null;
-  const size =
-    next === "full" && saved
+  const cardSize =
+    next === "full"
       ? {
-          width: Math.max(FULL_MIN_WIDTH, saved.width),
-          height: Math.max(FULL_MIN_HEIGHT, saved.height),
+          width: Math.max(FULL_MIN_WIDTH, saved?.width ?? FULL_CARD_WIDTH),
+          height: Math.max(FULL_MIN_HEIGHT, saved?.height ?? FULL_CARD_HEIGHT),
         }
-      : windowSizeForMode(next);
+      : { width: COMPACT_CARD_WIDTH, height: COMPACT_CARD_HEIGHT };
 
-  // 右上角锚定：新窗口的右边贴着旧窗口的右边，再限制在屏幕内。
-  const bounds = clampToArea(
+  // 右上角锚定：新卡片的右边贴着旧卡片的右边，再限制在屏幕内。
+  // 必须用卡片坐标而不是窗口坐标，否则小窗那圈 8px 透明留白会让位置每轮漂移。
+  const nextCard = clampToArea(
     {
-      x: oldCard.x + oldCard.width - size.width,
+      x: oldCard.x + oldCard.width - cardSize.width,
       y: oldCard.y,
-      width: size.width,
-      height: size.height,
+      width: cardSize.width,
+      height: cardSize.height,
     },
     display.workArea,
   );
+  const bounds = contentBoundsFromCard(next, nextCard);
 
-  if (boundsTimer) {
-    clearTimeout(boundsTimer);
-    boundsTimer = null;
+  const win = await createPreparedWindow(next, bounds);
+  if (!win) {
+    logChatWindow(`切换 ${previous} -> ${next} 失败，保留旧窗口`);
+    return false;
   }
-  chatWindow = null;
-  old.destroy();
-  createChatWindow(next, bounds);
+
+  chatWindow = win;
+  chatWindowMode = next;
+  pendingChatWindows.delete(win);
+  if (isLiveWindow(old)) old.destroy();
+  revealChatWindow(win);
+  logChatWindow(`切换 ${previous} -> ${next} 完成 bounds=${JSON.stringify(bounds)}`);
+  return true;
 }
 
 export function hideChatWindow(): void {
@@ -492,7 +694,7 @@ export function openChatWindow(anchor: { x: number; y: number } | null = null): 
 }
 
 export function toggleChatWindow(): void {
-  if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
+  if (isLiveWindow(chatWindow) && chatWindow.isVisible()) {
     hideChatWindow();
   } else {
     showChatWindow(null);
@@ -504,13 +706,21 @@ export function getChatWindow(): BrowserWindow | null {
 }
 
 export function isChatWindowVisible(): boolean {
-  return Boolean(chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible());
+  return Boolean(isLiveWindow(chatWindow) && chatWindow.isVisible());
 }
 
+/** 正在加载的新窗口也要能取初始数据，否则切过去会显示成空页面。 */
 function isChatSender(sender: Electron.WebContents): boolean {
-  return Boolean(
-    chatWindow && !chatWindow.isDestroyed() && sender === chatWindow.webContents,
-  );
+  if (isLiveWindow(chatWindow) && sender === chatWindow.webContents) return true;
+  for (const win of pendingChatWindows) {
+    if (!win.isDestroyed() && sender === win.webContents) return true;
+  }
+  return false;
+}
+
+/** 关闭 / 缩放这类动作只认已经上台的窗口，避免 pending 窗口误操作旧窗口。 */
+function isCurrentChatSender(sender: Electron.WebContents): boolean {
+  return Boolean(isLiveWindow(chatWindow) && sender === chatWindow.webContents);
 }
 
 export function initChatWindow(): void {
@@ -539,16 +749,18 @@ export function initChatWindow(): void {
   });
 
   ipcMain.on("chat:close", (event) => {
-    if (isChatSender(event.sender)) hideChatWindow();
+    if (isCurrentChatSender(event.sender)) hideChatWindow();
   });
 
   ipcMain.on("chat:minimize", (event) => {
-    if (isChatSender(event.sender)) chatWindow?.minimize();
+    if (isCurrentChatSender(event.sender) && isLiveWindow(chatWindow)) {
+      chatWindow.minimize();
+    }
   });
 
   ipcMain.on("chat:resize-start", (event, direction: unknown) => {
-    if (!isChatSender(event.sender) || chatWindowMode !== "full") return;
-    if (!isResizeDirection(direction) || !chatWindow || chatWindow.isDestroyed()) return;
+    if (!isCurrentChatSender(event.sender) || chatWindowMode !== "full") return;
+    if (!isResizeDirection(direction) || !isLiveWindow(chatWindow)) return;
     if (resizeTimer) {
       clearInterval(resizeTimer);
       resizeTimer = null;
@@ -557,19 +769,19 @@ export function initChatWindow(): void {
       windowId: chatWindow.id,
       direction,
       startPoint: screen.getCursorScreenPoint(),
-      startBounds: chatWindow.getBounds(),
+      startBounds: chatWindow.getContentBounds(),
     };
     // 透明窗口里光标移出窗口后渲染层收不到 mousemove，改由主进程采样光标。
     resizeTimer = setInterval(applyResizeFrame, 16);
   });
 
   ipcMain.on("chat:resize-move", (event) => {
-    if (!isChatSender(event.sender)) return;
+    if (!isCurrentChatSender(event.sender)) return;
     applyResizeFrame();
   });
 
   ipcMain.on("chat:resize-end", (event) => {
-    if (!isChatSender(event.sender)) return;
+    if (!isCurrentChatSender(event.sender)) return;
     stopResize();
   });
 
@@ -626,21 +838,44 @@ export function initChatWindow(): void {
     return service().getMoodStatus(force === true);
   });
 
-  ipcMain.handle("chat:set-mode", async (event, mode: unknown) => {
-    if (!isChatSender(event.sender)) return null;
+  ipcMain.handle("chat:set-mode", (event, mode: unknown) => {
+    if (!isCurrentChatSender(event.sender)) return null;
     const next: ChatUiMode = mode === "full" ? "full" : "compact";
     const previous = service().getUiState().mode;
-    if (next === previous) return service().getUiState();
-    const state = await service().setMode(next);
-    // 先让 IPC 回复走完，再重建窗口，避免渲染进程收到切换失败。
-    setTimeout(() => rebuildChatWindow(previous, next), 60);
-    return state;
+    // 立即返回，窗口切换在后台完成；旧窗口在新窗口准备好之前一直保持原样。
+    if (next === previous || switching) return null;
+
+    switching = true;
+    void (async () => {
+      try {
+        // 先静默写入新模式，让新窗口加载时就能拿到正确布局；旧窗口不广播、不预切。
+        await service().setMode(next, { broadcast: false });
+        const ok = await swapChatWindow(next);
+        if (ok) {
+          service().broadcastUiState();
+        } else {
+          await service().setMode(previous, { broadcast: false });
+          service().broadcastUiState();
+        }
+      } catch (error) {
+        logChatWindow(`set-mode 失败 ${String(error)}`);
+        try {
+          await service().setMode(previous, { broadcast: false });
+        } catch {
+          // 回滚失败时至少把旧窗口的状态广播出去。
+        }
+        service().broadcastUiState();
+      } finally {
+        switching = false;
+      }
+    })();
+    return null;
   });
 
   ipcMain.handle("chat:set-pinned", async (event, pinned: unknown) => {
     if (!isChatSender(event.sender)) return null;
     const state = await service().setPinned(pinned === true);
-    if (chatWindow && !chatWindow.isDestroyed()) {
+    if (isLiveWindow(chatWindow)) {
       chatWindow.setAlwaysOnTop(
         state.mode === "compact" || state.pinned,
         "screen-saver",
@@ -672,9 +907,11 @@ export function initChatWindow(): void {
   });
 
   ipcMain.handle("chat:open-settings", (event) => {
-    if (!isChatSender(event.sender)) return;
+    if (!isCurrentChatSender(event.sender)) return;
     for (const win of BrowserWindow.getAllWindows()) {
-      if (win === chatWindow || win.isDestroyed()) continue;
+      if (win === chatWindow || pendingChatWindows.has(win) || win.isDestroyed()) {
+        continue;
+      }
       win.webContents.send("pet:open-settings");
       win.showInactive();
     }
@@ -686,7 +923,7 @@ export function initChatWindow(): void {
   });
 
   ipcMain.handle("chat:hide", (event) => {
-    if (!isChatSender(event.sender)) return;
+    if (!isCurrentChatSender(event.sender)) return;
     hideChatWindow();
   });
 

@@ -15,7 +15,7 @@ order: 100
 
 MONOSABA DesktopPET 是把网站里的希罗 / 艾玛 Live2D 看板娘搬到 Windows 桌面的独立程序。它不是一个缩小版网页，而是三层结构：**全屏透明覆盖层负责人物与桌面交互，本地主进程负责窗口 / 配置 / 存储，AstrBot 桥接插件负责和手机 QQ 共用同一个会话**。
 
-当前桌面版本 **0.3.7**，服务器桥接插件 **0.3.4**，心情插件 **1.5.0**，睡眠插件 **0.1.4**，生活插件 **0.1.9**。
+当前桌面版本 **0.3.8**，服务器桥接插件 **0.3.4**，心情插件 **1.5.0**，睡眠插件 **0.1.4**，生活插件 **0.1.9**。
 
 ## 为什么是全屏透明覆盖层
 
@@ -49,7 +49,7 @@ main
  ├─ cursor-hit-test.ts   按人物 alpha / 控件矩形决定是否接管鼠标
  ├─ tray.ts              托盘菜单、未读红点图标
  ├─ config.ts            %APPDATA%\monosaba-desktoppet\config.json
- ├─ auto-launch.ts       开机自启（写 HKCU Run）
+ ├─ auto-launch.ts       开机自启（当前用户登录计划任务 + Run 项兜底）
  ├─ diary/               系统 OpenSSH 读日记与记忆（ssh2 在 Electron 主进程会卡死，弃用）
  ├─ chat/                聊天服务、桥接客户端、截图、缓存、媒体、设置导入导出
  ├─ profile.ts           本机资料：显示名 + 头像 + 历史头像
@@ -144,7 +144,7 @@ npm run build:win      # 产出 dist/MONOSABA-DesktopPET-<version>-portable.exe
 
 - 默认人物决定 exe 图标：`VITE_DEFAULT_CHARACTER=ema` 使用 `build/icon-ema.ico`，否则用希罗 `build/icon.ico`。
 - 便携版不写注册表，双击即用；首次启动会在 `%APPDATA%` 建配置目录，聊天记录与头像都在用户目录。
-- 开机自启写 `HKCU\...\Run`，指向当前 exe 路径；移动 exe 后需要重新开关一次。
+- 开机自启写当前用户的登录计划任务（`MONOSABA DesktopPET`，登录后延迟 12 秒，动作 `<便携 exe> --autostart`），计划任务不可用时回退 `HKCU\...\Run`；移动 exe 后需要重新开关一次。`--autostart` 的第二个实例只把桌宠带到前台，不弹聊天。启动 / 切换问题看 `logs\startup.log` 与 `logs\chat-window.log`。
 
 ## 已知限制
 
