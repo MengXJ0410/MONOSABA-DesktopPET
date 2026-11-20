@@ -25,6 +25,7 @@ import type {
   ChatProfileData,
   ChatProfileEntry,
   ChatProfileRole,
+  ChatQuote,
   ChatResizeDirection,
   ChatRole,
   ChatStatus,
@@ -737,6 +738,17 @@ function TypewriterText({
   );
 }
 
+/** 引用条里显示的摘要：优先正文，其次图片占位。 */
+function quoteExcerpt(message: ChatMessage | ChatQuote, limit = 80): string {
+  const text = (message.text || "").replace(/\s+/g, " ").trim();
+  if (text) return text.length > limit ? `${text.slice(0, limit)}…` : text;
+  const attachments = "attachments" in message ? message.attachments ?? [] : [];
+  if (attachments.length > 0 || ("image" in message && message.image)) {
+    return "[图片]";
+  }
+  return "";
+}
+
 function MessageContent({
   message,
   full,
@@ -745,6 +757,7 @@ function MessageContent({
   onTypingTick,
   onOpen,
   onOpenDirect,
+  onQuoteJump,
 }: {
   message: ChatMessage;
   full: boolean;
@@ -753,6 +766,7 @@ function MessageContent({
   onTypingTick?: () => void;
   onOpen: (attachment: ChatAttachment, live: boolean) => void;
   onOpenDirect: (url: string) => void;
+  onQuoteJump: (quote: ChatQuote) => void;
 }) {
   const attachments = message.attachments ?? [];
   const assistant = message.role === "assistant";
@@ -788,6 +802,24 @@ function MessageContent({
         message.pending ? ` ${styles.bubblePending}` : ""
       }`}
     >
+      {message.quote ? (
+        <button
+          type="button"
+          className={styles.quoteBlock}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (message.quote) onQuoteJump(message.quote);
+          }}
+          title="跳到被引用的消息"
+        >
+          <span className={styles.quoteBlockWho}>
+            {message.quote.role === "assistant" ? "希罗" : "我"}
+          </span>
+          <span className={styles.quoteBlockText}>
+            {quoteExcerpt(message.quote, 100)}
+          </span>
+        </button>
+      ) : null}
       {text ? (
         assistant && typewriter.enabled && animate ? (
           <TypewriterText
@@ -843,18 +875,24 @@ function MessageGroup({
   profile,
   typewriter,
   freshIds,
+  highlight,
   onTypingTick,
   onOpen,
   onOpenDirect,
+  onMenu,
+  onQuoteJump,
 }: {
   group: Extract<TimelineItem, { kind: "group" }>;
   full: boolean;
   profile: ChatProfileData;
   typewriter: ChatTypewriterSettings;
   freshIds: Set<number>;
+  highlight: { id?: number; ts?: number } | null;
   onTypingTick?: () => void;
   onOpen: (attachment: ChatAttachment, live: boolean) => void;
   onOpenDirect: (url: string) => void;
+  onMenu: (x: number, y: number, message: ChatMessage) => void;
+  onQuoteJump: (quote: ChatQuote) => void;
 }) {
   const assistant = group.role === "assistant";
   const entry = assistant ? profile.hiro : profile.me;
@@ -885,8 +923,20 @@ function MessageGroup({
           <div
             className={`${styles.messageRow} ${
               assistant ? styles.messageRowAssistant : styles.messageRowUser
+            }${
+              highlight &&
+              ((highlight.id !== undefined && highlight.id === message.id) ||
+                (highlight.ts !== undefined && highlight.ts === message.ts))
+                ? ` ${styles.messageRowHighlight}`
+                : ""
             }`}
             key={`${message.id}-${index}`}
+            data-message-id={message.id > 0 ? message.id : undefined}
+            data-message-ts={message.ts > 0 ? message.ts : undefined}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onMenu(event.clientX, event.clientY, message);
+            }}
           >
             <MessageContent
               message={message}
@@ -896,6 +946,7 @@ function MessageGroup({
               onTypingTick={onTypingTick}
               onOpen={onOpen}
               onOpenDirect={onOpenDirect}
+              onQuoteJump={onQuoteJump}
             />
           </div>
         ))}
@@ -3067,8 +3118,23 @@ export function ChatPanel() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  const [retracting, setRetracting] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  /** 桥接声明的能力；没有 retract 就隐藏撤回。 */
+  const [capabilities, setCapabilities] = useState<string[]>([]);
+  /** 正在引用回复的消息；发送后清空。 */
+  const [quoteTarget, setQuoteTarget] = useState<ChatMessage | null>(null);
+  /** 点击引用块后短暂高亮原消息。 */
+  const [highlight, setHighlight] = useState<{ id?: number; ts?: number } | null>(
+    null,
+  );
+  /** 右键消息弹出的菜单（引用 / 复制）。 */
+  const [messageMenu, setMessageMenu] = useState<{
+    x: number;
+    y: number;
+    message: ChatMessage;
+  } | null>(null);
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [captureEnabled, setCaptureEnabled] = useState(false);
   const [displayId, setDisplayId] = useState("");
@@ -3108,6 +3174,12 @@ export function ChatPanel() {
   const prependRef = useRef<{ height: number; top: number } | null>(null);
   const awaitingRef = useRef(false);
   const sendingRef = useRef(false);
+  /** 本轮发送的回合 id / 原文 / 乐观气泡 id；撤回时用。 */
+  const lastTurnRef = useRef<{ clientId: string; text: string; tempId: number } | null>(
+    null,
+  );
+  /** 已撤回的回合：迟到的回复一律丢弃。 */
+  const retractedTurnsRef = useRef<Set<string>>(new Set());
   /** 上次告诉主进程“正在打字”的时间，避免每个键都发 IPC。 */
   const lastTypingNotifyRef = useRef(0);
   const loadingMoreRef = useRef(false);
@@ -3183,7 +3255,13 @@ export function ChatPanel() {
     status.state === "offline" ||
     status.state === "auth" ||
     status.state === "bridge-missing";
-  const canSend = !loading && !blocking && !sending;
+  const canSend = !loading && !blocking && !sending && !retracting;
+  /** 发送中 / 等她回复时，发送按钮变成撤回。 */
+  const canRetract =
+    !retracting &&
+    (sending || waiting) &&
+    lastTurnRef.current !== null &&
+    capabilities.includes("retract");
   const statusText = STATUS_TEXT[status.state];
   const dotClass =
     status.state === "online"
@@ -3279,6 +3357,64 @@ export function ChatPanel() {
     }, 2600);
   }, []);
 
+  /** 点击引用块：滚到原消息并高亮；已经不在加载范围时给提示。 */
+  const jumpToQuote = useCallback(
+    (quote: ChatQuote) => {
+      const id = typeof quote.id === "number" && quote.id > 0 ? quote.id : 0;
+      const selector = id
+        ? `[data-message-id="${id}"]`
+        : quote.ts
+          ? `[data-message-ts="${quote.ts}"]`
+          : "";
+      const node = selector
+        ? listRef.current?.querySelector<HTMLElement>(selector)
+        : null;
+      if (!node) {
+        showToast("原消息不在当前列表");
+        return;
+      }
+      node.scrollIntoView({ block: "center", behavior: "smooth" });
+      setHighlight(id ? { id } : { ts: quote.ts });
+      window.setTimeout(() => setHighlight(null), 1500);
+    },
+    [showToast],
+  );
+
+  useEffect(() => {
+    if (!messageMenu) return;
+    const close = () => setMessageMenu(null);
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setMessageMenu(null);
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [messageMenu]);
+
+  const copyMessageText = useCallback(
+    async (message: ChatMessage) => {
+      const text = (message.text || "").trim();
+      if (!text) {
+        showToast("这条消息没有可复制的文字");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast("已复制");
+      } catch {
+        showToast("复制失败");
+      }
+    },
+    [showToast],
+  );
+
   const applyInitial = useCallback(
     (data: ChatInitialData) => {
       const merged = mergeUnique(data.messages ?? [], pendingRef.current);
@@ -3296,6 +3432,7 @@ export function ChatPanel() {
       applyUiState(data.ui);
       if (data.profile) setProfile(data.profile);
       setBackgroundImage(data.backgroundImage ?? null);
+      setCapabilities(data.capabilities ?? []);
       if (data.commands?.commands?.length) setCommands(data.commands);
       setLoading(false);
       setNoMore(merged.length >= Math.max(data.total ?? merged.length, merged.length));
@@ -3309,11 +3446,16 @@ export function ChatPanel() {
   const appendMessages = useCallback(
     (incoming: ChatMessage[]) => {
       if (!Array.isArray(incoming) || incoming.length === 0) return;
+      // 已撤回回合的迟到消息一律丢弃（包括她刚刚发出的半截回复）。
+      const alive = incoming.filter(
+        (message) => !(message.turn && retractedTurnsRef.current.has(message.turn)),
+      );
+      if (alive.length === 0) return;
       if (!initializedRef.current) {
-        pendingRef.current.push(...incoming);
+        pendingRef.current.push(...alive);
         return;
       }
-      const fresh = incoming.filter(
+      const fresh = alive.filter(
         (message) => message.id === 0 || !knownIdsRef.current.has(message.id),
       );
       if (fresh.length === 0) return;
@@ -3454,11 +3596,28 @@ export function ChatPanel() {
   const sendText = useCallback(
     async (text: string) => {
       const value = text.trim();
-      if (!value || sendingRef.current) return;
+      if (!value || sendingRef.current || retracting) return;
+      // 命令不进对话上下文，按约定也不允许撤回。
+      const isCommand = value.startsWith("/");
+      const clientId = isCommand
+        ? undefined
+        : typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      const quote: ChatQuote | null =
+        !isCommand && quoteTarget
+          ? {
+              id: quoteTarget.id > 0 ? quoteTarget.id : undefined,
+              role: quoteTarget.role,
+              text: quoteExcerpt(quoteTarget, 120) || "[图片]",
+              ts: quoteTarget.ts,
+            }
+          : null;
       sendingRef.current = true;
       setSending(true);
       setSendError(null);
       setConfirmState(null);
+      setQuoteTarget(null);
       // 回复可能比 /send 响应先到，先挂上等待标记；界面提示等确认后再切。
       awaitingRef.current = true;
       setWaiting(false);
@@ -3467,6 +3626,8 @@ export function ChatPanel() {
       // 立即清空输入框并上屏，别让消息滞留在输入框里。
       setDraft((prev) => (prev.trim() === value ? "" : prev));
       const tempId = -Date.now();
+      lastTurnRef.current = clientId ? { clientId, text: value, tempId } : null;
+      if (clientId) retractedTurnsRef.current.delete(clientId);
       optimisticRef.current.push({ id: tempId, text: value });
       setMessages((prev) => [
         ...prev,
@@ -3476,6 +3637,8 @@ export function ChatPanel() {
           role: "user",
           origin: "desktop",
           text: value,
+          turn: clientId,
+          quote,
           image: null,
           attachments: [],
           live: true,
@@ -3520,6 +3683,8 @@ export function ChatPanel() {
         const result = await window.petApi.chatSend(value, {
           captureScreen: captureEnabled,
           displayId: displayId || undefined,
+          clientId,
+          quote,
         });
         if (!result.ok) {
           awaitingRef.current = false;
@@ -3530,6 +3695,14 @@ export function ChatPanel() {
           if (result.kind === "auth" || result.kind === "offline") {
             setStatus(statusFromError(result.kind, result.error));
           }
+          return;
+        }
+        if (result.data.retracted) {
+          // 发送途中已经撤回：气泡直接消失，原文回输入框。
+          awaitingRef.current = false;
+          if (clientId) retractedTurnsRef.current.add(clientId);
+          settle(null);
+          setDraft((prev) => (prev.trim() ? prev : value));
           return;
         }
         settle(result.data.message ?? null, result.data.screenImage ?? null);
@@ -3552,8 +3725,55 @@ export function ChatPanel() {
         setSending(false);
       }
     },
-    [captureEnabled, displayId, refreshStatus],
+    [captureEnabled, displayId, quoteTarget, refreshStatus, retracting],
   );
+
+  /** 撤回刚发出的消息：桥接中止生成，本地删气泡、原文回输入框。 */
+  const retract = useCallback(async () => {
+    const turn = lastTurnRef.current;
+    if (!turn || retracting) return;
+    setRetracting(true);
+    setSendError(null);
+    setConfirmState(null);
+    try {
+      const result = await window.petApi.chatRetract(turn.clientId);
+      if (!result.ok) {
+        // 回复已经落地：按“已发出”处理，恢复普通状态。
+        awaitingRef.current = false;
+        setWaiting(false);
+        setSendError(result.error);
+        return;
+      }
+      const removedIds = new Set(result.data.removed ?? []);
+      retractedTurnsRef.current.add(turn.clientId);
+      optimisticRef.current = optimisticRef.current.filter(
+        (item) => item.id !== turn.tempId,
+      );
+      setMessages((prev) => {
+        const kept = prev.filter(
+          (item) =>
+            item.turn !== turn.clientId &&
+            item.id !== turn.tempId &&
+            !removedIds.has(item.id),
+        );
+        setTotal(kept.length);
+        return kept;
+      });
+      awaitingRef.current = false;
+      setWaiting(false);
+      setTimedOut(false);
+      // 输入框在发送期间是锁定的，这里恢复原文即可。
+      setDraft((prev) => (prev.trim() ? prev : turn.text));
+      showToast("已撤回");
+    } catch {
+      awaitingRef.current = false;
+      setWaiting(false);
+      setSendError("撤回失败，请稍后重试。");
+    } finally {
+      lastTurnRef.current = null;
+      setRetracting(false);
+    }
+  }, [retracting, showToast]);
 
   const submit = useCallback(() => {
     if (!canSend) return;
@@ -4257,12 +4477,39 @@ export function ChatPanel() {
     const offStatus = window.petApi.onChatStatus((next) => setStatus(next));
     const offCommands = window.petApi.onChatCommands((next) => setCommands(next));
     const offUi = window.petApi.onChatUiState(applyUiState);
+    const offRetract = window.petApi.onChatRetract?.(({ turn, removed }) => {
+      if (!turn) return;
+      retractedTurnsRef.current.add(turn);
+      const removedIds = new Set(removed ?? []);
+      const owned = lastTurnRef.current?.clientId === turn ? lastTurnRef.current : null;
+      if (owned) {
+        optimisticRef.current = optimisticRef.current.filter(
+          (item) => item.id !== owned.tempId,
+        );
+      }
+      setMessages((prev) => {
+        const kept = prev.filter(
+          (item) =>
+            item.turn !== turn &&
+            !removedIds.has(item.id) &&
+            item.id !== owned?.tempId,
+        );
+        setTotal(kept.length);
+        return kept;
+      });
+      if (awaitingRef.current) {
+        awaitingRef.current = false;
+        setWaiting(false);
+        setTimedOut(false);
+      }
+    });
     return () => {
       offMessages();
       offReset();
       offStatus();
       offCommands();
       offUi();
+      offRetract?.();
     };
   }, [appendMessages, applyInitial, applyUiState]);
 
@@ -4905,13 +5152,20 @@ export function ChatPanel() {
                       profile={profile}
                       typewriter={ui.typewriter}
                       freshIds={freshMessageIdsRef.current}
+                      highlight={highlight}
                       onTypingTick={scrollWhileTyping}
                       onOpen={openAttachment}
                       onOpenDirect={openDirect}
+                      onMenu={(x, y, message) => setMessageMenu({ x, y, message })}
+                      onQuoteJump={jumpToQuote}
                     />
                   ),
                 )}
-                {sending ? (
+                {retracting ? (
+                  <div className={styles.sendingHint} aria-live="polite">
+                    正在撤回…
+                  </div>
+                ) : sending ? (
                   <div className={styles.sendingHint} aria-live="polite">
                     消息正在发送…
                   </div>
@@ -4983,6 +5237,30 @@ export function ChatPanel() {
                 </div>
               ) : null}
 
+              {quoteTarget ? (
+                <div className={styles.quoteBar}>
+                  <div className={styles.quoteBarBody}>
+                    <span className={styles.quoteBarWho}>
+                      {quoteTarget.role === "assistant"
+                        ? profile.hiro.name
+                        : profile.me.name}
+                    </span>
+                    <span className={styles.quoteBarText}>
+                      {quoteExcerpt(quoteTarget, 80)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.quoteBarClose}
+                    onClick={() => setQuoteTarget(null)}
+                    aria-label="取消引用"
+                    title="取消引用"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : null}
+
               <div className={styles.composer}>
                 <textarea
                   ref={inputRef}
@@ -5001,15 +5279,21 @@ export function ChatPanel() {
                   aria-label="消息"
                   rows={1}
                   maxLength={2000}
-                  disabled={blocking || loading}
+                  disabled={blocking || loading || sending || waiting || retracting}
                 />
                 <button
                   type="button"
-                  className={styles.send}
-                  onClick={submit}
-                  disabled={!canSend || !draft.trim()}
+                  className={`${styles.send}${canRetract ? ` ${styles.retractButton}` : ""}`}
+                  onClick={canRetract ? () => void retract() : submit}
+                  disabled={canRetract ? false : !canSend || !draft.trim()}
                 >
-                  {sending ? "发送中" : "发送"}
+                  {retracting
+                    ? "撤回中…"
+                    : canRetract
+                      ? "撤回"
+                      : sending
+                        ? "发送中"
+                        : "发送"}
                 </button>
               </div>
             </div>
@@ -5070,6 +5354,42 @@ export function ChatPanel() {
           </footer>
         ) : null}
       </section>
+
+      {messageMenu ? (
+        <div
+          className={styles.messageMenu}
+          style={{
+            left: Math.min(messageMenu.x, window.innerWidth - 170),
+            top: Math.min(messageMenu.y, window.innerHeight - 96),
+          }}
+          role="menu"
+          aria-label="消息操作"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {capabilities.includes("quote") ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setQuoteTarget(messageMenu.message);
+                setMessageMenu(null);
+              }}
+            >
+              引用这条消息
+            </button>
+          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              void copyMessageText(messageMenu.message);
+              setMessageMenu(null);
+            }}
+          >
+            复制文字
+          </button>
+        </div>
+      ) : null}
 
       {toast ? (
         <div className={styles.toast} role="status">

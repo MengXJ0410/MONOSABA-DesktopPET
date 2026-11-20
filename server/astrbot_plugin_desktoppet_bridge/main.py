@@ -37,6 +37,13 @@
 - /status 返回 sleeping / sleepStatus / sleep；睡着时 commentary 的 /send
   直接返回 sleeping + zzZ，不注入回合、不保存截图、不计睡眠消息。
 
+0.3.5 变更：
+- /send 接受 clientId（回合 id）与 quote（引用快照）；日志条目带 turn / quote。
+- 新增 /retract：发送途中或希罗正在回复时可以撤回。撤回会中止当前 Agent
+  （agent_stop_requested），丢弃这一轮的回复，删掉桥接日志里的 user 条目，
+  再把 AstrBot 会话历史里刚写入的「user + 空回复」裁掉，并补上 mood 跳过标记。
+- 已经产生回复的回合不允许撤回；命令消息由桌面端直接禁用撤回。
+
 设计边界：
 - 只处理一个固定 UMO（默认 Hiro:FriendMessage:1955272576）。
 - 媒体原图保存在 plugin_data/<plugin>/media；缩略图按需生成。
@@ -73,13 +80,35 @@ from astrbot.core.platform.message_type import MessageType
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
+from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 PLUGIN_NAME = "astrbot_plugin_desktoppet_bridge"
-PLUGIN_VERSION = "0.3.4"
+PLUGIN_VERSION = "0.3.5"
+
+CAPABILITIES = [
+    "bootstrap",
+    "status",
+    "media",
+    "commands",
+    "attachments",
+    "send-layer",
+    "commentary",
+    "sleep-gate",
+    "retract",
+    "quote",
+]
 
 # 屏幕点评的触发消息只用于上下文；桌面聊天和日志里都要隐藏它。
 COMMENTARY_MARKER = "〔桌面屏幕点评〕"
+
+# 回合 id 由桌面端生成（crypto.randomUUID）。
+TURN_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+# 撤回只覆盖“刚发出去、还没回复”的窗口；超过这个时间的记录不再保留。
+TURN_TTL_SECONDS = 3600
+# 发送还没到、撤回先到时，先用这个集合把消息吃掉。
+PENDING_RETRACT_TTL_SECONDS = 120
+QUOTE_MAX_CHARS = 500
 
 DEFAULT_UMO = "Hiro:FriendMessage:1955272576"
 DEFAULT_PLATFORM_ID = "Hiro"
@@ -221,6 +250,37 @@ def _clean(text: str, limit: int = MAX_LOG_TEXT) -> str:
     if limit and len(text) > limit:
         text = text[:limit] + "…"
     return text
+
+
+def _normalize_quote(value: object) -> dict | None:
+    """引用快照：role + 文本 + 时间；只用于显示和拼注入前缀。"""
+    if not isinstance(value, dict):
+        return None
+    role = value.get("role")
+    if role not in ("user", "assistant"):
+        return None
+    text = _clean(str(value.get("text") or ""), QUOTE_MAX_CHARS)
+    if not text:
+        return None
+    try:
+        ts = int(value.get("ts") or 0)
+    except Exception:
+        ts = 0
+    return {"role": role, "text": text, "ts": ts}
+
+
+def _quote_prefix(quote: dict) -> str:
+    """把引用拼成模型能读懂的前缀；不写进日志正文。"""
+    who = "希罗" if quote.get("role") == "assistant" else "我"
+    text = str(quote.get("text") or "").replace("\n", " ").strip()
+    return f"〔引用{who}的消息〕> {text}\n〔我的回复〕"
+
+
+def _normalize_turn(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    turn = value.strip()
+    return turn if TURN_RE.fullmatch(turn) else ""
 
 
 def _component_text(comp: object) -> str:
@@ -567,14 +627,20 @@ class MediaStore:
 class _DesktopBot:
     """假 bot：吞掉所有发送，同时把每一条实际发送记录到桥接插件。"""
 
-    def __init__(self, self_id: str, bridge: "DesktopPetBridge") -> None:
+    def __init__(
+        self,
+        self_id: str,
+        bridge: "DesktopPetBridge",
+        turn: str | None = None,
+    ) -> None:
         self.self_id = self_id
         self.bridge = bridge
+        self.turn = turn
 
     async def send_private_msg(self, **kwargs: object) -> dict:
         try:
             message = kwargs.get("message")
-            await self.bridge._capture_onebot_message(message, "desktop")
+            await self.bridge._capture_onebot_message(message, "desktop", self.turn)
         except Exception:
             logger.exception("[desktoppet] 记录桌面回复失败")
         return {"message_id": 0}
@@ -585,7 +651,7 @@ class _DesktopBot:
     async def send(self, **kwargs: object) -> dict:
         try:
             message = kwargs.get("message")
-            await self.bridge._capture_onebot_message(message, "desktop")
+            await self.bridge._capture_onebot_message(message, "desktop", self.turn)
         except Exception:
             logger.exception("[desktoppet] 记录桌面回复失败")
         return {"message_id": 0}
@@ -594,7 +660,9 @@ class _DesktopBot:
         if action in ("send_private_msg", "send_msg"):
             try:
                 message = kwargs.get("message")
-                await self.bridge._capture_onebot_message(message, "desktop")
+                await self.bridge._capture_onebot_message(
+                    message, "desktop", self.turn
+                )
             except Exception:
                 logger.exception("[desktoppet] 记录桌面回复失败")
         return {"message_id": 0}
@@ -675,6 +743,12 @@ class DesktopPetBridge(Star):
         self._capture_note = "未开始"
         self._mood_config: dict = {}
         self._affection_k: float | None = None
+        # 撤回：turn -> {event, entry_id, text, umo, created, retracted}
+        self._turns: dict[str, dict] = {}
+        # 已经撤回的回合；用来判断迟到的回复要不要丢。
+        self._retracted_turns: dict[str, float] = {}
+        # 发送还没到、撤回先到的回合；下一次 /send 直接吃掉。
+        self._pending_retract: dict[str, float] = {}
 
     # ------------------------------------------------------------------ 生命周期
     async def initialize(self) -> None:
@@ -698,6 +772,12 @@ class DesktopPetBridge(Star):
             self._api_messages,
             ["GET"],
             "桌面聊天桥接：增量拉取消息",
+        )
+        self.context.register_web_api(
+            f"/{PLUGIN_NAME}/retract",
+            self._api_retract,
+            ["POST"],
+            "桌面聊天桥接：撤回刚发出的桌面消息并中止生成",
         )
         self.context.register_web_api(
             f"/{PLUGIN_NAME}/history",
@@ -868,6 +948,8 @@ class DesktopPetBridge(Star):
             "origin": item.get("origin"),
             "text": text,
             "attachments": normalized_attachments,
+            "turn": _normalize_turn(item.get("turn")) or None,
+            "quote": _normalize_quote(item.get("quote")),
         }
 
     def _rewrite_log(self) -> None:
@@ -900,6 +982,8 @@ class DesktopPetBridge(Star):
         text: str,
         origin: str | None,
         attachments: list[dict] | None = None,
+        turn: str | None = None,
+        quote: dict | None = None,
     ) -> dict | None:
         cleaned = _clean(text)
         normalized = [item for item in (attachments or []) if isinstance(item, dict)]
@@ -913,6 +997,8 @@ class DesktopPetBridge(Star):
                 "origin": origin,
                 "text": cleaned,
                 "attachments": normalized,
+                "turn": turn or None,
+                "quote": quote,
             }
             self._next_id += 1
             self._entries.append(entry)
@@ -929,6 +1015,175 @@ class DesktopPetBridge(Star):
 
     def _last_id(self) -> int:
         return self._entries[-1]["id"] if self._entries else 0
+
+    # ------------------------------------------------------------------ 撤回
+    def _prune_turns(self) -> None:
+        now = time.time()
+        stale = [
+            turn
+            for turn, info in self._turns.items()
+            if now - float(info.get("created") or 0) > TURN_TTL_SECONDS
+        ]
+        for turn in stale:
+            self._turns.pop(turn, None)
+        for turn, ts in list(self._retracted_turns.items()):
+            if now - ts > TURN_TTL_SECONDS:
+                self._retracted_turns.pop(turn, None)
+        for turn, ts in list(self._pending_retract.items()):
+            if now - ts > PENDING_RETRACT_TTL_SECONDS:
+                self._pending_retract.pop(turn, None)
+
+    def _is_turn_retracted(self, turn: str) -> bool:
+        self._prune_turns()
+        return turn in self._retracted_turns
+
+    def _register_turn(
+        self,
+        turn: str,
+        event: object,
+        entry_id: int | None,
+        text: str,
+        inject_text: str,
+    ) -> None:
+        self._prune_turns()
+        self._turns[turn] = {
+            "event": event,
+            "entry_id": entry_id,
+            "text": text,
+            "inject_text": inject_text,
+            "umo": self.umo,
+            "created": time.time(),
+            "retracted": False,
+            "llm_started": False,
+        }
+
+    def _turn_has_reply(self, turn: str) -> bool:
+        return any(
+            entry.get("turn") == turn and entry.get("role") == "assistant"
+            for entry in self._entries
+        )
+
+    async def _remove_turn_entries(self, turn: str) -> list[int]:
+        """删掉这一轮的 user 条目和已捕获的回复，返回删掉的 id。"""
+        async with self._lock:
+            removed = [
+                entry for entry in self._entries if entry.get("turn") == turn
+            ]
+            if not removed:
+                return []
+            keep = [entry for entry in self._entries if entry.get("turn") != turn]
+            self._entries = keep
+            try:
+                await asyncio.to_thread(self._rewrite_log)
+                await asyncio.to_thread(self._cleanup_media)
+            except Exception:
+                logger.exception("[desktoppet] 撤回后重写日志失败")
+            return [int(entry["id"]) for entry in removed]
+
+    def _conversation_manager(self):
+        return getattr(self.context, "conversation_manager", None)
+
+    @staticmethod
+    def _history_message_text(item: dict) -> str:
+        """会话历史里的 content 可能是字符串，也可能是 [{type:text,text:...}]。"""
+        content = item.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    parts.append(part["text"])
+            return "\n".join(parts)
+        return ""
+
+    async def _trim_retracted_history(
+        self,
+        turn: str,
+        user_text: str,
+        timeout_seconds: float = 30.0,
+    ) -> bool:
+        """把刚写进 AstrBot 会话历史的那一对删掉。
+
+        中止生成后 core 仍会保存「user + Stop output. + Output stopped.」，
+        而这两条要等收尾的那次模型调用结束才落盘（可能十几秒）。所以这里在后台
+        轮询，等它写完再从尾部移除；只动最近 30 条，避免误删更早的对话。
+        """
+        manager = self._conversation_manager()
+        if manager is None or not user_text:
+            return False
+        deadline = time.time() + timeout_seconds
+        target = _clean(user_text)
+        while time.time() < deadline:
+            try:
+                conversation_id = await manager.get_curr_conversation_id(self.umo)
+                if not conversation_id:
+                    return False
+                conversation = await manager.get_conversation(self.umo, conversation_id)
+                history = list(getattr(conversation, "content", None) or [])
+            except Exception:
+                logger.exception("[desktoppet] 撤回：读取会话历史失败")
+                return False
+
+            index = -1
+            for cursor in range(len(history) - 1, max(-1, len(history) - 31), -1):
+                item = history[cursor]
+                if not isinstance(item, dict):
+                    continue
+                if item.get("role") != "user":
+                    continue
+                raw = self._history_message_text(item)
+                # 每条 user 消息后面会追加 <system_reminder> 时间片。
+                text = raw.split("<system_reminder>")[0].strip()
+                if text == target:
+                    index = cursor
+                    break
+            if index < 0:
+                # 还没写入（或已经不在历史里）：再等等。
+                await asyncio.sleep(0.25)
+                continue
+
+            # 删掉这条 user，以及 AstrBot 中止时补的 “Stop output.” / “Output stopped.”
+            # 和紧随其后的半截回复。
+            end = index + 1
+            if end < len(history) and isinstance(history[end], dict):
+                next_item = history[end]
+                if next_item.get("role") == "user":
+                    next_text = self._history_message_text(next_item)
+                    next_text = next_text.split("<system_reminder>")[0].strip()
+                    if next_text in ("Stop output.", "Stop output"):
+                        end += 1
+            while end < len(history):
+                item = history[end]
+                if not isinstance(item, dict) or item.get("role") != "assistant":
+                    break
+                end += 1
+            if end < len(history):
+                # 后面已经有新的一轮（用户又说话了）：不动历史，宁可这一条留着，
+                # 也不能用旧快照覆盖掉新回合。
+                logger.warning(
+                    "[desktoppet] 撤回：历史尾部已有新消息，跳过裁剪 turn=%s",
+                    turn,
+                )
+                return False
+            trimmed = history[:index]
+            try:
+                await manager.update_conversation(
+                    self.umo,
+                    conversation_id,
+                    history=trimmed,
+                )
+            except Exception:
+                logger.exception("[desktoppet] 撤回：写回会话历史失败")
+                return False
+            logger.info(
+                "[desktoppet] 撤回：已从会话历史移除 turn=%s（%d 条）",
+                turn,
+                len(history) - len(trimmed),
+            )
+            return True
+        logger.warning("[desktoppet] 撤回：等待会话历史写入超时 turn=%s", turn)
+        return False
 
     # ------------------------------------------------------------------ 平台与 QQ 状态
     def _adapter(self):
@@ -1113,7 +1368,11 @@ class DesktopPetBridge(Star):
         self,
         message: object,
         origin: str,
+        turn: str | None = None,
     ) -> dict | None:
+        # 已经撤回的回合：她的半截回复直接丢弃，不进日志、不进桌面。
+        if turn and self._is_turn_retracted(turn):
+            return None
         if isinstance(message, dict):
             message = [message]
         if not isinstance(message, list):
@@ -1163,7 +1422,7 @@ class DesktopPetBridge(Star):
         text = "".join(texts).strip()
         if not text and not attachments:
             return None
-        return await self._append("assistant", text, origin, attachments)
+        return await self._append("assistant", text, origin, attachments, turn=turn)
 
     async def _resolve_image_data(self, data: dict) -> bytes | None:
         file_value = data.get("file")
@@ -1305,6 +1564,9 @@ class DesktopPetBridge(Star):
         text: str,
         image_data: str | None = None,
         commentary: bool = False,
+        turn: str | None = None,
+        entry_id: int | None = None,
+        log_text: str = "",
     ) -> dict | None:
         adapter = self._adapter()
         if adapter is None:
@@ -1331,13 +1593,16 @@ class DesktopPetBridge(Star):
             message_obj=abm,
             platform_meta=adapter.meta(),
             session_id=self.user_id,
-            bot=_DesktopBot(self.self_id, self),
+            bot=_DesktopBot(self.self_id, self, turn),
         )
         # 桌面端通过 API Key 鉴权，注入事件按管理员处理，
         # 这样 /心情、/好感、/记忆 等管理员指令可以直接用。
         event.role = "admin"
         event.set_extra("_desktoppet_origin", "desktop")
         event.set_extra("_desktoppet_logged", True)
+        if turn:
+            # 撤回时靠这个 id 找到事件并中止生成。
+            event.set_extra("_desktoppet_turn", turn)
         if commentary:
             # 点评不是对话回合：mood 1.5+ 看到 appraisal 标记会整轮跳过；
             # 同时带上 affection 标记，兼容只认这个键的旧版 mood。
@@ -1346,8 +1611,12 @@ class DesktopPetBridge(Star):
             event.set_extra("mood_skip_all", True)
         if image_data:
             event.set_extra("_desktoppet_has_screen", True)
+        # 先把回合登记好再提交：管线可能在 commit 之后立刻跑到 on_llm_request，
+        # 晚一步登记就会漏掉 llm_started，撤回时不知道要不要裁历史。
+        if turn:
+            self._register_turn(turn, event, entry_id, log_text or text, text)
         adapter.commit_event(event)
-        return {"queued": True}
+        return {"queued": True, "event": event}
 
     # ------------------------------------------------------------------ 心情 / 好感
     def _load_mood_config(self) -> None:
@@ -1651,16 +1920,7 @@ class DesktopPetBridge(Star):
                 "version": PLUGIN_VERSION,
                 "epoch": self._epoch,
                 "capture": self._capture_state(),
-                "capabilities": [
-                    "bootstrap",
-                    "status",
-                    "media",
-                    "commands",
-                    "attachments",
-                    "send-layer",
-                    "commentary",
-                    "sleep-gate",
-                ],
+                "capabilities": CAPABILITIES,
             },
         }
 
@@ -1678,6 +1938,8 @@ class DesktopPetBridge(Star):
         if len(text) > MAX_MESSAGE_CHARS:
             return {"status": "error", "message": "消息太长了。"}
         commentary = payload.get("commentary") is True
+        turn = "" if commentary else _normalize_turn(payload.get("clientId"))
+        quote = None if commentary else _normalize_quote(payload.get("quote"))
         if commentary:
             sleep_state = self._sleep_state()
             if sleep_state.get("sleeping"):
@@ -1689,9 +1951,23 @@ class DesktopPetBridge(Star):
                         "commentary": True,
                         "sleeping": True,
                         "reply": "zzZ",
-                        "capabilities": ["attachments"],
+                        "capabilities": CAPABILITIES,
                     },
                 }
+
+        # 撤回比 /send 先到：这条消息不再注入，直接告诉桌面已撤回。
+        if turn and (self._is_turn_retracted(turn) or turn in self._pending_retract):
+            self._pending_retract.pop(turn, None)
+            self._retracted_turns[turn] = time.time()
+            return {
+                "status": "ok",
+                "data": {
+                    "message": None,
+                    "commentary": commentary,
+                    "retracted": True,
+                    "capabilities": CAPABILITIES,
+                },
+            }
 
         image_data = None
         image_attachment = None
@@ -1728,13 +2004,46 @@ class DesktopPetBridge(Star):
         except Exception:
             pass
 
-        inject_text = f"{COMMENTARY_MARKER}{text}" if commentary else text
+        inject_text = (
+            f"{COMMENTARY_MARKER}{text}"
+            if commentary
+            else (f"{_quote_prefix(quote)}{text}" if quote else text)
+        )
         entry = None
         if not commentary:
             attachments = [image_attachment] if image_attachment else []
-            entry = await self._append("user", text, "desktop", attachments)
+            entry = await self._append(
+                "user",
+                text,
+                "desktop",
+                attachments,
+                turn=turn or None,
+                quote=quote,
+            )
+        # 写日志和注入之间再确认一次：撤回可能刚好在这几毫秒里到达。
+        if turn and turn in self._pending_retract:
+            self._pending_retract.pop(turn, None)
+            self._retracted_turns[turn] = time.time()
+            if entry and entry.get("id"):
+                await self._remove_turn_entries(turn)
+            return {
+                "status": "ok",
+                "data": {
+                    "message": None,
+                    "commentary": commentary,
+                    "retracted": True,
+                    "capabilities": CAPABILITIES,
+                },
+            }
         try:
-            await self._inject(inject_text, image_data, commentary=commentary)
+            await self._inject(
+                inject_text,
+                image_data,
+                commentary=commentary,
+                turn=turn or None,
+                entry_id=int(entry["id"]) if entry and entry.get("id") else None,
+                log_text=text,
+            )
         except Exception:
             logger.exception("[desktoppet] 注入消息失败")
             return {"status": "error", "message": "注入消息失败。"}
@@ -1743,7 +2052,82 @@ class DesktopPetBridge(Star):
             "data": {
                 "message": entry,
                 "commentary": commentary,
-                "capabilities": ["attachments"],
+                "capabilities": CAPABILITIES,
+            },
+        }
+
+    async def _api_retract(self):
+        """撤回一轮桌面消息：中止生成、删日志、裁会话历史。"""
+        try:
+            payload = await web_request.json(default={})
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        turn = _normalize_turn(payload.get("clientId"))
+        if not turn:
+            return {"status": "error", "message": "回合 id 不正确。"}
+
+        self._prune_turns()
+        info = self._turns.get(turn)
+        if info is None:
+            # /send 还没到：先记下来，等它到达时直接丢掉，不再注入。
+            self._pending_retract[turn] = time.time()
+            return {"status": "ok", "data": {"turn": turn, "removed": []}}
+
+        if info.get("retracted"):
+            return {"status": "ok", "data": {"turn": turn, "removed": []}}
+        if self._turn_has_reply(turn):
+            return {"status": "error", "message": "这条消息已经发出，无法撤回。"}
+
+        info["retracted"] = True
+        self._retracted_turns[turn] = time.time()
+        logger.info(
+            "[desktoppet] 撤回开始 turn=%s llm_started=%s",
+            turn,
+            bool(info.get("llm_started")),
+        )
+
+        event = info.get("event")
+        if event is not None:
+            try:
+                # 中止正在跑的 Agent；同时让 mood / sleep / life 整轮跳过。
+                event.set_extra("_desktoppet_retracted", True)
+                event.set_extra("agent_stop_requested", True)
+                event.set_extra("mood_skip_appraisal", True)
+                event.set_extra("mood_skip_affection", True)
+                event.set_extra("mood_skip_all", True)
+            except Exception:
+                logger.exception("[desktoppet] 撤回：设置中止标记失败")
+        try:
+            active_event_registry.request_agent_stop_all(self.umo)
+        except Exception:
+            logger.exception("[desktoppet] 撤回：请求中止生成失败")
+
+        removed = await self._remove_turn_entries(turn)
+
+        # 只有已经进到模型请求的回合才会写会话历史；没开始就不用管。
+        # 收尾落盘可能比用户等待更久，放到后台裁，不阻塞撤回响应。
+        inject_text = str(info.get("inject_text") or info.get("text") or "")
+        pending_history = bool(info.get("llm_started")) and bool(inject_text)
+        self._turns.pop(turn, None)
+        if pending_history:
+            asyncio.create_task(
+                self._trim_retracted_history(turn, inject_text),
+                name=f"desktoppet-trim-{turn}",
+            )
+        logger.info(
+            "[desktoppet] 撤回完成 turn=%s removed=%s historyPending=%s",
+            turn,
+            removed,
+            pending_history,
+        )
+        return {
+            "status": "ok",
+            "data": {
+                "turn": turn,
+                "removed": removed,
+                "historyPending": pending_history,
             },
         }
 
@@ -1808,16 +2192,7 @@ class DesktopPetBridge(Star):
                 "epoch": self._epoch,
                 "qqConnected": self._qq_connected(),
                 "version": PLUGIN_VERSION,
-                "capabilities": [
-                    "bootstrap",
-                    "status",
-                    "media",
-                    "commands",
-                    "attachments",
-                    "send-layer",
-                    "commentary",
-                    "sleep-gate",
-                ],
+                "capabilities": CAPABILITIES,
                 "logLimit": self.max_log,
             },
         }
@@ -2043,6 +2418,22 @@ class DesktopPetBridge(Star):
         try:
             if event.unified_msg_origin != self.umo:
                 return
+
+            turn = event.get_extra("_desktoppet_turn")
+            if isinstance(turn, str) and turn:
+                if self._is_turn_retracted(turn) or event.get_extra(
+                    "_desktoppet_retracted"
+                ):
+                    # 已经撤回：不调用模型，也不写会话历史。
+                    # call_event_hook 只看 event.is_stopped()，返回值不算数。
+                    event.set_extra("mood_skip_appraisal", True)
+                    event.set_extra("mood_skip_affection", True)
+                    event.set_extra("mood_skip_all", True)
+                    event.stop_event()
+                    return
+                info = self._turns.get(turn)
+                if info is not None:
+                    info["llm_started"] = True
 
             # 回复即将发出，先把发送层捕获准备好。
             self._ensure_capture()

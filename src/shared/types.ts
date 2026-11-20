@@ -319,6 +319,15 @@ export type ChatAttachment = {
   bytes?: number;
 };
 
+/** 引用快照：只保存展示需要的字段，原消息删了也不影响。 */
+export type ChatQuote = {
+  /** 被引用消息的本地 id，仅用于跳回原消息，不参与服务端逻辑。 */
+  id?: number;
+  role: ChatRole;
+  text: string;
+  ts?: number;
+};
+
 /** 一条聊天消息；从 AstrBot 会话回填的历史 id/ts 可能为 0。 */
 export type ChatMessage = {
   id: number;
@@ -326,6 +335,10 @@ export type ChatMessage = {
   role: ChatRole;
   origin?: "qq" | "desktop" | null;
   text: string;
+  /** 桌面对话回合 id；撤回时按它精确删掉这一轮。 */
+  turn?: string;
+  /** 引用回复的快照。 */
+  quote?: ChatQuote | null;
   /** 旧接口内联的图片 data URL；新消息改用 attachments。 */
   image?: string | null;
   /** 图片 / 表情包附件。 */
@@ -363,7 +376,8 @@ export type ChatHistoryData = {
 };
 
 export type ChatSendData = {
-  message: ChatMessage;
+  /** 桥接确认写入的 user 消息；被预撤回时为 null。 */
+  message: ChatMessage | null;
   /** 本条消息附带的屏幕截图 data URL；没有截图时为 null。 */
   screenImage?: string | null;
   /** 请求了截图但截取失败。 */
@@ -372,12 +386,26 @@ export type ChatSendData = {
   sleeping?: boolean;
   /** 睡眠时的固定回复。 */
   reply?: string;
+  /** 发送途中已经被撤回，桥接没有注入回合。 */
+  retracted?: boolean;
 };
 
-/** 发送消息时的截图选项。 */
+/** 发送消息时的截图 / 引用选项。 */
 export type ChatSendOptions = {
   captureScreen?: boolean;
   displayId?: string;
+  /** 本轮 id；撤回时用它定位。 */
+  clientId?: string;
+  quote?: ChatQuote | null;
+};
+
+export type ChatRetractData = {
+  /** 被撤回的回合 id。 */
+  turn: string;
+  /** 桥接侧删掉的消息 id。 */
+  removed: number[];
+  /** 桥接不支持撤回时为 false。 */
+  supported?: boolean;
 };
 
 export type ChatPollData = {
@@ -390,6 +418,7 @@ export type ChatPollData = {
 
 export type ChatHistoryResult = ChatResult<ChatHistoryData>;
 export type ChatSendResult = ChatResult<ChatSendData>;
+export type ChatRetractResult = ChatResult<ChatRetractData>;
 
 export type ChatBootstrapData = {
   /** 桥接插件发送日志（包含 QQ 与桌面的实际收发）。 */
@@ -532,6 +561,8 @@ export type ChatInitialData = {
   profile: ChatProfileData;
   /** 自定义背景图 data URL；没有时是 null。 */
   backgroundImage: string | null;
+  /** 桥接插件声明的能力（retract / quote / commentary ...）。 */
+  capabilities?: string[];
 };
 
 export type ChatInitialResult = ChatResult<ChatInitialData>;

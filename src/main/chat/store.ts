@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import type {
   ChatAttachment,
   ChatMessage,
+  ChatQuote,
 } from "../../shared/types";
 import { isCommentarySameReply } from "../commentary-marker";
 
@@ -49,6 +50,19 @@ function normalizeAttachment(value: unknown): ChatAttachment | null {
   };
 }
 
+function normalizeQuote(value: unknown): ChatQuote | null {
+  if (!isRecord(value)) return null;
+  if (value.role !== "user" && value.role !== "assistant") return null;
+  const text = typeof value.text === "string" ? value.text.trim() : "";
+  if (!text) return null;
+  return {
+    id: value.id === undefined ? undefined : Math.max(0, toInt(value.id)),
+    role: value.role,
+    text,
+    ts: Math.max(0, toInt(value.ts)),
+  };
+}
+
 export function normalizeMessage(value: unknown): ChatMessage | null {
   if (!isRecord(value)) return null;
   const role = value.role;
@@ -65,12 +79,17 @@ export function normalizeMessage(value: unknown): ChatMessage | null {
   const ts = Math.max(0, toInt(value.ts));
   const origin =
     value.origin === "qq" || value.origin === "desktop" ? value.origin : null;
+  const turn = typeof value.turn === "string" && value.turn.trim()
+    ? value.turn.trim()
+    : undefined;
   return {
     id,
     ts,
     role,
     origin,
     text,
+    turn,
+    quote: normalizeQuote(value.quote),
     image,
     attachments,
     live: value.live === true,
@@ -433,8 +452,29 @@ export class ChatStore {
     return added;
   }
 
-  async setCursor(cursor: number, epoch?: string): Promise<void> {
-    const next = Math.max(0, Math.round(cursor));
+  /** 撤回：按回合 id 删掉本地缓存里的这一轮（user + 已被轮询到的回复）。 */
+  async removeTurn(turn: string): Promise<number[]> {
+    if (!turn) return [];
+    const removed: number[] = [];
+    this.messages = this.messages.filter((message) => {
+      if (message.turn !== turn) return true;
+      removed.push(message.id);
+      this.totalBytes -= messageBytes(message);
+      return false;
+    });
+    if (removed.length === 0) return [];
+    // 只重建 id 索引，不改其它消息的 id：渲染层手上还拿着旧 id。
+    this.seenIds.clear();
+    for (const message of this.messages) {
+      if (message.id > 0) this.seenIds.add(message.id);
+    }
+    this.totalBytes = Math.max(0, this.totalBytes);
+    this.dirty = true;
+    await this.save();
+    return removed;
+  }
+
+  async setCursor(cursor: number, epoch?: string): Promise<void> {    const next = Math.max(0, Math.round(cursor));
     const epochChanged = Boolean(epoch && epoch !== this.epoch);
     if (next === this.cursor && !epochChanged) return;
     this.cursor = next;

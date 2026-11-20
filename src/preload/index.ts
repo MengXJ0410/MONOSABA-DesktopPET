@@ -17,6 +17,7 @@ import type {
   ChatProfileData,
   ChatProfileRole,
   ChatResizeDirection,
+  ChatRetractResult,
   ChatSendOptions,
   ChatSendResult,
   ChatSettingsExportResult,
@@ -101,6 +102,9 @@ const api = {
   },
   chatMedia(media: string, kind: ChatMediaKind): Promise<ChatMediaResult> {
     return ipcRenderer.invoke("chat:media", media, kind) as Promise<ChatMediaResult>;
+  },
+  chatRetract(clientId: string): Promise<ChatRetractResult> {
+    return ipcRenderer.invoke("chat:retract", clientId) as Promise<ChatRetractResult>;
   },
   chatCommands(force = false): Promise<ChatCommandsData | null> {
     return ipcRenderer.invoke("chat:commands", force) as Promise<ChatCommandsData | null>;
@@ -307,6 +311,20 @@ const api = {
     ipcRenderer.on("chat:ui-state", listener);
     return () => {
       ipcRenderer.removeListener("chat:ui-state", listener);
+    };
+  },
+  onChatRetract(
+    handler: (payload: { turn: string; removed: number[] }) => void,
+  ): () => void {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: { turn: string; removed: number[] },
+    ) => {
+      handler(payload);
+    };
+    ipcRenderer.on("chat:retract", listener);
+    return () => {
+      ipcRenderer.removeListener("chat:retract", listener);
     };
   },
   onOpenSettings(handler: () => void): () => void {

@@ -1458,6 +1458,156 @@
   outline-offset: 2px;
 }
 
+/* 撤回：发送中 / 等她回复时代替“发送”，用描边区分，避免误点成发送。 */
+.retractButton {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--accent-soft);
+}
+
+.retractButton:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* ---- 引用 ---- */
+
+.quoteBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 6px 8px 6px 10px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-float) 82%, transparent);
+}
+
+.quoteBarBody {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.quoteBarWho {
+  flex: 0 0 auto;
+  color: var(--accent-soft);
+  font-weight: 700;
+}
+
+.quoteBarText {
+  min-width: 0;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.82;
+}
+
+.quoteBarClose {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.quoteBarClose:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  opacity: 1;
+}
+
+.quoteBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-float) 70%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quoteBlock:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.quoteBlockWho {
+  color: var(--accent-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.quoteBlockText {
+  display: -webkit-box;
+  color: var(--ink);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  opacity: 0.78;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+
+/* 右键消息菜单（引用 / 复制）。 */
+.messageMenu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-float) 96%, transparent);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 45%);
+}
+
+.messageMenu button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.messageMenu button:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* 点引用块跳转后的短暂高亮。 */
+.messageRowHighlight .bubble {
+  animation: quote-flash 1.5s ease both;
+}
+
+@keyframes quote-flash {
+  0%,
+  60% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
 /* ---- 完整版右侧状态面板 ---- */
 
 .panel {

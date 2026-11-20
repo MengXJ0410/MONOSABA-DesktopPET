@@ -16,6 +16,7 @@ import type {
   ChatProfileData,
   ChatProfileRole,
   ChatResizeDirection,
+  ChatRetractResult,
   ChatSendOptions,
   ChatSendResult,
   ChatSettingsExportResult,
@@ -69,6 +70,7 @@ export type PetApi = {
   chatLoadMore(beforeId: number, limit?: number): Promise<ChatMessage[]>;
   chatSend(text: string, options?: ChatSendOptions): Promise<ChatSendResult>;
   chatMedia(media: string, kind: ChatMediaKind): Promise<ChatMediaResult>;
+  chatRetract(clientId: string): Promise<ChatRetractResult>;
   chatCommands(force?: boolean): Promise<ChatCommandsData | null>;
   chatStatusData(force?: boolean): Promise<ChatStatusData | null>;
   chatSetMode(mode: ChatUiMode): Promise<ChatUiState | null>;
@@ -136,6 +138,9 @@ export type PetApi = {
   onChatStatus(handler: (status: ChatStatus) => void): () => void;
   onChatCommands(handler: (data: ChatCommandsData) => void): () => void;
   onChatUiState(handler: (state: ChatUiState) => void): () => void;
+  onChatRetract(
+    handler: (payload: { turn: string; removed: number[] }) => void,
+  ): () => void;
   onOpenSettings(handler: () => void): () => void;
   pointerReport(position: PointerPosition): void;
   onPointerUpdate(handler: (update: PointerUpdate) => void): () => void;

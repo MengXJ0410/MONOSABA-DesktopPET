@@ -10,7 +10,10 @@ import type {
   ChatMediaKind,
   ChatMediaResult,
   ChatPollData,
+  ChatQuote,
   ChatResult,
+  ChatRetractData,
+  ChatRetractResult,
   ChatSendData,
   ChatSendResult,
   ChatStatusData,
@@ -178,6 +181,7 @@ export async function sendMessage(
   text: string,
   imageBase64?: string | null,
   commentary = false,
+  options: { clientId?: string; quote?: ChatQuote | null } = {},
 ): Promise<ChatSendResult> {
   const body: Record<string, unknown> = { text };
   if (imageBase64) {
@@ -185,6 +189,12 @@ export async function sendMessage(
   }
   if (commentary) {
     body.commentary = true;
+  }
+  if (options.clientId) {
+    body.clientId = options.clientId;
+  }
+  if (options.quote) {
+    body.quote = options.quote;
   }
   const config = (await readConfig()).chat;
   // 带截图 / 点评的请求体大，且桥接可能正排在模型回合后面；
@@ -199,6 +209,19 @@ export async function sendMessage(
       body: JSON.stringify(body),
     },
     timeout,
+  );
+}
+
+/** 撤回一轮桌面消息；桥接会中止生成并清理本轮日志 / 会话历史。 */
+export async function retractMessage(clientId: string): Promise<ChatRetractResult> {
+  // 桥接要等前半轮历史写完再裁剪，可能接近 6 秒。
+  return request<ChatRetractData>(
+    "/retract",
+    {
+      method: "POST",
+      body: JSON.stringify({ clientId }),
+    },
+    15_000,
   );
 }
 

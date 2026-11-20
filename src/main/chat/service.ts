@@ -14,6 +14,8 @@ import type {
   ChatMessage,
   ChatPollData,
   ChatProfileData,
+  ChatQuote,
+  ChatRetractResult,
   ChatSendData,
   ChatStatus,
   ChatStatusData,
@@ -40,6 +42,7 @@ import {
   loadChatStatus,
   loadCommands,
   pollMessages,
+  retractMessage,
   sendMessage,
 } from "./client";
 import { MediaCache } from "./media";
@@ -329,6 +332,8 @@ export class ChatService {
   private lastCursor = 0;
   private lastEpoch = "";
   private lastQqConnected = false;
+  /** 桥接插件在 /bootstrap 里声明的能力；旧桥接没有 retract 时桌面隐藏撤回。 */
+  private bridgeCapabilities = new Set<string>();
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -430,6 +435,11 @@ export class ChatService {
       this.lastCursor = data.cursor ?? 0;
       this.lastEpoch = data.epoch ?? "";
       this.lastQqConnected = data.qqConnected === true;
+      if (Array.isArray(data.capabilities)) {
+        this.bridgeCapabilities = new Set(
+          data.capabilities.filter((item): item is string => typeof item === "string"),
+        );
+      }
       this.bootstrapped = true;
       this.setStatus(onlineStatus(this.lastQqConnected));
       this.invalidateMood();
@@ -644,6 +654,7 @@ export class ChatService {
       epoch: this.lastEpoch,
       profile: this.profile,
       backgroundImage: this.backgroundImage,
+      capabilities: [...this.bridgeCapabilities],
     };
   }
 
@@ -653,7 +664,12 @@ export class ChatService {
 
   async send(
     text: string,
-    options: { captureScreen?: boolean; displayId?: string } = {},
+    options: {
+      captureScreen?: boolean;
+      displayId?: string;
+      clientId?: string;
+      quote?: ChatQuote | null;
+    } = {},
   ): Promise<
     | { ok: true; data: ChatSendData }
     | { ok: false; error: string; kind: "offline" | "auth" | "server" | "unknown" }
@@ -672,10 +688,27 @@ export class ChatService {
       }
     }
 
-    const result = await sendMessage(value, screen?.base64);
+    const result = await sendMessage(value, screen?.base64, false, {
+      clientId: options.clientId,
+      quote: options.quote ?? null,
+    });
     if (!result.ok) {
       this.setStatus(statusFromError(result.kind, result.error));
       return result;
+    }
+
+    if (result.data.retracted) {
+      // 发送途中已经被撤回：桥接没有写入，也不会注入回合。
+      this.setStatus(onlineStatus(this.lastQqConnected));
+      return {
+        ok: true,
+        data: {
+          message: null,
+          screenImage: screen?.dataUrl ?? null,
+          captureFailed: options.captureScreen === true && screen === null,
+          retracted: true,
+        },
+      };
     }
 
     const message = normalizeMessage(result.data.message);
@@ -694,6 +727,18 @@ export class ChatService {
         captureFailed: options.captureScreen === true && screen === null,
       },
     };
+  }
+
+  /** 撤回一轮桌面消息：桥接中止生成并清理日志 / 会话历史，本地同步删缓存。 */
+  async retract(clientId: string): Promise<ChatRetractResult> {
+    const result = await retractMessage(clientId);
+    if (!result.ok) return result;
+    const localRemoved = (await this.store?.removeTurn(clientId)) ?? [];
+    const removed = Array.from(
+      new Set([...(result.data.removed ?? []), ...localRemoved]),
+    );
+    broadcast("chat:retract", { turn: clientId, removed });
+    return { ok: true, data: { ...result.data, removed } };
   }
 
   isWindowActive(): boolean {

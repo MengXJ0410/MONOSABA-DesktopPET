@@ -15,6 +15,7 @@ import type {
   ChatTypewriterSettings,
   MessageFont,
   ChatProfileData,
+  ChatQuote,
   ChatResizeDirection,
   ChatSendResult,
   ChatStorageResult,
@@ -815,7 +816,18 @@ export function initChatWindow(): void {
     const capture = record.captureScreen === true;
     const displayId =
       typeof record.displayId === "string" ? record.displayId : undefined;
-    return service().send(value, { captureScreen: capture, displayId });
+    const clientId =
+      typeof record.clientId === "string" ? record.clientId.trim() : undefined;
+    const quote =
+      record.quote && typeof record.quote === "object"
+        ? (record.quote as ChatQuote)
+        : undefined;
+    return service().send(value, {
+      captureScreen: capture,
+      displayId,
+      clientId,
+      quote,
+    });
   });
 
   ipcMain.handle("chat:media", async (event, media: unknown, kind: unknown) => {
@@ -837,6 +849,17 @@ export function initChatWindow(): void {
   ipcMain.handle("chat:status-data", async (event, force: unknown) => {
     if (!isChatSender(event.sender)) return null;
     return service().getMoodStatus(force === true);
+  });
+
+  ipcMain.handle("chat:retract", async (event, clientId: unknown) => {
+    if (!isChatSender(event.sender)) {
+      return { ok: false, kind: "unknown", error: "聊天窗口未打开" };
+    }
+    const turn = typeof clientId === "string" ? clientId.trim() : "";
+    if (!turn) {
+      return { ok: false, kind: "unknown", error: "回合 id 不正确。" };
+    }
+    return service().retract(turn);
   });
 
   ipcMain.handle("chat:set-mode", (event, mode: unknown) => {
