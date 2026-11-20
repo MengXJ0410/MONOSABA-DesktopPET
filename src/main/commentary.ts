@@ -6,11 +6,11 @@ import type {
   CommentaryDiagnostics,
   CommentaryRunResult,
 } from "../shared/types";
-import { getActiveFullscreenDisplayIndex } from "./active-window";
-import { captureDisplay, sortedDisplays } from "./chat/capture";
+import { captureDisplay } from "./chat/capture";
 import { chatService } from "./chat/service";
 import { isCommentarySameReply } from "./commentary-marker";
 import { normalizeCommentary } from "./commentary-text";
+import { resolveObservationDisplay } from "./screen-target";
 import { fingerprintDistance, screenFingerprint } from "./screen-fingerprint";
 
 const PROMPT =
@@ -179,12 +179,7 @@ async function runCommentaryOnce(
     );
   }
 
-  const activeIndex = await getActiveFullscreenDisplayIndex();
-  const displays = sortedDisplays();
-  const display =
-    activeIndex !== null && displays[activeIndex]
-      ? displays[activeIndex]
-      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const display = await resolveObservationDisplay();
 
   const captureStarted = Date.now();
   let shot = await captureDisplay(String(display.id));

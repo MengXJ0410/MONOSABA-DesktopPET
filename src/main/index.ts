@@ -29,6 +29,7 @@ import { initChatWindow, openChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
 import { logStartup } from "./logs";
 import { disposePointerWindows, hidePointerWindows, initPointerWindows } from "./pointer-window";
+import { setActivityDisplayId } from "./screen-target";
 import {
   disposePointerAi,
   getPointerAiState,
@@ -239,6 +240,10 @@ if (!gotLock) {
       if (typeof record.enabled === "boolean") {
         setPointerAiEnabled(record.enabled);
         if (!record.enabled) hidePointerWindows();
+      }
+      // 随机点评和希罗指针共用的活动屏幕；选屏本身由主进程统一解析。
+      if (typeof record.activityDisplayId === "string") {
+        setActivityDisplayId(record.activityDisplayId);
       }
       // 指针可用（希罗 + 开关打开）时，桌面消息才会带上「你能操控指针」的提示。
       if (typeof record.capable === "boolean") {

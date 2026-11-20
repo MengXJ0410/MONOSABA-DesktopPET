@@ -41,6 +41,8 @@ type Live2DSettingsPanelProps = {
   pointerAiState: PointerAiState | null;
   /** 「立即观察一次」正在进行。 */
   pointerObserving: boolean;
+  /** 活动范围：`auto` 或某块显示器的 id，随机点评 / 指针共用。 */
+  activityDisplayId: string;
   scale: number;
   character: Live2DCharacterId;
   characterName: string;
@@ -65,6 +67,7 @@ type Live2DSettingsPanelProps = {
   onPointerEnabledChange: (enabled: boolean) => void;
   onPointerAiIntervalChange: (seconds: number) => void;
   onPointerObserveNow: () => void;
+  onActivityDisplayChange: (displayId: string) => void;
   /** 管理员 + 希罗时才显示「查看日记」。 */
   canViewDiary: boolean;
   onOpenDiary: () => void;
@@ -101,6 +104,7 @@ export function Live2DSettingsPanel({
   pointerAiInterval,
   pointerAiState,
   pointerObserving,
+  activityDisplayId,
   scale,
   character,
   characterName,
@@ -123,6 +127,7 @@ export function Live2DSettingsPanel({
   onPointerEnabledChange,
   onPointerAiIntervalChange,
   onPointerObserveNow,
+  onActivityDisplayChange,
   canViewDiary,
   onOpenDiary,
   onClose,
@@ -150,6 +155,35 @@ export function Live2DSettingsPanel({
     anchor: DOMRect;
     panel: DOMRect;
   } | null>(null);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const activityRef = useRef<HTMLDivElement | null>(null);
+
+  // 活动范围列表展开时，点面板外或按 Esc 收起。
+  useEffect(() => {
+    if (!activityOpen) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (activityRef.current?.contains(target)) return;
+      setActivityOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActivityOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [activityOpen]);
+
+  // 选中的屏幕被拔掉时渲染层会先回退到 auto，这里只负责显示。
+  const activityLabel =
+    activityDisplayId === "auto"
+      ? "自动"
+      : displays.find((display) => display.id === activityDisplayId)?.label ??
+        "自动";
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current) {
@@ -378,6 +412,68 @@ export function Live2DSettingsPanel({
               希罗指针
             </button>
           </div>
+          {/*
+           * 活动范围：随机点评和希罗指针读哪块屏幕。
+           * 只有一块屏时没有选择意义，整行隐藏。
+           */}
+          {displays.length > 1 ? (
+            <div className="appearance-activity" ref={activityRef}>
+              <span className="appearance-label">活动范围（屏幕）</span>
+              <button
+                type="button"
+                className={`appearance-choice appearance-system appearance-activity-trigger${activityOpen ? " is-on" : ""}`}
+                aria-haspopup="listbox"
+                aria-expanded={activityOpen}
+                aria-label={`活动范围，当前${activityLabel}`}
+                title="随机点评和希罗指针读哪块屏幕；自动 = 跟随前台全屏窗口，否则鼠标所在屏"
+                onClick={() => setActivityOpen((open) => !open)}
+              >
+                <span>{activityLabel}</span>
+                <span className="appearance-activity-caret" aria-hidden="true">
+                  ▾
+                </span>
+              </button>
+              {activityOpen ? (
+                <div
+                  className="appearance-activity-options"
+                  role="listbox"
+                  aria-label="选择活动范围"
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={activityDisplayId === "auto"}
+                    className={`appearance-activity-option${activityDisplayId === "auto" ? " is-on" : ""}`}
+                    onClick={() => {
+                      onActivityDisplayChange("auto");
+                      setActivityOpen(false);
+                    }}
+                  >
+                    自动（跟随活跃屏幕）
+                  </button>
+                  {displays.map((display) => (
+                    <button
+                      key={display.id}
+                      type="button"
+                      role="option"
+                      aria-selected={display.id === activityDisplayId}
+                      className={`appearance-activity-option${display.id === activityDisplayId ? " is-on" : ""}`}
+                      onClick={() => {
+                        onActivityDisplayChange(display.id);
+                        setActivityOpen(false);
+                      }}
+                    >
+                      {display.label}
+                      {display.primary ? "（主屏）" : ""}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <span className="appearance-activity-hint">
+                选中后随机点评和希罗指针都只读这块屏；自动 = 前台全屏屏优先，否则鼠标所在屏。
+              </span>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {displays.length > 1 ? (

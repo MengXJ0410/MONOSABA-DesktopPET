@@ -366,6 +366,8 @@ const api = {
     dailyLimit?: number;
     /** 指针是否可用（希罗 + 开关打开），用于给模型注入能力提示。 */
     capable?: boolean;
+    /** 活动范围：`auto` 或某块显示器的 id，随机点评 / 指针共用。 */
+    activityDisplayId?: string;
   }): Promise<PointerAiState> {
     return ipcRenderer.invoke("pointer:ai:configure", patch) as Promise<PointerAiState>;
   },

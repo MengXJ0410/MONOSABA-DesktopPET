@@ -132,6 +132,10 @@ export const LIVE2D_POINTER_AI_INTERVAL_STORAGE_KEY =
   "jxmfun-live2d-pointer-ai-interval";
 /** 每日模型调用上限，防止挂机时一直烧 token。 */
 export const LIVE2D_POINTER_AI_DAILY_LIMIT = 500;
+/** 活动范围：随机点评和希罗指针读哪块屏幕；`auto` 表示跟随活跃屏幕。 */
+export const LIVE2D_ACTIVITY_DISPLAY_AUTO = "auto";
+export const LIVE2D_ACTIVITY_DISPLAY_STORAGE_KEY =
+  "jxmfun-live2d-activity-display";
 
 export const LIVE2D_EXPRESSIONS = ["monvhua", "taishou", "zuibu", "liulei"] as const;
 export type Live2DExpression = (typeof LIVE2D_EXPRESSIONS)[number];

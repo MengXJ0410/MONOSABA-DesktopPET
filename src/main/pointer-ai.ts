@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen } from "electron";
+import { app, BrowserWindow } from "electron";
 import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type {
@@ -7,10 +7,10 @@ import type {
   PointerAiSkipReason,
   PointerAiState,
 } from "../shared/types";
-import { getActiveFullscreenDisplayIndex } from "./active-window";
-import { captureDisplayForPointer, sortedDisplays } from "./chat/capture";
+import { captureDisplayForPointer } from "./chat/capture";
 import { requestPointer } from "./chat/client";
 import { chatService } from "./chat/service";
+import { resolveObservationDisplay } from "./screen-target";
 import { fingerprintDistance, screenFingerprint } from "./screen-fingerprint";
 import { getMainWindow } from "./window";
 
@@ -252,12 +252,7 @@ async function observe(gen: number, force: boolean, hint?: string): Promise<void
     return;
   }
 
-  const activeIndex = await getActiveFullscreenDisplayIndex();
-  const displays = sortedDisplays();
-  const display =
-    activeIndex !== null && displays[activeIndex]
-      ? displays[activeIndex]
-      : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const display = await resolveObservationDisplay();
   const displayId = String(display.id);
 
   const captureStarted = Date.now();

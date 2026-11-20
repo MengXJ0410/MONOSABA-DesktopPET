@@ -246,6 +246,73 @@
   white-space: nowrap;
 }
 
+/* 活动范围（屏幕）：按钮内联展开列表，避免被面板的 overflow 裁切。 */
+.appearance-activity {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.appearance-activity-trigger {
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-right: 0.6rem;
+}
+
+.appearance-activity-caret {
+  flex: none;
+  font-size: 0.62rem;
+  opacity: 0.7;
+  transition: transform 0.18s ease;
+}
+
+.appearance-activity-trigger.is-on .appearance-activity-caret {
+  transform: rotate(180deg);
+}
+
+.appearance-activity-options {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  border: 1px solid var(--pet-button-border, rgba(220, 235, 255, 0.16));
+  border-radius: 10px;
+  background: var(--pet-input-bg, rgba(255, 255, 255, 0.04));
+}
+
+.appearance-activity-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 0.34rem 0.5rem;
+  background: transparent;
+  color: var(--pet-muted, #b9c7d8);
+  font-size: 0.72rem;
+  text-align: left;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.appearance-activity-option:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: var(--pet-text, #edf4ff);
+}
+
+.appearance-activity-option.is-on {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--pet-button-on-text, #fff);
+  font-weight: 600;
+}
+
+.appearance-activity-hint {
+  color: var(--pet-muted, #b9c7d8);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
 /* 四个开关排成 2×2：一行两个，比一列长条更紧凑。 */
 .appearance-toggles {
   display: grid;

@@ -43,6 +43,8 @@ import {
   LIVE2D_OPACITY_STEP,
   LIVE2D_OPACITY_STORAGE_KEY,
   LIVE2D_PASSTHROUGH_STORAGE_KEY,
+  LIVE2D_ACTIVITY_DISPLAY_AUTO,
+  LIVE2D_ACTIVITY_DISPLAY_STORAGE_KEY,
   LIVE2D_POINTER_AI_DAILY_LIMIT,
   LIVE2D_POINTER_AI_INTERVAL_DEFAULT,
   LIVE2D_POINTER_AI_INTERVAL_MAX,
@@ -117,8 +119,8 @@ const PANEL_HEIGHT = 278;
 const PANEL_SETTLE_MS = 180;
 
 /**
- * 第二指针（希罗指针）：本版常开。
- * 以后接入 AstrBot 时改由主进程 / 配置控制，关闭后视线回退到真实鼠标。
+ * 第二指针功能是否可用（代码级总开关）。
+ * 用户可见的开关是 `pointerEnabled`；关闭后视线回到真实鼠标。
  */
 const POINTER_ENABLED = true;
 
@@ -425,6 +427,17 @@ function readStoredPointerAiInterval() {
   }
 }
 
+function readStoredActivityDisplay() {
+  try {
+    return (
+      window.localStorage.getItem(LIVE2D_ACTIVITY_DISPLAY_STORAGE_KEY) ||
+      LIVE2D_ACTIVITY_DISPLAY_AUTO
+    );
+  } catch {
+    return LIVE2D_ACTIVITY_DISPLAY_AUTO;
+  }
+}
+
 function readStoredCharacter(): Live2DCharacterId {
   try {
     const raw = window.localStorage.getItem(LIVE2D_CHARACTER_STORAGE_KEY);
@@ -604,6 +617,9 @@ export function Live2DCompanion() {
   pointerAiIntervalRef.current = pointerAiInterval;
   const [pointerAiState, setPointerAiState] = useState<PointerAiState | null>(null);
   const [pointerObserving, setPointerObserving] = useState(false);
+  const [activityDisplayId, setActivityDisplayId] = useState(
+    readStoredActivityDisplay,
+  );
   const [character, setCharacter] = useState<Live2DCharacterId>(LIVE2D_DEFAULT_CHARACTER);
   const [position, setPosition] = useState<StoredPosition | null>(null);
   const [characterBox, setCharacterBox] = useState<CharacterBox | null>(null);
@@ -1121,6 +1137,19 @@ export function Live2DCompanion() {
     }
   }, []);
 
+  /** 活动范围：随机点评和希罗指针读哪块屏幕；`auto` 表示跟随活跃屏幕。 */
+  const changeActivityDisplay = useCallback((displayId: string) => {
+    setActivityDisplayId(displayId);
+    try {
+      window.localStorage.setItem(
+        LIVE2D_ACTIVITY_DISPLAY_STORAGE_KEY,
+        displayId,
+      );
+    } catch {
+      // Ignore storage failures.
+    }
+  }, []);
+
   const changePointerAiInterval = useCallback((value: number) => {
     const next = Math.round(
       clamp(value, LIVE2D_POINTER_AI_INTERVAL_MIN, LIVE2D_POINTER_AI_INTERVAL_MAX),
@@ -1396,12 +1425,21 @@ export function Live2DCompanion() {
       .configurePointerAi({
         enabled: active,
         capable: character === "hiro" && pointerEnabled,
+        activityDisplayId,
         intervalSec: pointerAiInterval,
         dailyLimit: LIVE2D_POINTER_AI_DAILY_LIMIT,
       })
       .then(setPointerAiState)
       .catch(() => {});
-  }, [character, pointerAiInterval, pointerEnabled, status]);
+  }, [activityDisplayId, character, pointerAiInterval, pointerEnabled, status]);
+
+  // 选中的屏幕被拔掉 / 分辨率变化导致 id 不存在时，回退到「自动」。
+  useEffect(() => {
+    if (activityDisplayId === LIVE2D_ACTIVITY_DISPLAY_AUTO) return;
+    if (displays.length === 0) return;
+    if (displays.some((display) => display.id === activityDisplayId)) return;
+    changeActivityDisplay(LIVE2D_ACTIVITY_DISPLAY_AUTO);
+  }, [activityDisplayId, changeActivityDisplay, displays]);
 
   /** 点击彩蛋：先看冷却，再掷概率；命中才播放。 */
   const playClickSound = useCallback((sound: Live2DClickSound) => {
@@ -1952,7 +1990,10 @@ export function Live2DCompanion() {
 
     const headAnchorRef: { current: { x: number; y: number } | null } = { current: null };
 
-    const pointerActive = () => POINTER_ENABLED && pointerEnabledRef.current;
+    /** 第二指针只有希罗有；艾玛始终走真实鼠标的视线逻辑。 */
+    const pointerSupported = character === "hiro";
+    const pointerActive = () =>
+      POINTER_ENABLED && pointerSupported && pointerEnabledRef.current;
     /** 眼睛是否该跟着第二指针：指针开着，并且它在游走或正在执行 AI 动作。 */
     const pointerFollowing = () =>
       pointerActive() &&
@@ -1975,14 +2016,13 @@ export function Live2DCompanion() {
     };
 
     const updateGaze = () => {
-      // 关掉「闲时随机移动」且没有 AI 动作时，指针停在原地，
-      // 眼睛由 eyeIdleGaze 自己随机看；AI 一动，视线必须跟过去。
-      if (POINTER_ENABLED && !pointerFollowing()) return;
+      const active = pointerActive();
+      // 指针开着但「闲时随机移动」关掉、也没有 AI 动作时，
+      // 指针停在原地，眼睛由 eyeIdleGaze 自己随机看。
+      if (active && !pointerFollowing()) return;
       const head = headAnchorRef.current;
       if (!head) return;
-      const source = POINTER_ENABLED
-        ? pointerClient
-        : pointerRef.current;
+      const source = active ? pointerClient : pointerRef.current;
       if (!source) return;
       targetX = clamp(
         (source.x - head.x) / (window.innerWidth * 0.5),
@@ -2001,7 +2041,7 @@ export function Live2DCompanion() {
      * 变成「屏幕上可见的光标」，再让眼睛去看这个光标。
      */
     const startPointerWander = () => {
-      if (!POINTER_ENABLED) return;
+      if (!POINTER_ENABLED || !pointerSupported) return;
       const tick = (now: number) => {
         if (cancelled) return;
         const head = headAnchorRef.current;
@@ -2333,7 +2373,7 @@ export function Live2DCompanion() {
 
         updateHeadAnchor();
 
-        if (POINTER_ENABLED) {
+        if (POINTER_ENABLED && pointerSupported) {
           startPointerWander();
           // AI 接管：主进程下发 external 动作时打断游走，动作结束后自动交回。
           removePointerControl = window.petApi.onPointerControl((control) => {
@@ -2364,13 +2404,13 @@ export function Live2DCompanion() {
 
         pixiApp.ticker.add((ticker) => {
           const now = performance.now();
-          if (POINTER_ENABLED) {
+          if (pointerActive()) {
             if (pointerFollowing()) {
               // 视线只跟第二指针；真实鼠标不再影响视线。
               eyeIdleGaze = null;
               updateGaze();
             } else {
-              // 指针关闭或停在原地：人物闲时仍然自己随机看。
+              // 指针开着但停在原地：人物闲时仍然自己随机看。
               if (!eyeIdleGaze) {
                 eyeIdleGaze = createIdleGaze(now, targetX, targetY).state;
               }
@@ -2417,7 +2457,7 @@ export function Live2DCompanion() {
         const onPointerMove = (event: PointerEvent) => {
           pointerRef.current = { x: event.clientX, y: event.clientY };
           pointerLastAtRef.current = performance.now();
-          if (!POINTER_ENABLED) {
+          if (!pointerActive()) {
             if (gazeMode === "idle") leaveIdle();
             updateGaze();
           }
@@ -2597,7 +2637,7 @@ export function Live2DCompanion() {
         const noteInteraction = (event: PointerEvent) => {
           pointerRef.current = { x: event.clientX, y: event.clientY };
           pointerLastAtRef.current = performance.now();
-          if (!POINTER_ENABLED) {
+          if (!pointerActive()) {
             if (gazeMode === "idle") leaveIdle();
             updateGaze();
           }
@@ -2991,6 +3031,7 @@ export function Live2DCompanion() {
             pointerAiInterval={pointerAiInterval}
             pointerAiState={pointerAiState}
             pointerObserving={pointerObserving}
+            activityDisplayId={activityDisplayId}
             popoverRef={settingsPopoverRef}
             onSwitchCharacter={switchCharacter}
             onSelectDisplay={selectDisplay}
@@ -3005,6 +3046,7 @@ export function Live2DCompanion() {
             onPointerIdleMoveChange={changePointerIdleMove}
             onPointerEnabledChange={changePointerEnabled}
             onPointerAiIntervalChange={changePointerAiInterval}
+            onActivityDisplayChange={changeActivityDisplay}
             onPointerObserveNow={() => {
               void observePointerNow();
             }}

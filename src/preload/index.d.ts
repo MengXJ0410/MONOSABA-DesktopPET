@@ -151,6 +151,7 @@ export type PetApi = {
     intervalSec?: number;
     dailyLimit?: number;
     capable?: boolean;
+    activityDisplayId?: string;
   }): Promise<PointerAiState>;
   getPointerAiState(): Promise<PointerAiState>;
   observePointerNow(): Promise<PointerAiState>;
