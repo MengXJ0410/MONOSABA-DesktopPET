@@ -1563,6 +1563,20 @@ export function Live2DCompanion() {
     return off;
   }, [clearPanelSettle, sendIgnore]);
 
+  // 物理分辨率是后台用 PowerShell 读的；读完主进程会广播一次，面板重新拉列表。
+  useEffect(() => {
+    const api = window.petApi;
+    if (!api?.onDisplaysUpdated) return;
+    return api.onDisplaysUpdated(() => {
+      void api
+        .listDisplays()
+        .then((list) => setDisplays(list))
+        .catch(() => {
+          // 保留旧列表。
+        });
+    });
+  }, []);
+
   // 打开面板时刷新一次屏幕列表，应对热插拔之后的新屏幕。
   useEffect(() => {
     if (!settingsOpen) return;

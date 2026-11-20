@@ -179,11 +179,13 @@ export function Live2DSettingsPanel({
   }, [activityOpen]);
 
   // 选中的屏幕被拔掉时渲染层会先回退到 auto，这里只负责显示。
-  const activityLabel =
+  const activityDisplay =
     activityDisplayId === "auto"
-      ? "自动"
-      : displays.find((display) => display.id === activityDisplayId)?.label ??
-        "自动";
+      ? null
+      : displays.find((display) => display.id === activityDisplayId) ?? null;
+  const activityLabel = activityDisplay
+    ? `${activityDisplay.label} · ${activityDisplay.pixelWidth}×${activityDisplay.pixelHeight}`
+    : "自动";
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current) {
@@ -463,8 +465,13 @@ export function Live2DSettingsPanel({
                         setActivityOpen(false);
                       }}
                     >
-                      {display.label}
-                      {display.primary ? "（主屏）" : ""}
+                      <span>
+                        {display.label}
+                        {display.primary ? "（主屏）" : ""}
+                      </span>
+                      <span className="appearance-activity-option-meta">
+                        {display.pixelWidth}×{display.pixelHeight}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -486,12 +493,16 @@ export function Live2DSettingsPanel({
                 <button
                   key={display.id}
                   type="button"
-                  className={`appearance-choice appearance-region-item appearance-system${active ? " is-on" : ""}`}
+                  className={`appearance-choice appearance-region-item appearance-system appearance-display-item${active ? " is-on" : ""}`}
                   aria-pressed={active}
-                  title={`${display.label}${display.primary ? "（主屏）" : ""} · ${display.width}×${display.height}`}
+                  title={`${display.label}${display.primary ? "（主屏）" : ""} · ${display.pixelWidth}×${display.pixelHeight}`}
                   onClick={() => onSelectDisplay(display.id)}
                 >
-                  {display.label}
+                  <span>{display.label}</span>
+                  <span className="appearance-display-meta">
+                    {display.primary ? "主屏 · " : ""}
+                    {display.pixelWidth}×{display.pixelHeight}
+                  </span>
                 </button>
               );
             })}

@@ -16,6 +16,9 @@ export type DisplayInfo = {
   /** 工作区宽高（DIP），不含任务栏。 */
   width: number;
   height: number;
+  /** 物理像素宽高（DIP × scaleFactor），用来区分分辨率相近的屏幕。 */
+  pixelWidth: number;
+  pixelHeight: number;
   scaleFactor: number;
   /** 是否为系统主屏。 */
   primary: boolean;

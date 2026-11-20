@@ -1,5 +1,6 @@
 import { screen, type Display } from "electron";
 import type { DisplayInfo } from "../shared/types";
+import { physicalScreens } from "./display-metrics";
 import { getMainWindow } from "./window";
 
 /**
@@ -76,18 +77,27 @@ export function listDisplays(): DisplayInfo[] {
   const displays = [...screen.getAllDisplays()].sort(
     (a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y || a.id - b.id,
   );
+  const physical = physicalScreens();
 
-  return displays.map((display, index) => ({
-    id: String(display.id),
-    index: index + 1,
-    label: `屏幕 ${index + 1}`,
-    // 和窗口实际覆盖范围一致：强制顶层时是整块屏幕，否则是工作区。
-    width: Math.round(areaOf(display).width),
-    height: Math.round(areaOf(display).height),
-    scaleFactor: display.scaleFactor,
-    primary: display.id === primaryId,
-    current: String(display.id) === activeId,
-  }));
+  return displays.map((display, index) => {
+    const exact = physical[index];
+    return {
+      id: String(display.id),
+      index: index + 1,
+      label: `屏幕 ${index + 1}`,
+      // 和窗口实际覆盖范围一致：强制顶层时是整块屏幕，否则是工作区。
+      width: Math.round(areaOf(display).width),
+      height: Math.round(areaOf(display).height),
+      // 物理分辨率优先用 PowerShell 读到的精确值；还没读到就退回 DIP × 缩放。
+      pixelWidth:
+        exact?.width ?? Math.round(display.size.width * display.scaleFactor),
+      pixelHeight:
+        exact?.height ?? Math.round(display.size.height * display.scaleFactor),
+      scaleFactor: display.scaleFactor,
+      primary: display.id === primaryId,
+      current: String(display.id) === activeId,
+    };
+  });
 }
 
 function findDisplay(displayId: string) {

@@ -184,6 +184,7 @@ export type PetApi = {
   setDisplay(displayId: string): Promise<DisplayInfo | null>;
   setForceTop(enabled: boolean): Promise<boolean>;
   onDisplayChanged(handler: (info: DisplayInfo) => void): () => void;
+  onDisplaysUpdated(handler: () => void): () => void;
   openConfig(): void;
   quit(): void;
 };

@@ -4447,6 +4447,20 @@ export function ChatPanel() {
     };
   }, []);
 
+  // 物理分辨率 / 屏幕变化后主进程会广播一次，聊天窗口只刷新列表，不改当前选择。
+  useEffect(() => {
+    const api = window.petApi;
+    if (!api?.onDisplaysUpdated) return;
+    return api.onDisplaysUpdated(() => {
+      void api
+        .listDisplays()
+        .then((list) => setDisplays(list))
+        .catch(() => {
+          // 保留旧列表。
+        });
+    });
+  }, []);
+
   useEffect(() => {
     setCaptureEnabled(window.localStorage.getItem("chat.capture.enabled") === "1");
     let cancelled = false;
@@ -5081,6 +5095,7 @@ export function ChatPanel() {
                     <option key={display.id} value={display.id}>
                       {display.label}
                       {display.primary ? "（主屏）" : ""}
+                      {` · ${display.pixelWidth}×${display.pixelHeight}`}
                     </option>
                   ))}
                 </select>

@@ -63,7 +63,7 @@ function rebuildMenu(): void {
           {
             label: "显示屏幕",
             submenu: displays.map((display) => ({
-              label: display.primary ? `${display.label}（主屏）` : display.label,
+              label: `${display.label}${display.primary ? "（主屏）" : ""} · ${display.pixelWidth}×${display.pixelHeight}`,
               type: "radio" as const,
               checked: display.current,
               click: () => {

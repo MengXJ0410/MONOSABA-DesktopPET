@@ -498,6 +498,14 @@ const api = {
       ipcRenderer.removeListener("pet:display-changed", listener);
     };
   },
+  /** 物理分辨率读完 / 屏幕变化后，通知面板重新拉一次 listDisplays。 */
+  onDisplaysUpdated(handler: () => void): () => void {
+    const listener = () => handler();
+    ipcRenderer.on("pet:displays-updated", listener);
+    return () => {
+      ipcRenderer.removeListener("pet:displays-updated", listener);
+    };
+  },
   openConfig(): void {
     ipcRenderer.send("app:open-config");
   },

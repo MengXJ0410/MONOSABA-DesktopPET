@@ -28,6 +28,7 @@ import { chatService } from "./chat/service";
 import { initChatWindow, openChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
 import { logStartup } from "./logs";
+import { refreshPhysicalScreens } from "./display-metrics";
 import { disposePointerWindows, hidePointerWindows, initPointerWindows } from "./pointer-window";
 import { setActivityDisplayId } from "./screen-target";
 import {
@@ -322,6 +323,14 @@ if (!gotLock) {
     // 桌宠窗口关闭时先拆掉指针浮层，否则 window-all-closed 会被浮层托住。
     win.on("closed", () => disposePointerWindows());
 
+    // 物理分辨率要跑一次 PowerShell；放在窗口之后后台读，读到变化再通知面板刷新。
+    const syncPhysicalDisplays = async () => {
+      if (await refreshPhysicalScreens()) {
+        broadcastToAll("pet:displays-updated", {});
+      }
+    };
+    void syncPhysicalDisplays();
+
     // 自启维护要跑一次 PowerShell（约 1.5 秒），放在窗口之后后台执行，
     // 不要挡住启动：0.3.7 就是因为登录后迟迟看不到桌宠才被当成「没自启」。
     void ensureAutoLaunch().catch((error) => {
@@ -335,6 +344,7 @@ if (!gotLock) {
       if (info && current && !current.isDestroyed()) {
         current.webContents.send("pet:display-changed", info);
       }
+      void syncPhysicalDisplays();
     };
     screen.on("display-added", handleDisplayChange);
     screen.on("display-removed", handleDisplayChange);

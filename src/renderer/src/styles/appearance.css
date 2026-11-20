@@ -282,6 +282,8 @@
   display: flex;
   width: 100%;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   border: 1px solid transparent;
   border-radius: 7px;
   padding: 0.34rem 0.5rem;
@@ -293,6 +295,18 @@
     background 0.18s ease,
     border-color 0.18s ease,
     color 0.18s ease;
+}
+
+.appearance-activity-option-meta {
+  flex: none;
+  color: var(--pet-muted, #b9c7d8);
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.appearance-activity-option.is-on .appearance-activity-option-meta {
+  color: inherit;
+  opacity: 0.8;
 }
 
 .appearance-activity-option:hover {
@@ -311,6 +325,28 @@
   color: var(--pet-muted, #b9c7d8);
   font-size: 0.66rem;
   line-height: 1.4;
+}
+
+/* 显示屏幕按钮：屏幕名 + 物理分辨率两行，避免 2560×1600 / 2560×1440 分不清。 */
+.appearance-region-list .appearance-display-item {
+  flex-direction: column;
+  gap: 0.08rem;
+  padding: 0.4rem 0.3rem;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.appearance-display-meta {
+  color: var(--pet-muted, #b9c7d8);
+  font-size: 0.62rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.appearance-display-item.is-on .appearance-display-meta {
+  color: inherit;
+  opacity: 0.82;
 }
 
 /* 四个开关排成 2×2：一行两个，比一列长条更紧凑。 */
