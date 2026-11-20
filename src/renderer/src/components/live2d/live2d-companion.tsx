@@ -43,7 +43,14 @@ import {
   LIVE2D_OPACITY_STEP,
   LIVE2D_OPACITY_STORAGE_KEY,
   LIVE2D_PASSTHROUGH_STORAGE_KEY,
+  LIVE2D_POINTER_AI_DAILY_LIMIT,
+  LIVE2D_POINTER_AI_INTERVAL_DEFAULT,
+  LIVE2D_POINTER_AI_INTERVAL_MAX,
+  LIVE2D_POINTER_AI_INTERVAL_MIN,
+  LIVE2D_POINTER_AI_INTERVAL_STORAGE_KEY,
   LIVE2D_POINTER_BASE_SIZE,
+  LIVE2D_POINTER_ENABLED_DEFAULT,
+  LIVE2D_POINTER_ENABLED_STORAGE_KEY,
   LIVE2D_POINTER_IDLE_MOVE_DEFAULT,
   LIVE2D_POINTER_IDLE_MOVE_STORAGE_KEY,
   LIVE2D_POINTER_SIZE_DEFAULT,
@@ -85,6 +92,7 @@ import type {
   CommentaryRunResult,
   CommentarySettings,
   DisplayInfo,
+  PointerAiState,
   Rect,
 } from "../../../../shared/types";
 import styles from "./live2d-companion.module.css";
@@ -395,6 +403,28 @@ function readStoredPointerIdleMove() {
   }
 }
 
+function readStoredPointerEnabled() {
+  try {
+    const raw = window.localStorage.getItem(LIVE2D_POINTER_ENABLED_STORAGE_KEY);
+    if (raw === null) return LIVE2D_POINTER_ENABLED_DEFAULT;
+    return raw !== "0";
+  } catch {
+    return LIVE2D_POINTER_ENABLED_DEFAULT;
+  }
+}
+
+function readStoredPointerAiInterval() {
+  try {
+    const raw = Number(
+      window.localStorage.getItem(LIVE2D_POINTER_AI_INTERVAL_STORAGE_KEY),
+    );
+    if (!Number.isFinite(raw) || raw <= 0) return LIVE2D_POINTER_AI_INTERVAL_DEFAULT;
+    return clamp(raw, LIVE2D_POINTER_AI_INTERVAL_MIN, LIVE2D_POINTER_AI_INTERVAL_MAX);
+  } catch {
+    return LIVE2D_POINTER_AI_INTERVAL_DEFAULT;
+  }
+}
+
 function readStoredCharacter(): Live2DCharacterId {
   try {
     const raw = window.localStorage.getItem(LIVE2D_CHARACTER_STORAGE_KEY);
@@ -564,6 +594,16 @@ export function Live2DCompanion() {
   const [pointerIdleMove, setPointerIdleMove] = useState(readStoredPointerIdleMove);
   const pointerIdleMoveRef = useRef(pointerIdleMove);
   pointerIdleMoveRef.current = pointerIdleMove;
+  const [pointerEnabled, setPointerEnabled] = useState(readStoredPointerEnabled);
+  const pointerEnabledRef = useRef(pointerEnabled);
+  pointerEnabledRef.current = pointerEnabled;
+  const [pointerAiInterval, setPointerAiInterval] = useState(
+    readStoredPointerAiInterval,
+  );
+  const pointerAiIntervalRef = useRef(pointerAiInterval);
+  pointerAiIntervalRef.current = pointerAiInterval;
+  const [pointerAiState, setPointerAiState] = useState<PointerAiState | null>(null);
+  const [pointerObserving, setPointerObserving] = useState(false);
   const [character, setCharacter] = useState<Live2DCharacterId>(LIVE2D_DEFAULT_CHARACTER);
   const [position, setPosition] = useState<StoredPosition | null>(null);
   const [characterBox, setCharacterBox] = useState<CharacterBox | null>(null);
@@ -1068,6 +1108,51 @@ export function Live2DCompanion() {
     }
   }, []);
 
+  const changePointerEnabled = useCallback((next: boolean) => {
+    setPointerEnabled(next);
+    pointerEnabledRef.current = next;
+    try {
+      window.localStorage.setItem(
+        LIVE2D_POINTER_ENABLED_STORAGE_KEY,
+        next ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures.
+    }
+  }, []);
+
+  const changePointerAiInterval = useCallback((value: number) => {
+    const next = Math.round(
+      clamp(value, LIVE2D_POINTER_AI_INTERVAL_MIN, LIVE2D_POINTER_AI_INTERVAL_MAX),
+    );
+    setPointerAiInterval(next);
+    pointerAiIntervalRef.current = next;
+    try {
+      window.localStorage.setItem(
+        LIVE2D_POINTER_AI_INTERVAL_STORAGE_KEY,
+        String(next),
+      );
+    } catch {
+      // Ignore storage failures.
+    }
+    void window.petApi
+      .configurePointerAi({ intervalSec: next })
+      .then(setPointerAiState)
+      .catch(() => {});
+  }, []);
+
+  const observePointerNow = useCallback(async () => {
+    setPointerObserving(true);
+    try {
+      const state = await window.petApi.observePointerNow();
+      setPointerAiState(state);
+    } catch {
+      // 桥接离线或主进程忙碌时静默失败，状态行会显示上一轮结果。
+    } finally {
+      setPointerObserving(false);
+    }
+  }, []);
+
   const startScale = useCallback(() => {
     scaleDraggingRef.current = true;
     if (settingsOpenRef.current) freezePanel("scale");
@@ -1297,6 +1382,26 @@ export function Live2DCompanion() {
     summoned,
     visible,
   ]);
+
+  // AI 指针：订阅主进程状态，并把「开关 + 间隔」同步过去。
+  // 观察只在希罗、人物已加载、且指针开着时运行；艾玛没有第二指针。
+  useEffect(() => {
+    return window.petApi.onPointerAiState(setPointerAiState);
+  }, []);
+
+  useEffect(() => {
+    const active =
+      character === "hiro" && pointerEnabled && status === "ready";
+    void window.petApi
+      .configurePointerAi({
+        enabled: active,
+        capable: character === "hiro" && pointerEnabled,
+        intervalSec: pointerAiInterval,
+        dailyLimit: LIVE2D_POINTER_AI_DAILY_LIMIT,
+      })
+      .then(setPointerAiState)
+      .catch(() => {});
+  }, [character, pointerAiInterval, pointerEnabled, status]);
 
   /** 点击彩蛋：先看冷却，再掷概率；命中才播放。 */
   const playClickSound = useCallback((sound: Live2DClickSound) => {
@@ -1824,9 +1929,36 @@ export function Live2DCompanion() {
     // 关闭「闲时随机移动」后，指针冻结，改用这套随机视线直接驱动眼睛。
     let eyeIdleGaze: IdleGazeState | null = null;
 
+    /** AI 下发的外部动作：先缓动到目标，停留一会儿，再交回闲时游走。 */
+    let pointerExternal: {
+      fromX: number;
+      fromY: number;
+      toX: number;
+      toY: number;
+      startAt: number;
+      durationMs: number;
+      holdMs: number;
+    } | null = null;
+    /** AI 把指针放到窗口外之后，滑回游走轨道用的过渡。 */
+    let pointerReturn: {
+      fromX: number;
+      fromY: number;
+      startAt: number;
+      durationMs: number;
+    } | null = null;
+    let pointerExternalSeq = 0;
+    let pointerExternalActive = false;
+    let removePointerControl: (() => void) | null = null;
+
     const headAnchorRef: { current: { x: number; y: number } | null } = { current: null };
 
-    const idleNow = () => POINTER_ENABLED || gazeMode === "idle";
+    const pointerActive = () => POINTER_ENABLED && pointerEnabledRef.current;
+    /** 眼睛是否该跟着第二指针：指针开着，并且它在游走或正在执行 AI 动作。 */
+    const pointerFollowing = () =>
+      pointerActive() &&
+      (pointerExternalActive || pointerIdleMoveRef.current);
+
+    const idleNow = () => pointerActive() || gazeMode === "idle";
 
     const fitModel = () => {
       if (!model || !app) return;
@@ -1843,8 +1975,9 @@ export function Live2DCompanion() {
     };
 
     const updateGaze = () => {
-      // 关掉「闲时随机移动」时，指针停在原地，眼睛由 eyeIdleGaze 自己随机看。
-      if (POINTER_ENABLED && !pointerIdleMoveRef.current) return;
+      // 关掉「闲时随机移动」且没有 AI 动作时，指针停在原地，
+      // 眼睛由 eyeIdleGaze 自己随机看；AI 一动，视线必须跟过去。
+      if (POINTER_ENABLED && !pointerFollowing()) return;
       const head = headAnchorRef.current;
       if (!head) return;
       const source = POINTER_ENABLED
@@ -1891,13 +2024,58 @@ export function Live2DCompanion() {
             };
           }
 
-          if (pointerIdleMoveRef.current) {
-            if (!pointerWander) {
-              // 从当前位置的归一化偏移重新起步；关闭再开启时不会瞬移。
-              const nx = (pointerScreen.x - headScreen.x) / (width * 0.5);
-              const ny = (pointerScreen.y - headScreen.y) / (height * 0.5);
-              pointerWander = createIdleGaze(now, nx, ny).state;
-              pointerHeadAtSeed = headScreen;
+          /**
+           * 从当前位置重新起步游走。
+           * AI 可能把指针放到窗口外，归一化偏移要夹到 ±1，
+           * 并且先滑回轨道，不能瞬移。
+           */
+          const reseedWander = (current: { x: number; y: number }): IdleGazeState => {
+            const nx = clamp((current.x - headScreen.x) / (width * 0.5), -1, 1);
+            const ny = clamp((current.y - headScreen.y) / (height * 0.5), -1, 1);
+            pointerWander = createIdleGaze(now, nx, ny).state;
+            pointerHeadAtSeed = headScreen;
+            if (
+              current.x < winX - 2 ||
+              current.x > winX + width + 2 ||
+              current.y < winY - 2 ||
+              current.y > winY + height + 2
+            ) {
+              pointerReturn = {
+                fromX: current.x,
+                fromY: current.y,
+                startAt: now,
+                durationMs: 800,
+              };
+            }
+            return pointerWander;
+          };
+
+          if (pointerExternal) {
+            // AI 动作优先：从当前点缓动到目标，到达后停留 holdMs，再交回游走。
+            const elapsed = now - pointerExternal.startAt;
+            const t = Math.min(
+              1,
+              Math.max(0, elapsed / Math.max(1, pointerExternal.durationMs)),
+            );
+            const eased = t * t * (3 - 2 * t);
+            pointerScreen = {
+              x: pointerExternal.fromX + (pointerExternal.toX - pointerExternal.fromX) * eased,
+              y: pointerExternal.fromY + (pointerExternal.toY - pointerExternal.fromY) * eased,
+            };
+            pointerClient = {
+              x: pointerScreen.x - winX,
+              y: pointerScreen.y - winY,
+            };
+            if (elapsed >= pointerExternal.durationMs + pointerExternal.holdMs) {
+              pointerExternal = null;
+              pointerExternalActive = false;
+              // 停留结束后交回闲时游走；指针会从落点滑回人物附近。
+              if (pointerIdleMoveRef.current) reseedWander(pointerScreen);
+            }
+          } else if (pointerIdleMoveRef.current) {
+            let wanderState = pointerWander;
+            if (!wanderState) {
+              wanderState = reseedWander(pointerScreen);
             } else if (pointerHeadAtSeed) {
               const headMoved =
                 Math.abs(headScreen.x - pointerHeadAtSeed.x) > 24 ||
@@ -1905,19 +2083,36 @@ export function Live2DCompanion() {
               if (headMoved) {
                 // 拖动 / 缩放 / 切屏后头顶变了：按当前指针的归一化偏移重新起步，
                 // 避免第二指针被人物拽着一起跳。
-                const nx = (pointerScreen.x - headScreen.x) / (width * 0.5);
-                const ny = (pointerScreen.y - headScreen.y) / (height * 0.5);
-                pointerWander = createIdleGaze(now, nx, ny).state;
-                pointerHeadAtSeed = headScreen;
+                wanderState = reseedWander(pointerScreen);
               }
             }
 
-            const step = advanceIdleGaze(pointerWander, now);
+            const step = advanceIdleGaze(wanderState, now);
             pointerWander = step.state;
-            pointerScreen = {
-              x: clamp(headScreen.x + step.x * width * 0.5, winX, winX + width - 1),
-              y: clamp(headScreen.y + step.y * height * 0.5, winY, winY + height - 1),
-            };
+            const wanderX = clamp(
+              headScreen.x + step.x * width * 0.5,
+              winX,
+              winX + width - 1,
+            );
+            const wanderY = clamp(
+              headScreen.y + step.y * height * 0.5,
+              winY,
+              winY + height - 1,
+            );
+            if (pointerReturn) {
+              const t = Math.min(
+                1,
+                Math.max(0, (now - pointerReturn.startAt) / pointerReturn.durationMs),
+              );
+              const eased = t * t * (3 - 2 * t);
+              pointerScreen = {
+                x: pointerReturn.fromX + (wanderX - pointerReturn.fromX) * eased,
+                y: pointerReturn.fromY + (wanderY - pointerReturn.fromY) * eased,
+              };
+              if (t >= 1) pointerReturn = null;
+            } else {
+              pointerScreen = { x: wanderX, y: wanderY };
+            }
             pointerClient = {
               x: pointerScreen.x - winX,
               y: pointerScreen.y - winY,
@@ -1927,13 +2122,18 @@ export function Live2DCompanion() {
             // 下次开启随机移动时 pointerWander 为 null，会从当前点重新起步。
             pointerWander = null;
             pointerHeadAtSeed = null;
+            pointerReturn = null;
           }
 
-          window.petApi.pointerReport({
-            x: pointerScreen.x,
-            y: pointerScreen.y,
-            size: LIVE2D_POINTER_BASE_SIZE * pointerSizeRef.current,
-          });
+          // 关闭希罗指针后不再上报，主进程会把浮层藏起来；
+          // 重新开启时从当前位置继续，不会跳。
+          if (pointerEnabledRef.current) {
+            window.petApi.pointerReport({
+              x: pointerScreen.x,
+              y: pointerScreen.y,
+              size: LIVE2D_POINTER_BASE_SIZE * pointerSizeRef.current,
+            });
+          }
         }
         pointerWanderRaf = window.requestAnimationFrame(tick);
       };
@@ -2135,6 +2335,27 @@ export function Live2DCompanion() {
 
         if (POINTER_ENABLED) {
           startPointerWander();
+          // AI 接管：主进程下发 external 动作时打断游走，动作结束后自动交回。
+          removePointerControl = window.petApi.onPointerControl((control) => {
+            if (control.mode !== "external") return;
+            if (control.seq <= pointerExternalSeq) return;
+            pointerExternalSeq = control.seq;
+            const from = pointerScreen ?? { x: control.x, y: control.y };
+            pointerExternal = {
+              fromX: from.x,
+              fromY: from.y,
+              toX: control.x,
+              toY: control.y,
+              startAt: performance.now(),
+              durationMs: Math.max(80, control.durationMs),
+              holdMs: Math.max(0, control.holdMs),
+            };
+            pointerExternalActive = true;
+            // 打断游走曲线，避免两套位置互相抢。
+            pointerWander = null;
+            pointerHeadAtSeed = null;
+            pointerReturn = null;
+          });
           scheduleIdlePose(
             LIVE2D_IDLE_POSE_FIRST_MIN_MS,
             LIVE2D_IDLE_POSE_FIRST_MAX_MS,
@@ -2144,12 +2365,12 @@ export function Live2DCompanion() {
         pixiApp.ticker.add((ticker) => {
           const now = performance.now();
           if (POINTER_ENABLED) {
-            if (pointerIdleMoveRef.current) {
+            if (pointerFollowing()) {
               // 视线只跟第二指针；真实鼠标不再影响视线。
               eyeIdleGaze = null;
               updateGaze();
             } else {
-              // 关闭「闲时随机移动」：指针冻结，人物闲时仍然自己随机看。
+              // 指针关闭或停在原地：人物闲时仍然自己随机看。
               if (!eyeIdleGaze) {
                 eyeIdleGaze = createIdleGaze(now, targetX, targetY).state;
               }
@@ -2497,6 +2718,7 @@ export function Live2DCompanion() {
       removeCanvasPointer?.();
       removeCanvasMouse?.();
       removeWindowResize?.();
+      removePointerControl?.();
       resizeObserver?.disconnect();
       draggingRef.current = false;
       sendIgnore(true);
@@ -2765,6 +2987,10 @@ export function Live2DCompanion() {
             forceTop={forceTop}
             pointerSize={pointerSize}
             pointerIdleMove={pointerIdleMove}
+            pointerEnabled={pointerEnabled}
+            pointerAiInterval={pointerAiInterval}
+            pointerAiState={pointerAiState}
+            pointerObserving={pointerObserving}
             popoverRef={settingsPopoverRef}
             onSwitchCharacter={switchCharacter}
             onSelectDisplay={selectDisplay}
@@ -2777,6 +3003,11 @@ export function Live2DCompanion() {
             onToggleForceTop={toggleForceTop}
             onPointerSizeChange={changePointerSize}
             onPointerIdleMoveChange={changePointerIdleMove}
+            onPointerEnabledChange={changePointerEnabled}
+            onPointerAiIntervalChange={changePointerAiInterval}
+            onPointerObserveNow={() => {
+              void observePointerNow();
+            }}
             canViewDiary
             onOpenDiary={() => {
               settingsOpenRef.current = false;

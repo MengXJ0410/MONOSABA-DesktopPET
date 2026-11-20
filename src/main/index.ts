@@ -28,7 +28,14 @@ import { chatService } from "./chat/service";
 import { initChatWindow, openChatWindow } from "./chat-window";
 import { initDiaryWindow } from "./diary-window";
 import { logStartup } from "./logs";
-import { disposePointerWindows, initPointerWindows } from "./pointer-window";
+import { disposePointerWindows, hidePointerWindows, initPointerWindows } from "./pointer-window";
+import {
+  disposePointerAi,
+  getPointerAiState,
+  observePointerNow,
+  setPointerAiEnabled,
+  updatePointerAiSettings,
+} from "./pointer-ai";
 import { ensureNotificationShortcut, restoreNotificationShortcut } from "./notification-shortcut";
 import { startMousePassthrough } from "./mouse-passthrough";
 import { createTray } from "./tray";
@@ -223,6 +230,36 @@ if (!gotLock) {
       noteCommentarySchedule(typeof at === "number" ? at : 0);
     });
 
+    // 希罗指针：渲染层负责持久化开关与间隔，主进程只管当前会话的运行状态。
+    ipcMain.handle("pointer:ai:configure", (_event, patch: unknown) => {
+      const record =
+        patch && typeof patch === "object"
+          ? (patch as Record<string, unknown>)
+          : {};
+      if (typeof record.enabled === "boolean") {
+        setPointerAiEnabled(record.enabled);
+        if (!record.enabled) hidePointerWindows();
+      }
+      // 指针可用（希罗 + 开关打开）时，桌面消息才会带上「你能操控指针」的提示。
+      if (typeof record.capable === "boolean") {
+        chatService.setPointerCapable(record.capable);
+      }
+      if (
+        typeof record.intervalSec === "number" ||
+        typeof record.dailyLimit === "number"
+      ) {
+        return updatePointerAiSettings({
+          intervalSec:
+            typeof record.intervalSec === "number" ? record.intervalSec : undefined,
+          dailyLimit:
+            typeof record.dailyLimit === "number" ? record.dailyLimit : undefined,
+        });
+      }
+      return getPointerAiState();
+    });
+    ipcMain.handle("pointer:ai:get", () => getPointerAiState());
+    ipcMain.handle("pointer:ai:observe", () => observePointerNow());
+
     ipcMain.handle("bubble:get", async () => (await readConfig()).bubble);
     ipcMain.handle("bubble:set", async (_event, patch: unknown) => {
       const record =
@@ -305,6 +342,7 @@ if (!gotLock) {
 
   app.on("before-quit", () => {
     disposePointerWindows();
+    disposePointerAi();
     disposeForceTop();
     void chatService.stop();
   });

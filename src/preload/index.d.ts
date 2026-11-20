@@ -40,6 +40,7 @@ import type {
   MemoryUpdateInput,
   MemoryWriteResult,
   MessageFont,
+  PointerAiState,
   PointerControl,
   PointerPosition,
   PointerUpdate,
@@ -145,6 +146,15 @@ export type PetApi = {
   pointerReport(position: PointerPosition): void;
   onPointerUpdate(handler: (update: PointerUpdate) => void): () => void;
   onPointerControl(handler: (control: PointerControl) => void): () => void;
+  configurePointerAi(patch: {
+    enabled?: boolean;
+    intervalSec?: number;
+    dailyLimit?: number;
+    capable?: boolean;
+  }): Promise<PointerAiState>;
+  getPointerAiState(): Promise<PointerAiState>;
+  observePointerNow(): Promise<PointerAiState>;
+  onPointerAiState(handler: (state: PointerAiState) => void): () => void;
   captureDiaryCard(rect: {
     x: number;
     y: number;

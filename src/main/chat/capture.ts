@@ -19,12 +19,27 @@ export type CapturedScreen = {
 const MAX_WIDTH = 1280;
 const JPEG_QUALITY = 85;
 
+/** AI 指针：只用来判断“屏幕变了什么”，768 / 70 已足够看清窗口和页面结构。 */
+export const POINTER_MAX_WIDTH = 768;
+export const POINTER_JPEG_QUALITY = 70;
+/** AI 观察不能像点评那样等 20 秒；超时就跳过这一轮。 */
+export const POINTER_CAPTURE_TIMEOUT_MS = 8_000;
+
+export type CaptureOptions = {
+  /** 长边上限；0 表示不缩放。 */
+  maxWidth?: number;
+  /** JPEG 质量 1~100。 */
+  quality?: number;
+  /** PowerShell 兜底的最长执行时间。 */
+  timeoutMs?: number;
+};
+
 /**
  * Electron 的 desktopCapturer 在这台机器上只枚举得到副屏（WGC 对主屏返回
  * “Source is not capturable”）。主屏用 PowerShell + GDI 的 CopyFromScreen
  * 兜底；Screen.AllScreens 按 X/Y 排序后与 Electron 的显示器顺序一致。
  */
-const CAPTURE_SCRIPT = `param([int]$Index = 0)
+const CAPTURE_SCRIPT = `param([int]$Index = 0, [int]$MaxWidth = 0, [int]$Quality = 85)
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
@@ -38,16 +53,29 @@ public class MonosabaDpi {
 $screens = [System.Windows.Forms.Screen]::AllScreens | Sort-Object { $_.Bounds.X }, { $_.Bounds.Y }
 if ($Index -lt 0 -or $Index -ge $screens.Count) { exit 3 }
 $r = $screens[$Index].Bounds
-$bmp = New-Object System.Drawing.Bitmap($r.Width, $r.Height)
+$full = New-Object System.Drawing.Bitmap($r.Width, $r.Height)
+$g0 = [System.Drawing.Graphics]::FromImage($full)
+$g0.CopyFromScreen($r.X, $r.Y, 0, 0, $full.Size)
+$g0.Dispose()
+$w = $r.Width
+$h = $r.Height
+if ($MaxWidth -gt 0 -and $w -gt $MaxWidth) {
+    $scale = $MaxWidth / $w
+    $w = [int][Math]::Max(1, [Math]::Round($r.Width * $scale))
+    $h = [int][Math]::Max(1, [Math]::Round($r.Height * $scale))
+}
+$bmp = New-Object System.Drawing.Bitmap($w, $h)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.CopyFromScreen($r.X, $r.Y, 0, 0, $bmp.Size)
+$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$g.DrawImage($full, 0, 0, $w, $h)
+$g.Dispose()
+$full.Dispose()
 $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
 $params = New-Object System.Drawing.Imaging.EncoderParameters(1)
-$params.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, ${JPEG_QUALITY})
+$params.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, $Quality)
 $ms = New-Object System.IO.MemoryStream
 $bmp.Save($ms, $codec, $params)
 [Convert]::ToBase64String($ms.ToArray())
-$g.Dispose()
 $bmp.Dispose()
 $ms.Dispose()
 `;
@@ -107,6 +135,8 @@ async function ensureScript(): Promise<string> {
 
 async function captureWithDesktopCapturer(
   target: Display,
+  maxWidth: number,
+  quality: number,
 ): Promise<CapturedScreen | null> {
   const physicalWidth = Math.max(
     1,
@@ -116,7 +146,8 @@ async function captureWithDesktopCapturer(
     1,
     Math.round(target.size.height * target.scaleFactor),
   );
-  const scale = Math.min(1, MAX_WIDTH / physicalWidth);
+  const limit = maxWidth > 0 ? maxWidth : physicalWidth;
+  const scale = Math.min(1, limit / physicalWidth);
   const width = Math.max(1, Math.round(physicalWidth * scale));
   const height = Math.max(1, Math.round(physicalHeight * scale));
 
@@ -132,7 +163,7 @@ async function captureWithDesktopCapturer(
 
   const image = source.thumbnail;
   if (image.isEmpty()) return null;
-  const jpeg = image.toJPEG(JPEG_QUALITY);
+  const jpeg = image.toJPEG(quality);
   if (!jpeg || jpeg.length === 0) return null;
 
   const size = image.getSize();
@@ -147,6 +178,9 @@ async function captureWithDesktopCapturer(
 
 async function captureWithPowerShell(
   index: number,
+  maxWidth: number,
+  quality: number,
+  timeoutMs: number,
 ): Promise<CapturedScreen | null> {
   const scriptPath = await ensureScript();
   const { stdout } = await execFileAsync(
@@ -160,10 +194,14 @@ async function captureWithPowerShell(
       scriptPath,
       "-Index",
       String(index),
+      "-MaxWidth",
+      String(Math.max(0, Math.round(maxWidth))),
+      "-Quality",
+      String(Math.max(1, Math.min(100, Math.round(quality)))),
     ],
     {
       encoding: "utf8",
-      timeout: 20_000,
+      timeout: timeoutMs,
       maxBuffer: 16 * 1024 * 1024,
       windowsHide: true,
     },
@@ -187,7 +225,11 @@ async function captureWithPowerShell(
  */
 export async function captureDisplay(
   displayId?: string,
+  options: CaptureOptions = {},
 ): Promise<CapturedScreen | null> {
+  const maxWidth = options.maxWidth ?? MAX_WIDTH;
+  const quality = options.quality ?? JPEG_QUALITY;
+  const timeoutMs = options.timeoutMs ?? 20_000;
   const displays = sortedDisplays();
   const target =
     displays.find((display) => toSourceId(display.id) === displayId) ??
@@ -198,7 +240,7 @@ export async function captureDisplay(
 
   const viaPowerShell = async (): Promise<CapturedScreen | null> => {
     try {
-      const shot = await captureWithPowerShell(index >= 0 ? index : 0);
+      const shot = await captureWithPowerShell(index >= 0 ? index : 0, maxWidth, quality, timeoutMs);
       if (shot) methodCache.set(key, "powershell");
       return shot;
     } catch (error) {
@@ -214,7 +256,7 @@ export async function captureDisplay(
 
   try {
     const direct = await withTimeout(
-      captureWithDesktopCapturer(target),
+      captureWithDesktopCapturer(target, maxWidth, quality),
       CAPTURER_TIMEOUT_MS,
     );
     if (direct) {
@@ -226,4 +268,15 @@ export async function captureDisplay(
   }
 
   return viaPowerShell();
+}
+
+/** AI 指针专用：更小的长边和更低的质量，单轮控制在几十 KB。 */
+export async function captureDisplayForPointer(
+  displayId?: string,
+): Promise<CapturedScreen | null> {
+  return captureDisplay(displayId, {
+    maxWidth: POINTER_MAX_WIDTH,
+    quality: POINTER_JPEG_QUALITY,
+    timeoutMs: POINTER_CAPTURE_TIMEOUT_MS,
+  });
 }

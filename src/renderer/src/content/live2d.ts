@@ -120,6 +120,18 @@ export const LIVE2D_POINTER_SIZE_STORAGE_KEY = "jxmfun-live2d-pointer-size";
 /** 闲时让第二指针自己游走；关闭后指针停在原地，只等 AI 操控。 */
 export const LIVE2D_POINTER_IDLE_MOVE_DEFAULT = true;
 export const LIVE2D_POINTER_IDLE_MOVE_STORAGE_KEY = "jxmfun-live2d-pointer-idle-move";
+/** 希罗指针总开关：关闭后隐藏浮层、停止 AI 观察。 */
+export const LIVE2D_POINTER_ENABLED_DEFAULT = true;
+export const LIVE2D_POINTER_ENABLED_STORAGE_KEY = "jxmfun-live2d-pointer-enabled";
+/** AI 观察间隔：上一轮结束后再等这么久。 */
+export const LIVE2D_POINTER_AI_INTERVAL_MIN = 1;
+export const LIVE2D_POINTER_AI_INTERVAL_MAX = 30;
+export const LIVE2D_POINTER_AI_INTERVAL_STEP = 1;
+export const LIVE2D_POINTER_AI_INTERVAL_DEFAULT = 10;
+export const LIVE2D_POINTER_AI_INTERVAL_STORAGE_KEY =
+  "jxmfun-live2d-pointer-ai-interval";
+/** 每日模型调用上限，防止挂机时一直烧 token。 */
+export const LIVE2D_POINTER_AI_DAILY_LIMIT = 500;
 
 export const LIVE2D_EXPRESSIONS = ["monvhua", "taishou", "zuibu", "liulei"] as const;
 export type Live2DExpression = (typeof LIVE2D_EXPRESSIONS)[number];

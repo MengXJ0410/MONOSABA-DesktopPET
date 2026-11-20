@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
-import type { DisplayInfo } from "../../../../shared/types";
+import type { DisplayInfo, PointerAiState } from "../../../../shared/types";
 import {
   LIVE2D_SIZE_MAX,
   LIVE2D_SIZE_MIN,
@@ -33,6 +33,14 @@ type Live2DSettingsPanelProps = {
   pointerSize: number;
   /** 闲时是否让第二指针自己游走。 */
   pointerIdleMove: boolean;
+  /** 希罗指针总开关。 */
+  pointerEnabled: boolean;
+  /** AI 观察间隔（秒）。 */
+  pointerAiInterval: number;
+  /** AI 观察运行状态。 */
+  pointerAiState: PointerAiState | null;
+  /** 「立即观察一次」正在进行。 */
+  pointerObserving: boolean;
   scale: number;
   character: Live2DCharacterId;
   characterName: string;
@@ -54,6 +62,9 @@ type Live2DSettingsPanelProps = {
   onToggleForceTop: () => void;
   onPointerSizeChange: (size: number) => void;
   onPointerIdleMoveChange: (enabled: boolean) => void;
+  onPointerEnabledChange: (enabled: boolean) => void;
+  onPointerAiIntervalChange: (seconds: number) => void;
+  onPointerObserveNow: () => void;
   /** 管理员 + 希罗时才显示「查看日记」。 */
   canViewDiary: boolean;
   onOpenDiary: () => void;
@@ -86,6 +97,10 @@ export function Live2DSettingsPanel({
   forceTop,
   pointerSize,
   pointerIdleMove,
+  pointerEnabled,
+  pointerAiInterval,
+  pointerAiState,
+  pointerObserving,
   scale,
   character,
   characterName,
@@ -105,6 +120,9 @@ export function Live2DSettingsPanel({
   onToggleForceTop,
   onPointerSizeChange,
   onPointerIdleMoveChange,
+  onPointerEnabledChange,
+  onPointerAiIntervalChange,
+  onPointerObserveNow,
   canViewDiary,
   onOpenDiary,
   onClose,
@@ -337,15 +355,20 @@ export function Live2DSettingsPanel({
               随机点评
             </button>
             {/*
-             * 希罗指针：本版常开，负责待机游走和视线跟随。
-             * 悬停 / 聚焦打开大小小窗；开关等接入 AstrBot 的「AI 操控」后再开放。
+             * 希罗指针：总开关控制浮层与 AI 观察；悬停 / 聚焦打开大小、间隔小窗。
              */}
             <button
               ref={pointerButtonRef}
               type="button"
-              className="appearance-choice appearance-region-item appearance-system is-on"
-              aria-label={`希罗指针，当前常开，大小 ${pointerSize.toFixed(1)} 倍，悬停可调整`}
-              title="希罗指针常开；悬停调整大小，AI 操控后续开放"
+              className={`appearance-choice appearance-region-item appearance-system${pointerEnabled ? " is-on" : ""}`}
+              aria-pressed={pointerEnabled}
+              aria-label={`希罗指针，当前${pointerEnabled ? "已开启" : "已关闭"}，大小 ${pointerSize.toFixed(1)} 倍，悬停可调整`}
+              title={
+                pointerEnabled
+                  ? "希罗指针已开启：她每隔一会儿看一眼屏幕，自己决定把指针移到哪；点击关闭"
+                  : "希罗指针已关闭：点击开启，悬停可调整大小与观察间隔"
+              }
+              onClick={() => onPointerEnabledChange(!pointerEnabled)}
               onPointerEnter={(event) => {
                 if (event.pointerType === "mouse") openPopover("pointer");
               }}
@@ -433,9 +456,16 @@ export function Live2DSettingsPanel({
           panel={activePopover.panel}
           size={pointerSize}
           idleMove={pointerIdleMove}
+          enabled={pointerEnabled}
+          intervalSec={pointerAiInterval}
+          aiState={pointerAiState}
+          observing={pointerObserving}
           popoverRef={popoverRef}
           onChange={onPointerSizeChange}
           onToggleIdleMove={() => onPointerIdleMoveChange(!pointerIdleMove)}
+          onToggleEnabled={() => onPointerEnabledChange(!pointerEnabled)}
+          onIntervalChange={onPointerAiIntervalChange}
+          onObserveNow={onPointerObserveNow}
           onPointerEnter={handlePopoverPointerEnter}
           onPointerLeave={handlePopoverPointerLeave}
           onPointerDown={handlePopoverPointerDown}

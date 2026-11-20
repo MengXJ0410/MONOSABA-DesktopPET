@@ -41,6 +41,7 @@ import type {
   MemoryUpdateInput,
   MemoryWriteResult,
   MessageFont,
+  PointerAiState,
   PointerControl,
   PointerPosition,
   PointerUpdate,
@@ -356,6 +357,32 @@ const api = {
     ipcRenderer.on("pointer:control", listener);
     return () => {
       ipcRenderer.removeListener("pointer:control", listener);
+    };
+  },
+  /** 希罗指针开关 + AI 观察间隔；返回主进程当前状态。 */
+  configurePointerAi(patch: {
+    enabled?: boolean;
+    intervalSec?: number;
+    dailyLimit?: number;
+    /** 指针是否可用（希罗 + 开关打开），用于给模型注入能力提示。 */
+    capable?: boolean;
+  }): Promise<PointerAiState> {
+    return ipcRenderer.invoke("pointer:ai:configure", patch) as Promise<PointerAiState>;
+  },
+  getPointerAiState(): Promise<PointerAiState> {
+    return ipcRenderer.invoke("pointer:ai:get") as Promise<PointerAiState>;
+  },
+  /** 「立即观察一次」：忽略画面变化判定，让希罗马上看一眼。 */
+  observePointerNow(): Promise<PointerAiState> {
+    return ipcRenderer.invoke("pointer:ai:observe") as Promise<PointerAiState>;
+  },
+  onPointerAiState(handler: (state: PointerAiState) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, state: PointerAiState) => {
+      handler(state);
+    };
+    ipcRenderer.on("pointer:ai:state", listener);
+    return () => {
+      ipcRenderer.removeListener("pointer:ai:state", listener);
     };
   },
   captureDiaryCard(rect: {

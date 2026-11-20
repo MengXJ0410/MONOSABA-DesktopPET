@@ -686,9 +686,72 @@ export type PointerUpdate = {
   visible: boolean;
 };
 
-/** 主进程发给桌宠渲染层的指针状态；本版只使用 wander。 */
-export type PointerControl = {
-  mode: "wander" | "external";
-  x?: number;
-  y?: number;
+/** 主进程发给桌宠渲染层的指针指令。 */
+export type PointerControl =
+  | { mode: "wander" }
+  | {
+      mode: "external";
+      /** 虚拟桌面 DIP 坐标。 */
+      x: number;
+      y: number;
+      /** 从当前位置缓动到目标点的时长（毫秒）。 */
+      durationMs: number;
+      /** 到达后停留多久（毫秒），之后交回闲时游走。 */
+      holdMs: number;
+      /** 递增序号；渲染层用它丢弃过期指令。 */
+      seq: number;
+    };
+
+/** AI 观察设置。间隔由面板滑杆决定，日上限是防止挂机烧 token 的兜底。 */
+export type PointerAiSettings = {
+  /** 观察间隔（秒），1~30。 */
+  intervalSec: number;
+  /** 每日模型调用上限。 */
+  dailyLimit: number;
+};
+
+/** 模型给出的一个指针动作。坐标是相对截取屏幕的 0~1 比例。 */
+export type PointerAiAction = {
+  kind: "move";
+  /** 0~1，相对截图左边缘。 */
+  nx: number;
+  /** 0~1，相对截图上边缘。 */
+  ny: number;
+  durationMs: number;
+  holdMs: number;
+  /** 模型给出的简短理由，只写日志，不上屏。 */
+  reason?: string;
+};
+
+/** 一轮观察被跳过的原因。 */
+export type PointerAiSkipReason =
+  | "unchanged"
+  | "sleeping"
+  | "disabled"
+  | "budget"
+  | "capture"
+  | "offline"
+  | "no-action"
+  | "error";
+
+/** AI 观察的运行状态，供指针小窗显示“她刚才看到了什么、为什么没动”。 */
+export type PointerAiState = {
+  running: boolean;
+  intervalSec: number;
+  dailyLimit: number;
+  /** 今天（本地日期）已经调用模型的次数。 */
+  todayCalls: number;
+  /** 最近一次本地观察时间；0 表示还没开始。 */
+  lastObserveAt: number;
+  /** 最近一次真正调用模型的时间；0 表示还没调过。 */
+  lastModelAt: number;
+  /** 最近一次动作；null 表示还没有动作。 */
+  lastAction: PointerAiAction | null;
+  lastSkip?: PointerAiSkipReason;
+  lastSkipDetail?: string;
+  /** 最近一张截图的大小（字节）与耗时。 */
+  lastCaptureBytes: number;
+  lastCaptureMs: number;
+  /** 最近一轮总耗时（毫秒）。 */
+  lastDurationMs: number;
 };

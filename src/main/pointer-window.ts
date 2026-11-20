@@ -208,3 +208,14 @@ export function isPointerWindow(win: BrowserWindow | null): boolean {
   }
   return false;
 }
+
+/**
+ * 关闭希罗指针时把浮层藏起来。
+ * 重新开启后不用在这里显示：渲染层下一次上报坐标时 routePointer 会自动 showInactive。
+ */
+export function hidePointerWindows(): void {
+  for (const overlay of overlays.values()) {
+    if (!overlay.win.isDestroyed() && overlay.win.isVisible()) overlay.win.hide();
+  }
+  activeDisplayId = null;
+}

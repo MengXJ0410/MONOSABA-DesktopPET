@@ -314,6 +314,8 @@ export class ChatService {
   private lastChatActivityAt = 0;
   /** 最近一次发送消息的时间。 */
   private lastChatSendAt = 0;
+  /** 希罗指针是否可用：可用时桌面消息会带上「你能操控第二指针」的提示。 */
+  private pointerCapable = false;
   private bootstrapped = false;
   private bootstrapInFlight = false;
   private pollInFlight = false;
@@ -691,6 +693,7 @@ export class ChatService {
     const result = await sendMessage(value, screen?.base64, false, {
       clientId: options.clientId,
       quote: options.quote ?? null,
+      pointerEnabled: this.pointerCapable,
     });
     if (!result.ok) {
       this.setStatus(statusFromError(result.kind, result.error));
@@ -873,6 +876,11 @@ export class ChatService {
   async isSleeping(): Promise<boolean> {
     const status = await this.getMoodStatus(false);
     return status.sleeping === true;
+  }
+
+  /** 希罗指针是否可用；由桌宠渲染层同步过来，只影响发送时注入的能力提示。 */
+  setPointerCapable(enabled: boolean): void {
+    this.pointerCapable = enabled;
   }
 
   private invalidateMood(): void {

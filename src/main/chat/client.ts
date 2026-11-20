@@ -181,7 +181,12 @@ export async function sendMessage(
   text: string,
   imageBase64?: string | null,
   commentary = false,
-  options: { clientId?: string; quote?: ChatQuote | null } = {},
+  options: {
+    clientId?: string;
+    quote?: ChatQuote | null;
+    /** 希罗指针是否开启；桥接据此给模型补一句「你可以操控第二指针」。 */
+    pointerEnabled?: boolean;
+  } = {},
 ): Promise<ChatSendResult> {
   const body: Record<string, unknown> = { text };
   if (imageBase64) {
@@ -196,6 +201,9 @@ export async function sendMessage(
   if (options.quote) {
     body.quote = options.quote;
   }
+  if (options.pointerEnabled) {
+    body.pointerEnabled = true;
+  }
   const config = (await readConfig()).chat;
   // 带截图 / 点评的请求体大，且桥接可能正排在模型回合后面；
   // 15 秒默认超时太短，会把已经成功注入的回合误判成失败。
@@ -209,6 +217,37 @@ export async function sendMessage(
       body: JSON.stringify(body),
     },
     timeout,
+  );
+}
+
+/** 桥接返回的 AI 指针观察结果。action 为 null 表示模型觉得不用动。 */
+export type PointerObservation = {
+  action: {
+    /** 0~1，相对截图。 */
+    nx: number;
+    ny: number;
+    durationMs: number;
+    holdMs: number;
+    reason?: string;
+  } | null;
+};
+
+/** AI 指针观察：把压缩截图交给桥接，由希罗的人格决定要不要移动指针。 */
+export async function requestPointer(
+  imageBase64: string,
+  screen: { width: number; height: number },
+): Promise<ChatResult<PointerObservation>> {
+  const config = (await readConfig()).chat;
+  return request<PointerObservation>(
+    "/pointer",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        image: { mime: "image/jpeg", data: imageBase64 },
+        screen,
+      }),
+    },
+    Math.max(config.timeoutMs, 90_000),
   );
 }
 

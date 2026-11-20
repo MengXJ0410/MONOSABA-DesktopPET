@@ -386,6 +386,15 @@
   border-color: var(--pet-accent, var(--accent));
 }
 
+.appearance-popover-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.appearance-popover-switch:disabled:hover {
+  border-color: var(--pet-button-border, rgba(220, 235, 255, 0.16));
+}
+
 .appearance-popover-switch.is-on {
   border-color: var(--pet-button-on-border, var(--accent));
   background: var(--pet-button-on-bg, color-mix(in srgb, var(--accent) 42%, transparent));
