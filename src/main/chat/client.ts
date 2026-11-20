@@ -229,13 +229,21 @@ export type PointerObservation = {
     durationMs: number;
     holdMs: number;
     reason?: string;
+    /** 她随口说的一句话；桥接已写进桌面聊天日志。 */
+    say?: string;
   } | null;
+  /** 成功时桥接返回的闲聊文本（和 action.say 相同）。 */
+  say?: string;
 };
 
-/** AI 指针观察：把压缩截图交给桥接，由希罗的人格决定要不要移动指针。 */
+/**
+ * AI 指针观察：把压缩截图交给桥接，由希罗的人格决定要不要移动指针。
+ * hint 是用户刚从桌面发出的那句话，让观察不必等会话历史落盘就能执行。
+ */
 export async function requestPointer(
   imageBase64: string,
   screen: { width: number; height: number },
+  hint?: string,
 ): Promise<ChatResult<PointerObservation>> {
   const config = (await readConfig()).chat;
   return request<PointerObservation>(
@@ -245,6 +253,7 @@ export async function requestPointer(
       body: JSON.stringify({
         image: { mime: "image/jpeg", data: imageBase64 },
         screen,
+        ...(hint ? { hint } : {}),
       }),
     },
     Math.max(config.timeoutMs, 90_000),

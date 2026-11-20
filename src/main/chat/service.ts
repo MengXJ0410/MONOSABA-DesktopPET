@@ -547,7 +547,10 @@ export class ChatService {
     }
     if (!this.bootstrapped) return;
     const replies = messages.filter(
-      (message) => message.role === "assistant" && !silent.has(message.id),
+      (message) =>
+        message.role === "assistant" &&
+        message.pointer !== true &&
+        !silent.has(message.id),
     );
     if (replies.length === 0) return;
     if (this.windowActive) {

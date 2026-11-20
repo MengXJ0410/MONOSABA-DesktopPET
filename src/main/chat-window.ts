@@ -45,6 +45,7 @@ import {
   WINDOW_PADDING,
 } from "./chat/layout";
 import { isPointerWindow } from "./pointer-window";
+import { noteChatMessage } from "./pointer-ai";
 import { logChatWindow } from "./logs";
 
 function broadcastToWindows(channel: string, payload: unknown): void {
@@ -822,12 +823,15 @@ export function initChatWindow(): void {
       record.quote && typeof record.quote === "object"
         ? (record.quote as ChatQuote)
         : undefined;
-    return service().send(value, {
+    const result = await service().send(value, {
       captureScreen: capture,
       displayId,
       clientId,
       quote,
     });
+    // 她刚在聊天里听到一句话：让指针马上看他一眼，指令不用等下一个观察周期。
+    if (result.ok && !result.data.retracted) noteChatMessage(value);
+    return result;
   });
 
   ipcMain.handle("chat:media", async (event, media: unknown, kind: unknown) => {

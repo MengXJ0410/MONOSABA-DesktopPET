@@ -349,6 +349,8 @@ export type ChatMessage = {
   pending?: boolean;
   /** 历史回填没有原始时间，ts 是按顺序推算的近似值。 */
   approximate?: boolean;
+  /** 希罗指针动作附带的闲聊；不增加未读、不弹通知。 */
+  pointer?: boolean;
 };
 
 export type ChatConnectionState =

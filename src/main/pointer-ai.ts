@@ -37,6 +37,12 @@ let enabled = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 /** 每次启停自增；在途请求回来时用它判断结果是否已经过期。 */
 let generation = 0;
+/** 同一时刻只允许一轮观察（定时器 / 立即观察 / 聊天触发共用）。 */
+let observing = false;
+/** 聊天刚发过消息时暂存的原话；下一轮观察带上它。 */
+let chatHint: string | null = null;
+let chatHintTimer: ReturnType<typeof setTimeout> | null = null;
+let chatHintRetries = 0;
 
 let lastFingerprint: string | null = null;
 let lastDisplayId: string | null = null;
@@ -167,10 +173,14 @@ function schedule(delayMs?: number): void {
 
 async function tick(): Promise<void> {
   const gen = generation;
+  if (observing) return;
+  observing = true;
   try {
     await observe(gen, false);
   } catch (error) {
     markSkip("error", Date.now(), error instanceof Error ? error.message : String(error));
+  } finally {
+    observing = false;
   }
   if (gen !== generation || !enabled) return;
   // 上一轮分析结束后再等 N 秒，模型慢的时候不会堆叠请求。
@@ -178,10 +188,59 @@ async function tick(): Promise<void> {
 }
 
 /**
- * 跑一轮观察。
- * @param force 忽略指纹变化判定（「立即观察一次」用）。
+ * 她刚在桌面聊天里说了一句话：稍等一下就让指针看她一眼。
+ *
+ * 这样「把指针移到右下角」不会拖到下一个 10 秒周期才执行；
+ * hint 直接带给模型，也不用等 AstrBot 会话历史落盘。
  */
-async function observe(gen: number, force: boolean): Promise<void> {
+export function noteChatMessage(text: string): void {
+  const value = text.trim();
+  if (!enabled || !value) return;
+  if (value.startsWith("/")) return;
+  chatHint = value.slice(0, 500);
+  chatHintRetries = 0;
+  scheduleChatObserve(1200);
+}
+
+function scheduleChatObserve(delayMs: number): void {
+  if (chatHintTimer !== null) clearTimeout(chatHintTimer);
+  const gen = generation;
+  chatHintTimer = setTimeout(() => {
+    chatHintTimer = null;
+    if (gen !== generation || !enabled || !chatHint) return;
+    void runChatObserve(gen);
+  }, delayMs);
+}
+
+async function runChatObserve(gen: number): Promise<void> {
+  if (observing) {
+    // 正在跑定时观察：等它结束再说，最多重试 6 次。
+    chatHintRetries += 1;
+    if (chatHintRetries <= 6 && gen === generation && enabled) {
+      scheduleChatObserve(1500);
+    } else {
+      chatHint = null;
+    }
+    return;
+  }
+  const hint = chatHint ?? undefined;
+  observing = true;
+  try {
+    await observe(gen, true, hint);
+    chatHint = null;
+  } catch (error) {
+    markSkip("error", Date.now(), error instanceof Error ? error.message : String(error));
+  } finally {
+    observing = false;
+  }
+}
+
+/**
+ * 跑一轮观察。
+ * @param force 忽略指纹变化判定（「立即观察一次」/ 聊天刚发过消息时用）。
+ * @param hint 用户刚在桌面聊天里说的话，直接塞给模型，不用等会话历史落盘。
+ */
+async function observe(gen: number, force: boolean, hint?: string): Promise<void> {
   const startedAt = Date.now();
   lastCaptureMs = 0;
   lastCaptureBytes = 0;
@@ -242,10 +301,14 @@ async function observe(gen: number, force: boolean): Promise<void> {
 
   todayCalls += 1;
   lastModelAt = Date.now();
-  const result = await requestPointer(shot.base64, {
-    width: display.bounds.width,
-    height: display.bounds.height,
-  });
+  const result = await requestPointer(
+    shot.base64,
+    {
+      width: display.bounds.width,
+      height: display.bounds.height,
+    },
+    force ? hint : undefined,
+  );
   if (gen !== generation || !enabled) return;
 
   if (!result.ok) {
@@ -284,6 +347,10 @@ async function observe(gen: number, force: boolean): Promise<void> {
     holdMs,
     reason: typeof raw.reason === "string" ? raw.reason.slice(0, 120) : undefined,
   };
+  const saySource =
+    typeof raw.say === "string" ? raw.say : result.data?.say;
+  const say =
+    typeof saySource === "string" ? saySource.trim().slice(0, 60) : "";
 
   actionSeq += 1;
   lastAction = action;
@@ -301,7 +368,7 @@ async function observe(gen: number, force: boolean): Promise<void> {
   void appendLog(
     `move ${lastDurationMs}ms capture=${lastCaptureMs}ms ${lastCaptureBytes}B ` +
       `display=${displayId} nx=${nx.toFixed(3)} ny=${ny.toFixed(3)} ` +
-      `duration=${durationMs} hold=${holdMs} "${action.reason ?? ""}"`,
+      `duration=${durationMs} hold=${holdMs} say="${say}" "${action.reason ?? ""}"`,
   );
 }
 
@@ -317,6 +384,7 @@ export function setPointerAiEnabled(next: boolean): PointerAiState {
     schedule();
   } else {
     clearTimer();
+    clearChatHint();
   }
   broadcast();
   return getPointerAiState();
@@ -353,12 +421,15 @@ export function updatePointerAiSettings(patch: {
 
 /** 「立即观察一次」：忽略指纹判定，但仍受开关、睡眠和日上限约束。 */
 export async function observePointerNow(): Promise<PointerAiState> {
-  if (!enabled) return getPointerAiState();
+  if (!enabled || observing) return getPointerAiState();
   const gen = generation;
+  observing = true;
   try {
     await observe(gen, true);
   } catch (error) {
     markSkip("error", Date.now(), error instanceof Error ? error.message : String(error));
+  } finally {
+    observing = false;
   }
   return getPointerAiState();
 }
@@ -368,4 +439,14 @@ export function disposePointerAi(): void {
   enabled = false;
   generation += 1;
   clearTimer();
+  clearChatHint();
+}
+
+function clearChatHint(): void {
+  if (chatHintTimer !== null) {
+    clearTimeout(chatHintTimer);
+    chatHintTimer = null;
+  }
+  chatHint = null;
+  chatHintRetries = 0;
 }

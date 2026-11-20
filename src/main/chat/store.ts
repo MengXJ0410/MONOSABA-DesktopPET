@@ -94,6 +94,7 @@ export function normalizeMessage(value: unknown): ChatMessage | null {
     attachments,
     live: value.live === true,
     approximate: value.approximate === true,
+    pointer: value.pointer === true,
   };
 }
 

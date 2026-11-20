@@ -84,7 +84,7 @@ from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 PLUGIN_NAME = "astrbot_plugin_desktoppet_bridge"
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "0.4.1"
 
 CAPABILITIES = [
     "bootstrap",
@@ -109,21 +109,29 @@ POINTER_MARKER = "〔希罗指针〕"
 POINTER_HISTORY_LIMIT = 6
 POINTER_HISTORY_CHARS = 160
 POINTER_MAX_REASON = 120
+POINTER_MAX_SAY = 60
+POINTER_MAX_HINT = 500
 
 POINTER_SYSTEM_PROMPT = """{persona}
 
-{marker}你有一个属于自己的第二指针：桌面上那个小光标就是你，不是他的鼠标。你有权自己决定把它移到哪里，但只能移动，不能点击、拖拽、滚动或输入。
-每隔一会儿桌面端会给你一张他的屏幕截图，让你决定下一步。你的目的完全由你自己定：可以去看他在做什么、把指针挪到他正在看的地方陪着他、指一下某个窗口，也可以什么都不做。
+{marker}你正坐在他旁边，陪他用电脑。桌面上那个小光标是你自己的第二指针，不是他的鼠标。你可以自己决定把它移到哪里，但只能移动，不能点击、拖拽、滚动或输入。
+
+每隔一会儿，桌面端会把他的屏幕截图交给你。你要做两件事：
+1. 决定指针下一步去哪。目的完全由你自己定：凑近看他正在做什么、停在他看着的地方陪着、指一下某个窗口；也可以什么都不做。
+2. 如果想动，再随口对他说一句话，像坐在旁边聊天那样，一两句就够。可以接着屏幕上的内容说，也可以只是陪着他。每次换着说，不要提“指针 / 坐标 / 截图”，也不要解释你在执行动作。
+
 只输出一个 JSON 对象，不要解释，不要代码块，不要多余文字。
-- 想动：{{"act":"move","x":0.42,"y":0.66,"duration_ms":900,"hold_ms":1500,"reason":"一句话说明你想干什么"}}
+- 想动：{{"act":"move","x":0.42,"y":0.66,"duration_ms":900,"hold_ms":1500,"say":"你在看这个呀，我凑近点","reason":"内部备注"}}
 - 不想动：{{"act":"none"}}
-坐标以截图左上角为 (0,0)、右下角为 (1,1)。reason 只写进日志，不会显示给他。"""
+
+坐标以截图左上角为 (0,0)、右下角为 (1,1)。`say` 会作为一条聊天消息发给他，8~40 字、口语化；`reason` 只写进日志，不会显示。
+如果最近的对话或他刚说的话里明确让你把指针移到某处、或者看某个东西，优先照做；这种时候 `say` 简短答应一声就好。"""
 
 POINTER_HINT_DEFAULT = (
     "〔希罗指针〕你有一个属于自己的第二指针：桌面上那个小光标就是你，不是他的鼠标。"
     "你可以自己决定把它移到屏幕上的任何地方，但只能移动，不能点击、拖拽或输入。"
     "你每隔几秒会看一眼他的屏幕，自己决定要不要动、动到哪里。"
-    "如果他在聊天里让你指某个东西，就答应他，并在下一次看屏幕时把指针移过去。"
+    "如果他在聊天里让你指某个东西，就答应他，桌面端会立刻把你的指针移过去。"
 )
 
 # 动作参数兜底范围：模型偶尔会给出离谱的时长。
@@ -360,6 +368,7 @@ def _parse_pointer_action(text: object) -> dict | None:
     if not (-0.05 <= nx <= 1.05 and -0.05 <= ny <= 1.05):
         return None
     reason = str(data.get("reason") or "").strip().replace("\n", " ")
+    say = str(data.get("say") or "").strip().replace("\n", " ")
     return {
         "nx": max(0.0, min(1.0, nx)),
         "ny": max(0.0, min(1.0, ny)),
@@ -384,6 +393,7 @@ def _parse_pointer_action(text: object) -> dict | None:
             )
         ),
         "reason": reason[:POINTER_MAX_REASON],
+        "say": say[:POINTER_MAX_SAY],
     }
 
 
@@ -856,6 +866,8 @@ class DesktopPetBridge(Star):
         self._retracted_turns: dict[str, float] = {}
         # 发送还没到、撤回先到的回合；下一次 /send 直接吃掉。
         self._pending_retract: dict[str, float] = {}
+        # 最近几条指针闲聊：给下一轮观察和聊天模型当上下文，不写进会话历史。
+        self._pointer_recent: list[tuple[float, str]] = []
 
     # ------------------------------------------------------------------ 生命周期
     async def initialize(self) -> None:
@@ -1063,6 +1075,7 @@ class DesktopPetBridge(Star):
             "attachments": normalized_attachments,
             "turn": _normalize_turn(item.get("turn")) or None,
             "quote": _normalize_quote(item.get("quote")),
+            "pointer": bool(item.get("pointer")),
         }
 
     def _rewrite_log(self) -> None:
@@ -1097,6 +1110,7 @@ class DesktopPetBridge(Star):
         attachments: list[dict] | None = None,
         turn: str | None = None,
         quote: dict | None = None,
+        pointer: bool = False,
     ) -> dict | None:
         cleaned = _clean(text)
         normalized = [item for item in (attachments or []) if isinstance(item, dict)]
@@ -1112,6 +1126,7 @@ class DesktopPetBridge(Star):
                 "attachments": normalized,
                 "turn": turn or None,
                 "quote": quote,
+                "pointer": bool(pointer),
             }
             self._next_id += 1
             self._entries.append(entry)
@@ -2088,6 +2103,11 @@ class DesktopPetBridge(Star):
         except Exception:
             return {"status": "error", "message": "截图格式不正确。"}
 
+        snippet = payload.get("hint")
+        hint = ""
+        if isinstance(snippet, str):
+            hint = snippet.strip()[:POINTER_MAX_HINT]
+
         # 睡着时不动：不截图分析，也不让指针乱跑。
         if self._sleep_state().get("sleeping"):
             return {"status": "ok", "data": {"action": None, "sleeping": True}}
@@ -2097,11 +2117,11 @@ class DesktopPetBridge(Star):
             return {"status": "ok", "data": {"action": None, "busy": True}}
         self._pointer_busy = True
         try:
-            return await self._run_pointer(data)
+            return await self._run_pointer(data, hint)
         finally:
             self._pointer_busy = False
 
-    async def _run_pointer(self, data: str) -> dict:
+    async def _run_pointer(self, data: str, hint: str = "") -> dict:
         provider = None
         try:
             provider = await self.context.get_using_provider_async(self.umo)
@@ -2124,12 +2144,25 @@ class DesktopPetBridge(Star):
             marker=POINTER_MARKER,
         )
         context_text = await self._pointer_context()
-        user_prompt = (
-            f"{context_text}"
+        parts: list[str] = []
+        if self._pointer_recent:
+            tail = [text for _, text in self._pointer_recent[-3:]]
+            parts.append(
+                "〔你刚才陪他时说过〕\n"
+                + "\n".join(f"- {text}" for text in tail)
+                + "\n"
+            )
+        if context_text:
+            parts.append(context_text)
+        if hint:
+            parts.append(f"〔他刚刚在聊天里对你说〕\n{hint}\n")
+        parts.append(
             "〔当前屏幕〕\n"
-            "这是他现在屏幕上的画面。按上面的格式，只输出一个 JSON 对象，"
-            "决定你的第二指针下一步要做什么；不想动就返回 {\"act\":\"none\"}。"
+            "这是他现在屏幕上的画面。按上面的格式，只输出一个 JSON 对象："
+            "先决定你的第二指针下一步要做什么，想动就再附一句对他说的话；"
+            "不想动就返回 {\"act\":\"none\"}。"
         )
+        user_prompt = "".join(parts)
 
         started = time.time()
         try:
@@ -2146,19 +2179,32 @@ class DesktopPetBridge(Star):
         text = str(getattr(response, "completion_text", "") or "")
         action = _parse_pointer_action(text)
         elapsed = int((time.time() - started) * 1000)
+        say = ""
         if action is None:
             logger.info("[desktoppet] 指针观察：不动 %sms", elapsed)
         else:
+            say = str(action.get("say") or "").strip()
             logger.info(
-                "[desktoppet] 指针观察：移动 %sms x=%.3f y=%.3f duration=%s hold=%s reason=%s",
+                "[desktoppet] 指针观察：移动 %sms x=%.3f y=%.3f duration=%s hold=%s say=%s reason=%s",
                 elapsed,
                 action["nx"],
                 action["ny"],
                 action["durationMs"],
                 action["holdMs"],
+                say,
                 action["reason"],
             )
-        return {"status": "ok", "data": {"action": action}}
+            if say:
+                # 指针动作的闲聊只进桌面聊天日志，不写 AstrBot 会话历史：
+                # 既让她在聊天里出声，又不会把挂机时的几百句话塞进共享上下文。
+                try:
+                    await self._append("assistant", say, "pointer", pointer=True)
+                except Exception:
+                    logger.exception("[desktoppet] 写入指针闲聊失败")
+                self._pointer_recent.append((time.time(), say))
+                if len(self._pointer_recent) > 12:
+                    self._pointer_recent = self._pointer_recent[-12:]
+        return {"status": "ok", "data": {"action": action, "say": say}}
 
     async def _api_send(self):
         try:
@@ -2696,7 +2742,13 @@ class DesktopPetBridge(Star):
                 event.set_extra("_desktoppet_pointer_hint_added", True)
                 parts = getattr(req, "extra_user_content_parts", None)
                 if isinstance(parts, list):
-                    parts.append(TextPart(text=self.pointer_hint).mark_as_temp())
+                    hint = self.pointer_hint
+                    if self._pointer_recent:
+                        tail = "；".join(
+                            text for _, text in self._pointer_recent[-3:]
+                        )
+                        hint = f"{hint}\n〔你刚才陪他时说过〕{tail}"
+                    parts.append(TextPart(text=hint).mark_as_temp())
 
             if event.get_extra("_desktoppet_logged"):
                 return
