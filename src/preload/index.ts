@@ -22,6 +22,7 @@ import type {
   ChatSendResult,
   ChatSettingsExportResult,
   ChatSettingsImportResult,
+  ChatSkillsData,
   ChatStatus,
   ChatStatusData,
   ChatStorageInfo,
@@ -109,6 +110,9 @@ const api = {
   },
   chatCommands(force = false): Promise<ChatCommandsData | null> {
     return ipcRenderer.invoke("chat:commands", force) as Promise<ChatCommandsData | null>;
+  },
+  chatSkills(force = false): Promise<ChatSkillsData | null> {
+    return ipcRenderer.invoke("chat:skills", force) as Promise<ChatSkillsData | null>;
   },
   chatStatusData(force = false): Promise<ChatStatusData | null> {
     return ipcRenderer.invoke("chat:status-data", force) as Promise<ChatStatusData | null>;

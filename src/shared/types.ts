@@ -501,6 +501,53 @@ export type ChatCommandsData = {
   generatedAt: number;
 };
 
+/** 指针 SKILL 的一个分区。 */
+export type ChatSkillSection = {
+  name: string;
+  items: string[];
+};
+
+/** 指针 SKILL 的一次改写记录。 */
+export type ChatSkillChange = {
+  version: number;
+  ts: number;
+  source: string;
+  change: string;
+};
+
+export type ChatPointerSkill = {
+  available: boolean;
+  name: string;
+  error?: string;
+  version?: number;
+  markdown?: string;
+  sections?: ChatSkillSection[];
+  stats?: {
+    bullets: number;
+    episodes: number;
+    sinceReflect: number;
+    reflectEveryN: number;
+  };
+  changes?: ChatSkillChange[];
+  updatedAt?: number;
+};
+
+/** /AstrBot/data/skills 下的自定义 SKILL（只读）。 */
+export type ChatCustomSkill = {
+  id: string;
+  name: string;
+  description: string;
+  active: boolean;
+  updatedAt: number;
+  markdown: string;
+};
+
+export type ChatSkillsData = {
+  pointer: ChatPointerSkill;
+  custom: ChatCustomSkill[];
+  updatedAt: number;
+};
+
 export type ChatMediaKind = "thumb" | "original";
 
 export type ChatMediaData = {

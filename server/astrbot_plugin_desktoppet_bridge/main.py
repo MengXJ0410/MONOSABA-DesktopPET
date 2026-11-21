@@ -63,6 +63,11 @@
 - 聊天提示词带上「第二指针刚才停在画面哪个方位」，让闲聊接得上。
 - /commands 兜底列表补充 /交互（技能 / 历史 / 回退 / 复盘 / 统计）。
 
+0.4.3 变更：
+- 新增 GET /skills：给桌面端左侧栏「SKILL」读取只读内容。
+  指针 SKILL 由真实交互插件提供（统计 / 五分区 / 最近改动），
+  同时扫描 /AstrBot/data/skills/ 下的自定义 SKILL（过滤内置办公技能）。
+
 设计边界：
 - 只处理一个固定 UMO（默认 Hiro:FriendMessage:1955272576）。
 - 媒体原图保存在 plugin_data/<plugin>/media；缩略图按需生成。
@@ -103,7 +108,7 @@ from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 PLUGIN_NAME = "astrbot_plugin_desktoppet_bridge"
-PLUGIN_VERSION = "0.4.2"
+PLUGIN_VERSION = "0.4.3"
 
 CAPABILITIES = [
     "bootstrap",
@@ -117,7 +122,11 @@ CAPABILITIES = [
     "retract",
     "quote",
     "pointer",
+    "skills",
 ]
+
+# 桌面端「SKILL」只展示希罗相关和用户自定义技能，不混入 AstrBot 自带办公技能。
+BUILTIN_SKILL_NAMES = {"documents", "pdf", "spreadsheets", "skill-creator"}
 
 # 屏幕点评的触发消息只用于上下文；桌面聊天和日志里都要隐藏它。
 COMMENTARY_MARKER = "〔桌面屏幕点评〕"
@@ -937,6 +946,8 @@ class DesktopPetBridge(Star):
         self.data_dir = data_root / PLUGIN_NAME
         self.log_path = self.data_dir / "messages.jsonl"
         self.meta_path = self.data_dir / "messages.meta.json"
+        self.skills_root = data_root.parent / "skills"
+        self.skills_config_path = data_root.parent / "skills.json"
         self.mood_data_path = Path(
             str(self.config.get("mood_data_path") or "")
             or (data_root / "astrbot_plugin_hiro_mood" / "mood.json")
@@ -1039,6 +1050,12 @@ class DesktopPetBridge(Star):
             self._api_pointer,
             ["POST"],
             "桌面聊天桥接：希罗指针观察，让模型决定下一步动作",
+        )
+        self.context.register_web_api(
+            f"/{PLUGIN_NAME}/skills",
+            self._api_skills,
+            ["GET"],
+            "桌面聊天桥接：希罗指针 SKILL 与自定义 SKILL 只读内容",
         )
 
         self._capture_task = asyncio.create_task(self._capture_loop())
@@ -2654,6 +2671,94 @@ class DesktopPetBridge(Star):
                 "base64": base64.b64encode(raw).decode(),
             },
         }
+
+    async def _api_skills(self):
+        pointer: dict = {
+            "available": False,
+            "name": "希罗指针操作 SKILL",
+            "error": "真实交互插件未加载。",
+        }
+        interaction = self._get_plugin("astrbot_plugin_hiro_interaction")
+        if interaction is not None:
+            try:
+                view = await interaction.get_pointer_skill_view()
+                if isinstance(view, dict):
+                    pointer = view
+            except Exception:
+                logger.warning("[desktoppet] 读取指针 SKILL 视图失败", exc_info=True)
+                pointer = {
+                    "available": False,
+                    "name": "希罗指针操作 SKILL",
+                    "error": "读取指针 SKILL 失败。",
+                }
+        custom = await asyncio.to_thread(self._read_custom_skills_sync)
+        return {
+            "status": "ok",
+            "data": {
+                "pointer": pointer,
+                "custom": custom,
+                "updatedAt": int(time.time() * 1000),
+            },
+        }
+
+    def _read_custom_skills_sync(self) -> list[dict]:
+        root = self.skills_root
+        if not root.is_dir():
+            return []
+        active_map: dict[str, bool] = {}
+        try:
+            raw = json.loads(self.skills_config_path.read_text(encoding="utf-8"))
+            skills = raw.get("skills") if isinstance(raw, dict) else None
+            if isinstance(skills, dict):
+                for name, item in skills.items():
+                    if isinstance(item, dict):
+                        active_map[str(name)] = bool(item.get("active", True))
+        except Exception:
+            active_map = {}
+
+        result: list[dict] = []
+        for entry in sorted(root.iterdir(), key=lambda path: path.name.lower()):
+            if not entry.is_dir() or entry.name in BUILTIN_SKILL_NAMES:
+                continue
+            md_path = entry / "SKILL.md"
+            if not md_path.is_file():
+                continue
+            try:
+                text = md_path.read_text(encoding="utf-8")
+            except Exception:
+                logger.warning("[desktoppet] 读取 SKILL 失败：%s", md_path, exc_info=True)
+                continue
+            text = re.sub(r"\[reference:\d+\]", "", text)[:60000]
+            title = entry.name
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("# "):
+                    title = stripped[2:].strip() or title
+                    break
+            description = ""
+            front = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.S)
+            if front:
+                for line in front.group(1).splitlines():
+                    if line.strip().startswith("description:"):
+                        description = (
+                            line.split(":", 1)[1].strip().strip("\"'")[:100]
+                        )
+                        break
+            try:
+                updated_at = int(md_path.stat().st_mtime * 1000)
+            except OSError:
+                updated_at = 0
+            result.append(
+                {
+                    "id": entry.name,
+                    "name": title,
+                    "description": description,
+                    "active": active_map.get(entry.name, True),
+                    "updatedAt": updated_at,
+                    "markdown": text,
+                }
+            )
+        return result
 
     async def _api_commands(self):
         rows: list[dict] = []

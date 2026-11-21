@@ -28,6 +28,7 @@ import type {
   ChatQuote,
   ChatResizeDirection,
   ChatRole,
+  ChatSkillsData,
   ChatStatus,
   ChatStatusData,
   ChatStorageInfo,
@@ -79,6 +80,7 @@ const MODE_STORAGE_KEY = "chat.ui.mode";
 const LAYOUT_WIDE_MIN = 800;
 const LAYOUT_MID_MIN = 600;
 type FullLayout = "wide" | "mid" | "narrow";
+type ChatPanelMode = "status" | "skills" | "settings";
 
 const SETTINGS_SECTIONS = [
   "appearance",
@@ -335,6 +337,41 @@ function dateTimeLabel(ts?: number): string {
   return `${date.getMonth() + 1}/${date.getDate()} ${timeLabel(ts)}`;
 }
 
+const SKILL_SOURCE_LABEL: Record<string, string> = {
+  seed: "初始",
+  feedback: "聊天反馈",
+  reflect: "周期复盘",
+  rollback: "回退",
+};
+
+type SkillMarkdownSection = { name: string; lines: string[] };
+
+/** 把自定义 SKILL.md 按二级标题拆成阅读分节；去掉引用角标和粗体标记。 */
+function parseSkillMarkdown(text: string): SkillMarkdownSection[] {
+  const cleaned = text
+    .replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+    .replace(/\[reference:\d+\]/g, "")
+    .replace(/\*\*/g, "");
+  const sections: SkillMarkdownSection[] = [];
+  let current: SkillMarkdownSection | null = null;
+  for (const rawLine of cleaned.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("# ")) continue;
+    if (line.startsWith("## ")) {
+      current = { name: line.slice(3).trim(), lines: [] };
+      sections.push(current);
+      continue;
+    }
+    if (!current) {
+      current = { name: "概述", lines: [] };
+      sections.push(current);
+    }
+    current.lines.push(line.replace(/^[-*]\s+/, ""));
+  }
+  return sections.filter((section) => section.lines.length > 0 || section.name !== "概述");
+}
+
 function buildTimeline(messages: ChatMessage[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   let currentDay: number | null = null;
@@ -488,6 +525,12 @@ const icons = {
   heart: (
     <Icon>
       <path d="M12 20s-7-4.35-7-9.5A3.9 3.9 0 0 1 12 7a3.9 3.9 0 0 1 7 3.5C19 15.65 12 20 12 20z" />
+    </Icon>
+  ),
+  skill: (
+    <Icon>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5v-13z" />
+      <path d="M8 7h8M8 11h8M8 15h5" />
     </Icon>
   ),
   expand: (
@@ -1170,6 +1213,211 @@ function StatusPanel({
           打开控制面板
         </button>
       </footer>
+    </aside>
+  );
+}
+
+function SkillsPanel({
+  data,
+  loading,
+  onRefresh,
+  onClose,
+}: {
+  data: ChatSkillsData | null;
+  loading: boolean;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const [selectedId, setSelectedId] = useState("pointer");
+  const custom = useMemo(() => data?.custom ?? [], [data]);
+  const pointer = data?.pointer;
+  const customSkill = custom.find((skill) => skill.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (selectedId !== "pointer" && !custom.some((skill) => skill.id === selectedId)) {
+      setSelectedId("pointer");
+    }
+  }, [custom, selectedId]);
+
+  const pointerStats = pointer?.stats;
+  const reflectEvery = pointerStats?.reflectEveryN ?? 0;
+  const sinceReflect = pointerStats?.sinceReflect ?? 0;
+  const progress =
+    reflectEvery > 0
+      ? Math.min(100, Math.max(0, (sinceReflect / reflectEvery) * 100))
+      : 0;
+  const customSections = useMemo(
+    () => (customSkill ? parseSkillMarkdown(customSkill.markdown) : []),
+    [customSkill],
+  );
+
+  return (
+    <aside className={styles.panel} aria-label="SKILL">
+      <header className={styles.panelHead}>
+        <div>
+          <h2>SKILL</h2>
+          <span className={styles.panelUpdated}>
+            {data?.updatedAt ? `更新于 ${dateTimeLabel(data.updatedAt)}` : ""}
+          </span>
+        </div>
+        <div className={styles.panelActions}>
+          <button
+            type="button"
+            className={`${styles.panelIcon}${loading ? ` ${styles.spinning}` : ""}`}
+            onClick={onRefresh}
+            aria-label="刷新 SKILL"
+            title="刷新 SKILL"
+          >
+            {icons.refresh}
+          </button>
+          <button
+            type="button"
+            className={styles.panelIcon}
+            onClick={onClose}
+            aria-label="收起 SKILL 面板"
+            title="收起 SKILL 面板"
+          >
+            {icons.close}
+          </button>
+        </div>
+      </header>
+
+      <div className={styles.panelScroll}>
+        {!data ? (
+          <div className={styles.panelEmpty}>
+            {loading ? "正在读取 SKILL……" : "还没有读到 SKILL。"}
+          </div>
+        ) : (
+          <>
+            <label className={styles.skillPicker}>
+              <span>已准备好的 SKILL</span>
+              <select
+                value={selectedId}
+                onChange={(event) => setSelectedId(event.target.value)}
+                aria-label="选择 SKILL"
+              >
+                <option value="pointer">
+                  {pointer?.name ?? "希罗指针操作 SKILL"}
+                  {pointer?.version ? ` · v${pointer.version}` : ""}
+                </option>
+                {custom.map((skill) => (
+                  <option key={skill.id} value={skill.id}>
+                    {skill.name}
+                    {skill.active ? "" : "（未启用）"}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {selectedId === "pointer" ? (
+              pointer?.available ? (
+                <>
+                  <section className={styles.panelSection}>
+                    <h3>鼠标熟练度</h3>
+                    <div className={styles.skillStats}>
+                      <div>
+                        <strong>v{pointer.version ?? 1}</strong>
+                        <span>版本</span>
+                      </div>
+                      <div>
+                        <strong>{pointerStats?.bullets ?? 0}</strong>
+                        <span>条经验</span>
+                      </div>
+                      <div>
+                        <strong>{pointerStats?.episodes ?? 0}</strong>
+                        <span>次动作</span>
+                      </div>
+                      <div>
+                        <strong>{Math.max(0, reflectEvery - sinceReflect)}</strong>
+                        <span>距复盘</span>
+                      </div>
+                    </div>
+                    <div className={styles.skillProgress} aria-hidden="true">
+                      <span style={{ width: `${progress}%` }} />
+                    </div>
+                    <p className={styles.skillMeta}>
+                      下次复盘前还会记录 {Math.max(0, reflectEvery - sinceReflect)} 次动作
+                    </p>
+                  </section>
+
+                  {(pointer.sections ?? []).map((section) => (
+                    <section className={styles.panelSection} key={section.name}>
+                      <h3>{section.name}</h3>
+                      {section.items.length > 0 ? (
+                        <ul className={styles.skillList}>
+                          {section.items.map((item, index) => (
+                            <li key={`${section.name}-${index}`}>{item}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className={styles.muted}>还没总结出经验。</p>
+                      )}
+                    </section>
+                  ))}
+
+                  <section className={styles.panelSection}>
+                    <h3>最近改动</h3>
+                    {pointer.changes && pointer.changes.length > 0 ? (
+                      <div className={styles.skillChanges}>
+                        {[...pointer.changes].reverse().map((change, index) => (
+                          <div
+                            className={styles.skillChange}
+                            key={`${change.version}-${change.ts}-${index}`}
+                          >
+                            <div className={styles.skillChangeHead}>
+                              <strong>v{change.version}</strong>
+                              <span>
+                                {SKILL_SOURCE_LABEL[change.source] ?? change.source}
+                              </span>
+                              <time>{dateTimeLabel(change.ts)}</time>
+                            </div>
+                            <p>{change.change || "（没有说明）"}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className={styles.muted}>还没有改过 SKILL。</p>
+                    )}
+                  </section>
+                </>
+              ) : (
+                <div className={styles.panelEmpty}>
+                  {pointer?.error || "指针 SKILL 暂时读不到。"}
+                </div>
+              )
+            ) : customSkill ? (
+              <>
+                <section className={styles.panelSection}>
+                  <h3>{customSkill.name}</h3>
+                  <div className={styles.skillCustomMeta}>
+                    <span
+                      className={`${styles.skillChip}${customSkill.active ? "" : ` ${styles.skillChipOff}`}`}
+                    >
+                      {customSkill.active ? "已启用" : "未启用"}
+                    </span>
+                    <span>更新于 {dateTimeLabel(customSkill.updatedAt)}</span>
+                  </div>
+                  {customSkill.description ? (
+                    <p className={styles.skillMeta}>{customSkill.description}</p>
+                  ) : null}
+                </section>
+                {customSections.map((section, index) => (
+                  <section className={styles.panelSection} key={`${section.name}-${index}`}>
+                    <h3>{section.name}</h3>
+                    <ul className={styles.skillList}>
+                      {section.lines.map((line, lineIndex) => (
+                        <li key={`${section.name}-${lineIndex}`}>{line}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </>
+            ) : (
+              <div className={styles.panelEmpty}>这个 SKILL 已经不在服务器上了。</div>
+            )}
+          </>
+        )}
+      </div>
     </aside>
   );
 }
@@ -3110,7 +3358,7 @@ export function ChatPanel() {
     kind: "avatar" | "name";
     role: ChatProfileRole;
   } | null>(null);
-  const [panelMode, setPanelMode] = useState<"status" | "settings">("status");
+  const [panelMode, setPanelMode] = useState<ChatPanelMode>("status");
   const [storage, setStorage] = useState<ChatStorageInfo | null>(null);
   const [diagnostics, setDiagnostics] = useState<ChatDiagnostics | null>(null);
   const [autoLaunch, setAutoLaunch] = useState(false);
@@ -3152,6 +3400,8 @@ export function ChatPanel() {
   );
   const [statusData, setStatusData] = useState<ChatStatusData | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [skillsData, setSkillsData] = useState<ChatSkillsData | null>(null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
   const [viewer, setViewer] = useState<ViewerState | null>(null);
   const [confirmState, setConfirmState] = useState<{ text: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -3335,6 +3585,18 @@ export function ChatPanel() {
       // 状态面板失败不影响聊天本身。
     } finally {
       setStatusLoading(false);
+    }
+  }, []);
+
+  const refreshSkills = useCallback(async (force = false) => {
+    setSkillsLoading(true);
+    try {
+      const next = await window.petApi.chatSkills(force);
+      if (next) setSkillsData(next);
+    } catch {
+      // SKILL 面板失败不影响聊天本身。
+    } finally {
+      setSkillsLoading(false);
     }
   }, []);
 
@@ -3794,7 +4056,7 @@ export function ChatPanel() {
     window.requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
-  const showPanel = useCallback((mode: "status" | "settings") => {
+  const showPanel = useCallback((mode: ChatPanelMode) => {
     setPanelMode(mode);
     setPanelOpen(true);
     window.localStorage.setItem(PANEL_STORAGE_KEY, "1");
@@ -3886,6 +4148,29 @@ export function ChatPanel() {
       (previous) => !(previous && panelModeRef.current === "settings"),
     );
   }, [showPanel, showToast]);
+
+  const openSkills = useCallback(() => {
+    if (uiRef.current.mode !== "full") {
+      showToast("查看请切换完整版UI");
+      return;
+    }
+    if (layoutRef.current === "wide") {
+      if (panelOpenRef.current && panelModeRef.current === "skills") {
+        setPanelOpen(false);
+        window.localStorage.setItem(PANEL_STORAGE_KEY, "0");
+        return;
+      }
+      showPanel("skills");
+      void refreshSkills(false);
+      return;
+    }
+    setRailDrawerOpen(false);
+    setPanelMode("skills");
+    void refreshSkills(false);
+    setPanelDrawerOpen(
+      (previous) => !(previous && panelModeRef.current === "skills"),
+    );
+  }, [refreshSkills, showPanel, showToast]);
 
   const closePanel = useCallback(() => {
     setPanelOpen(false);
@@ -4603,6 +4888,11 @@ export function ChatPanel() {
   }, [full, panelOpen, refreshStatus]);
 
   useEffect(() => {
+    if (!full || !panelOpen || panelMode !== "skills") return;
+    void refreshSkills(false);
+  }, [full, panelOpen, panelMode, refreshSkills]);
+
+  useEffect(() => {
     window.petApi.chatMarkRead();
     const markRead = () => window.petApi.chatMarkRead();
     window.addEventListener("focus", markRead);
@@ -4847,6 +5137,15 @@ export function ChatPanel() {
           {icons.heart}
           <span>心情</span>
         </button>
+        <button
+          type="button"
+          className={`${styles.railButton}${panelActive && panelMode === "skills" ? ` ${styles.railActive}` : ""}`}
+          onClick={openSkills}
+          aria-pressed={panelActive && panelMode === "skills"}
+        >
+          {icons.skill}
+          <span>SKILL</span>
+        </button>
       </nav>
       <div className={styles.railFoot}>
         <button
@@ -4902,6 +5201,13 @@ export function ChatPanel() {
         onClearStorage={() => void clearStorage()}
         onOpenControlPanel={openControlPanel}
         onToast={showToast}
+      />
+    ) : panelMode === "skills" ? (
+      <SkillsPanel
+        data={skillsData}
+        loading={skillsLoading}
+        onRefresh={() => void refreshSkills(true)}
+        onClose={closePanel}
       />
     ) : (
       <StatusPanel
@@ -5327,7 +5633,13 @@ export function ChatPanel() {
                 className={styles.drawerRight}
                 role="dialog"
                 aria-modal="true"
-                aria-label={panelMode === "settings" ? "聊天设置" : "希罗的状态"}
+                aria-label={
+                  panelMode === "settings"
+                    ? "聊天设置"
+                    : panelMode === "skills"
+                      ? "SKILL"
+                      : "希罗的状态"
+                }
               >
                 {panelNode}
               </div>

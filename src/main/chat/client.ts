@@ -16,6 +16,7 @@ import type {
   ChatRetractResult,
   ChatSendData,
   ChatSendResult,
+  ChatSkillsData,
   ChatStatusData,
 } from "../../shared/types";
 import { readConfig } from "../config";
@@ -290,6 +291,11 @@ export async function pollMessages(
 
 export async function loadChatStatus(): Promise<ChatResult<ChatStatusData>> {
   return request<ChatStatusData>("/status");
+}
+
+/** 左侧栏「SKILL」：指针 SKILL 统计 / 正文 / 改动 + 自定义 SKILL 正文。 */
+export async function loadSkills(): Promise<ChatResult<ChatSkillsData>> {
+  return request<ChatSkillsData>("/skills", {}, 20_000);
 }
 
 export async function loadCommands(): Promise<ChatResult<ChatCommandsData>> {

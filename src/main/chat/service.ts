@@ -17,6 +17,7 @@ import type {
   ChatQuote,
   ChatRetractResult,
   ChatSendData,
+  ChatSkillsData,
   ChatStatus,
   ChatStatusData,
   ChatStorageInfo,
@@ -41,6 +42,7 @@ import {
   bootstrapChat,
   loadChatStatus,
   loadCommands,
+  loadSkills,
   pollMessages,
   retractMessage,
   sendMessage,
@@ -52,6 +54,7 @@ import type { CapturedScreen } from "./capture";
 const CACHE_MAX_BYTES = 500 * 1024 * 1024;
 const STATUS_CACHE_MS = 3000;
 const COMMANDS_CACHE_MS = 10 * 60_000;
+const SKILLS_CACHE_MS = 15_000;
 const NOTIFY_DEBOUNCE_MS = 2200;
 /** 聊天窗口聚焦后，多久没有输入就允许点评恢复。 */
 const CONVERSATION_BUSY_MS = 120_000;
@@ -307,6 +310,8 @@ export class ChatService {
     generatedAt: 0,
   };
   private commandsFetchedAt = 0;
+  private skillsCache: ChatSkillsData | null = null;
+  private skillsFetchedAt = 0;
   private moodCache: ChatStatusData | null = null;
   private moodFetchedAt = 0;
   private windowActive = false;
@@ -857,6 +862,19 @@ export class ChatService {
       };
     }
     return this.commands;
+  }
+
+  async getSkills(force = false): Promise<ChatSkillsData | null> {
+    const fresh = Date.now() - this.skillsFetchedAt < SKILLS_CACHE_MS;
+    if (!force && fresh && this.skillsCache) return this.skillsCache;
+    const result = await loadSkills();
+    this.skillsFetchedAt = Date.now();
+    if (!result.ok) {
+      // 失败时保留上一次内容，面板会显示错误 / 继续展示旧数据。
+      return this.skillsCache;
+    }
+    this.skillsCache = result.data;
+    return this.skillsCache;
   }
 
   async getMoodStatus(force = false): Promise<ChatStatusData> {

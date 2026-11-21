@@ -21,6 +21,7 @@ import type {
   ChatSendResult,
   ChatSettingsExportResult,
   ChatSettingsImportResult,
+  ChatSkillsData,
   ChatStatus,
   ChatStatusData,
   ChatStorageInfo,
@@ -73,6 +74,7 @@ export type PetApi = {
   chatMedia(media: string, kind: ChatMediaKind): Promise<ChatMediaResult>;
   chatRetract(clientId: string): Promise<ChatRetractResult>;
   chatCommands(force?: boolean): Promise<ChatCommandsData | null>;
+  chatSkills(force?: boolean): Promise<ChatSkillsData | null>;
   chatStatusData(force?: boolean): Promise<ChatStatusData | null>;
   chatSetMode(mode: ChatUiMode): Promise<ChatUiState | null>;
   chatSetPinned(pinned: boolean): Promise<ChatUiState | null>;

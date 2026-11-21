@@ -2,7 +2,7 @@
 
 `astrbot_plugin_desktoppet_bridge` 让 MONOSABA DesktopPET 的聊天窗口和手机 QQ 私聊共用同一个 AstrBot 会话。
 
-当前版本 **0.4.2**：新增 `steps` 连续轨迹、真实交互 SKILL 注入、动作记录与 `/交互` 兜底指令；保留 0.4.1 的指针观察、撤回与引用。配套 real interaction 0.1.0、mood 1.5.0、sleep 0.1.4、life 0.1.9。
+当前版本 **0.4.3**：新增 `GET /skills`，给桌面端左侧栏「SKILL」读取指针 SKILL 统计 / 正文 / 最近改动，以及 `/AstrBot/data/skills/` 下的自定义 SKILL；保留 0.4.2 的 `steps`、SKILL 注入、撤回与引用。配套 real interaction 0.1.1、mood 1.5.0、sleep 0.1.4、life 0.1.9。
 
 - 桌面消息注入 `Hiro:FriendMessage:1955272576`，走完整管线（人格 / 记忆 / 会话）。
 - 注入事件使用假 bot，希罗对桌面消息的回复不会发到 QQ。
@@ -24,7 +24,7 @@ ssh mxjserver@10.144.144.1 "docker restart astrbot"
 启动日志里应出现：
 
 ```text
-[desktoppet] 桥接 0.4.2 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
+[desktoppet] 桥接 0.4.3 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
 [desktoppet] 发送捕获循环已启动
 [desktoppet] 已安装发送层捕获 bot=CQHttp replaced=functools.partial(...)
 ```
@@ -56,6 +56,7 @@ curl -H "Authorization: Bearer abk_..." \
 | POST | `/send` | `{text, image?, commentary?, clientId?, quote?, pointerEnabled?}` → 注入同一会话，返回日志条目；支持 `/` 指令 |
 | POST | `/retract` | `{clientId}` → 撤回刚发的这一轮：中止生成、删日志、裁会话历史 |
 | POST | `/pointer` | `{image, screen?, hint?}` → 读屏一次，让模型决定单点 / `steps` 指针动作（不写会话历史 / 记忆 / 心情） |
+| GET | `/skills` | 只读返回指针 SKILL（统计 / 五分区 / 最近改动）与 `/AstrBot/data/skills` 自定义 SKILL |
 | GET | `/messages?after=&limit=` | 增量消息 + `cursor` + `hasMore` + `qqConnected` + `epoch` |
 | GET | `/bootstrap?` | 首次全量回填：全部日志 + 会话历史（默认 500 条）+ `epoch` / `version` / `capabilities` |
 | GET | `/status?` | 心情 / 好感面板数据（读取 `mood.json`，复刻半衰期与好感衰减） |
@@ -77,6 +78,26 @@ curl -H "Authorization: Bearer abk_..." \
 ```
 
 `action` 为 `null` 表示模型选择不动（或睡着 / 上一轮还没跑完）。`hint` 是用户刚在桌面聊天里说的话，会优先照做；`say` 会作为 `pointer: true` 的 assistant 消息写进桥接日志（桌面可见），但不写 AstrBot 历史。
+
+`/skills` 是只读接口，返回：
+
+```json
+{
+  "pointer": {
+    "available": true,
+    "name": "希罗指针操作 SKILL",
+    "version": 1,
+    "sections": [{ "name": "落点与避让直觉", "items": ["..."] }],
+    "stats": { "bullets": 17, "episodes": 0, "sinceReflect": 0, "reflectEveryN": 15 },
+    "changes": [{ "version": 1, "ts": 1795266978000, "source": "seed", "change": "初始 SKILL" }]
+  },
+  "custom": [
+    { "id": "SKILL", "name": "二阶堂希罗 · 详细背景设定", "active": true, "markdown": "# ..." }
+  ]
+}
+```
+
+指针部分来自真实交互插件的 `get_pointer_skill_view()`；自定义部分扫描 `/AstrBot/data/skills/*/SKILL.md`，过滤 `documents` / `pdf` / `spreadsheets` / `skill-creator`，并去掉 `[reference:nn]` 角标。
 
 `/send` 的 `image` 形如：
 

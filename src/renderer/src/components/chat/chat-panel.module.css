@@ -1736,6 +1736,184 @@
   letter-spacing: 0.12em;
 }
 
+/* ---- SKILL ---- */
+
+.skillPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 0 2px;
+}
+
+.skillPicker > span {
+  color: color-mix(in srgb, var(--ink) 42%, transparent);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+}
+
+.skillPicker select {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-deep) 72%, transparent);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.skillPicker select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-strong) 85%, transparent);
+  outline-offset: 1px;
+}
+
+.skillStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.skillStats div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 2px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.skillStats strong {
+  color: var(--accent-soft-2);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.skillStats span {
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.skillProgress {
+  height: 4px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.skillProgress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 70%, transparent),
+    var(--accent-soft-2)
+  );
+}
+
+.skillMeta {
+  margin: 6px 0 0;
+  color: color-mix(in srgb, var(--ink) 38%, transparent);
+  font-size: 9.5px;
+  line-height: 1.55;
+}
+
+.skillList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skillList li {
+  position: relative;
+  padding-left: 11px;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  font-size: 10.5px;
+  line-height: 1.65;
+}
+
+.skillList li::before {
+  content: "";
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent-strong) 64%, transparent);
+}
+
+.skillChanges {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skillChange {
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-deep) 46%, transparent);
+}
+
+.skillChangeHead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: color-mix(in srgb, var(--ink) 38%, transparent);
+  font-size: 9px;
+}
+
+.skillChangeHead strong {
+  color: var(--accent-soft-2);
+  font-size: 10px;
+}
+
+.skillChangeHead time {
+  margin-left: auto;
+}
+
+.skillChange p {
+  margin: 4px 0 0;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.skillCustomMeta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+  color: color-mix(in srgb, var(--ink) 38%, transparent);
+  font-size: 9.5px;
+}
+
+.skillChip {
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 42%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-soft-2);
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.skillChipOff {
+  border-color: color-mix(in srgb, var(--ink) 22%, transparent);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: color-mix(in srgb, var(--ink) 42%, transparent);
+}
+
 /* 好感 */
 
 .affectionTop {

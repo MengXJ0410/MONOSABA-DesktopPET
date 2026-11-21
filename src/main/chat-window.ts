@@ -850,6 +850,11 @@ export function initChatWindow(): void {
     return service().getCommands(force === true);
   });
 
+  ipcMain.handle("chat:skills", async (event, force: unknown) => {
+    if (!isChatSender(event.sender)) return null;
+    return service().getSkills(force === true);
+  });
+
   ipcMain.handle("chat:status-data", async (event, force: unknown) => {
     if (!isChatSender(event.sender)) return null;
     return service().getMoodStatus(force === true);
