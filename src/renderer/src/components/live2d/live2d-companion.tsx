@@ -1981,15 +1981,19 @@ export function Live2DCompanion() {
     // 关闭「闲时随机移动」后，指针冻结，改用这套随机视线直接驱动眼睛。
     let eyeIdleGaze: IdleGazeState | null = null;
 
-    /** AI 下发的外部动作：先缓动到目标，停留一会儿，再交回闲时游走。 */
-    let pointerExternal: {
-      fromX: number;
-      fromY: number;
-      toX: number;
-      toY: number;
-      startAt: number;
+    /** AI 下发的外部动作：steps 依次缓动，最后一步停留后交回闲时游走。 */
+    type PointerExternalStep = {
+      x: number;
+      y: number;
       durationMs: number;
       holdMs: number;
+    };
+    let pointerExternal: {
+      steps: PointerExternalStep[];
+      index: number;
+      fromX: number;
+      fromY: number;
+      startAt: number;
     } | null = null;
     /** AI 把指针放到窗口外之后，滑回游走轨道用的过渡。 */
     let pointerReturn: {
@@ -2105,26 +2109,35 @@ export function Live2DCompanion() {
           };
 
           if (pointerExternal) {
-            // AI 动作优先：从当前点缓动到目标，到达后停留 holdMs，再交回游走。
+            // AI 动作优先：按 steps 逐段缓动，最后一段停留后交回游走。
+            const segment = pointerExternal.steps[pointerExternal.index];
             const elapsed = now - pointerExternal.startAt;
             const t = Math.min(
               1,
-              Math.max(0, elapsed / Math.max(1, pointerExternal.durationMs)),
+              Math.max(0, elapsed / Math.max(1, segment.durationMs)),
             );
             const eased = t * t * (3 - 2 * t);
             pointerScreen = {
-              x: pointerExternal.fromX + (pointerExternal.toX - pointerExternal.fromX) * eased,
-              y: pointerExternal.fromY + (pointerExternal.toY - pointerExternal.fromY) * eased,
+              x: pointerExternal.fromX + (segment.x - pointerExternal.fromX) * eased,
+              y: pointerExternal.fromY + (segment.y - pointerExternal.fromY) * eased,
             };
             pointerClient = {
               x: pointerScreen.x - winX,
               y: pointerScreen.y - winY,
             };
-            if (elapsed >= pointerExternal.durationMs + pointerExternal.holdMs) {
-              pointerExternal = null;
-              pointerExternalActive = false;
-              // 停留结束后交回闲时游走；指针会从落点滑回人物附近。
-              if (pointerIdleMoveRef.current) reseedWander(pointerScreen);
+            if (elapsed >= segment.durationMs + segment.holdMs) {
+              if (pointerExternal.index + 1 < pointerExternal.steps.length) {
+                // 下一段从这一段的目标点接着走，中间不瞬移。
+                pointerExternal.index += 1;
+                pointerExternal.fromX = segment.x;
+                pointerExternal.fromY = segment.y;
+                pointerExternal.startAt = now;
+              } else {
+                pointerExternal = null;
+                pointerExternalActive = false;
+                // 停留结束后交回闲时游走；指针会从落点滑回人物附近。
+                if (pointerIdleMoveRef.current) reseedWander(pointerScreen);
+              }
             }
           } else if (pointerIdleMoveRef.current) {
             let wanderState = pointerWander;
@@ -2395,14 +2408,29 @@ export function Live2DCompanion() {
             if (control.seq <= pointerExternalSeq) return;
             pointerExternalSeq = control.seq;
             const from = pointerScreen ?? { x: control.x, y: control.y };
+            const rawSteps =
+              control.steps && control.steps.length
+                ? control.steps
+                : [
+                    {
+                      x: control.x,
+                      y: control.y,
+                      durationMs: control.durationMs,
+                      holdMs: control.holdMs,
+                    },
+                  ];
+            const steps: PointerExternalStep[] = rawSteps.map((step) => ({
+              x: step.x,
+              y: step.y,
+              durationMs: Math.max(80, step.durationMs),
+              holdMs: Math.max(0, step.holdMs),
+            }));
             pointerExternal = {
+              steps,
+              index: 0,
               fromX: from.x,
               fromY: from.y,
-              toX: control.x,
-              toY: control.y,
               startAt: performance.now(),
-              durationMs: Math.max(80, control.durationMs),
-              holdMs: Math.max(0, control.holdMs),
             };
             pointerExternalActive = true;
             // 打断游走曲线，避免两套位置互相抢。

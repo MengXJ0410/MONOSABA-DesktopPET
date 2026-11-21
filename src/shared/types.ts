@@ -696,13 +696,20 @@ export type PointerControl =
   | { mode: "wander" }
   | {
       mode: "external";
-      /** 虚拟桌面 DIP 坐标。 */
+      /** 虚拟桌面 DIP 坐标（单点动作 / 连续动作的最终落点）。 */
       x: number;
       y: number;
       /** 从当前位置缓动到目标点的时长（毫秒）。 */
       durationMs: number;
       /** 到达后停留多久（毫秒），之后交回闲时游走。 */
       holdMs: number;
+      /** 连续轨迹：按顺序走完这些点；缺省时只走 x/y 单点。 */
+      steps?: Array<{
+        x: number;
+        y: number;
+        durationMs: number;
+        holdMs: number;
+      }>;
       /** 递增序号；渲染层用它丢弃过期指令。 */
       seq: number;
     };
@@ -715,15 +722,25 @@ export type PointerAiSettings = {
   dailyLimit: number;
 };
 
-/** 模型给出的一个指针动作。坐标是相对截取屏幕的 0~1 比例。 */
-export type PointerAiAction = {
-  kind: "move";
-  /** 0~1，相对截图左边缘。 */
+/** 连续轨迹里的一个路径点；坐标是相对截图的 0~1 比例。 */
+export type PointerAiStep = {
   nx: number;
-  /** 0~1，相对截图上边缘。 */
   ny: number;
   durationMs: number;
   holdMs: number;
+};
+
+/** 模型给出的一个指针动作。坐标是相对截取屏幕的 0~1 比例。 */
+export type PointerAiAction = {
+  kind: "move";
+  /** 0~1，相对截图左边缘。连续动作时是最后一步的落点。 */
+  nx: number;
+  /** 0~1，相对截图上边缘。连续动作时是最后一步的落点。 */
+  ny: number;
+  durationMs: number;
+  holdMs: number;
+  /** 连续轨迹（画圈 / 晃动 / 连续指两处）；缺省表示单点移动。 */
+  steps?: PointerAiStep[];
   /** 模型给出的简短理由，只写日志，不上屏。 */
   reason?: string;
 };

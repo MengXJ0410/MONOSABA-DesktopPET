@@ -44,6 +44,25 @@
   再把 AstrBot 会话历史里刚写入的「user + 空回复」裁掉，并补上 mood 跳过标记。
 - 已经产生回复的回合不允许撤回；命令消息由桌面端直接禁用撤回。
 
+0.4.0 变更：
+- 新增 /pointer：桌面端定时上传压缩截图，模型只决定「要不要动、动到哪」。
+  坐标用 0~1 归一化，桌面端再映射到屏幕 DIP；模型输出非法时一律不动。
+- 指针闲聊以 pointer=true 只写桥接日志，不写 AstrBot 会话历史，
+  避免挂机时的几百句话污染共享上下文。
+
+0.4.1 变更：
+- 桌面聊天发出后约 1.2 秒触发一次强制观察，把原话作为 hint 传进来，
+  让「聊天的希罗」和「操控指针的 AI」是同一个人。
+- 指针闲聊由桌面按静默回复展示，不计未读、不弹通知。
+
+0.4.2 变更：
+- 支持 steps 连续轨迹（1~8 个路径点，每步自带 duration_ms / hold_ms），
+  画圈、晃动、连续指两处可以一次给完，不用拆成多次观察。
+- 接入《真实交互》插件：观察前注入她自己维护的指针 SKILL 和最近几次落点，
+  动作后回写轨迹；插件缺失或异常时自动退回默认提示词（fail-open）。
+- 聊天提示词带上「第二指针刚才停在画面哪个方位」，让闲聊接得上。
+- /commands 兜底列表补充 /交互（技能 / 历史 / 回退 / 复盘 / 统计）。
+
 设计边界：
 - 只处理一个固定 UMO（默认 Hiro:FriendMessage:1955272576）。
 - 媒体原图保存在 plugin_data/<plugin>/media；缩略图按需生成。
@@ -84,7 +103,7 @@ from astrbot.core.utils.active_event_registry import active_event_registry
 from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 PLUGIN_NAME = "astrbot_plugin_desktoppet_bridge"
-PLUGIN_VERSION = "0.4.1"
+PLUGIN_VERSION = "0.4.2"
 
 CAPABILITIES = [
     "bootstrap",
@@ -111,6 +130,7 @@ POINTER_HISTORY_CHARS = 160
 POINTER_MAX_REASON = 120
 POINTER_MAX_SAY = 60
 POINTER_MAX_HINT = 500
+POINTER_MAX_STEPS = 8
 
 POINTER_SYSTEM_PROMPT = """{persona}
 
@@ -121,11 +141,14 @@ POINTER_SYSTEM_PROMPT = """{persona}
 2. 如果想动，再随口对他说一句话，像坐在旁边聊天那样，一两句就够。可以接着屏幕上的内容说，也可以只是陪着他。每次换着说，不要提“指针 / 坐标 / 截图”，也不要解释你在执行动作。
 
 只输出一个 JSON 对象，不要解释，不要代码块，不要多余文字。
-- 想动：{{"act":"move","x":0.42,"y":0.66,"duration_ms":900,"hold_ms":1500,"say":"你在看这个呀，我凑近点","reason":"内部备注"}}
+- 单点移动：{{"act":"move","x":0.42,"y":0.66,"duration_ms":900,"hold_ms":1500,"say":"你在看这个呀，我凑近点","reason":"内部备注"}}
+- 连续动作：{{"act":"move","steps":[{{"x":0.50,"y":0.35,"duration_ms":450,"hold_ms":0}},{{"x":0.62,"y":0.50,"duration_ms":450,"hold_ms":0}},{{"x":0.50,"y":0.65,"duration_ms":450,"hold_ms":0}},{{"x":0.38,"y":0.50,"duration_ms":450,"hold_ms":0}},{{"x":0.50,"y":0.35,"duration_ms":450,"hold_ms":1400}}],"say":"看好啦，绕着你转了一圈","reason":"绕角色画圈"}}
 - 不想动：{{"act":"none"}}
 
 坐标以截图左上角为 (0,0)、右下角为 (1,1)。`say` 会作为一条聊天消息发给他，8~40 字、口语化；`reason` 只写进日志，不会显示。
-如果最近的对话或他刚说的话里明确让你把指针移到某处、或者看某个东西，优先照做；这种时候 `say` 简短答应一声就好。"""
+画圈、晃动、连续指两处时，用 `steps` 一次给 4~8 个点，不要拆成好几次观察；每步 `duration_ms` 300~600、`hold_ms` 通常为 0，只有最后一步停留 800~1600。
+如果最近的对话或他刚说的话里明确让你把指针移到某处、或者看某个东西，优先照做；这种时候 `say` 简短答应一声就好。
+如果你收到《指针操作 SKILL》，那是你自己整理的经验，按它来落点和说话。"""
 
 POINTER_HINT_DEFAULT = (
     "〔希罗指针〕你有一个属于自己的第二指针：桌面上那个小光标就是你，不是他的鼠标。"
@@ -139,6 +162,10 @@ POINTER_DURATION_MIN_MS = 200
 POINTER_DURATION_MAX_MS = 6000
 POINTER_HOLD_MIN_MS = 0
 POINTER_HOLD_MAX_MS = 8000
+# 连续轨迹：每一步自己带时长，最后一步负责停留。
+POINTER_STEP_DURATION_MIN_MS = 120
+POINTER_STEP_DURATION_MAX_MS = 3000
+POINTER_STEP_HOLD_MAX_MS = 3000
 
 # 回合 id 由桌面端生成（crypto.randomUUID）。
 TURN_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -268,6 +295,10 @@ FALLBACK_COMMANDS = [
     {"name": "/好感", "description": "查看好感度（管理员）"},
     {"name": "/记忆 状态", "description": "查看记忆插件状态（管理员）"},
     {"name": "/记忆 检索 关键词", "description": "检索长期记忆（管理员）"},
+    {"name": "/交互", "description": "查看希罗的指针 SKILL（管理员）"},
+    {"name": "/交互 历史", "description": "查看 SKILL 最近改动（管理员）"},
+    {"name": "/交互 回退", "description": "回退 SKILL 到上一版（管理员）"},
+    {"name": "/交互 复盘", "description": "立即复盘指针操作（管理员）"},
     {"name": "/help", "description": "查看 AstrBot 指令帮助"},
     {"name": "/ping", "description": "检查机器人是否在线"},
     {"name": "/version", "description": "查看 AstrBot 版本"},
@@ -334,11 +365,51 @@ def _clamp_float(value: object, minimum: float, maximum: float, default: float) 
 _POINTER_JSON_RE = re.compile(r"\{.*\}", re.S)
 
 
+def _parse_pointer_step(item: object) -> dict | None:
+    """解析 steps 里的一个路径点；任何不合法都丢弃。"""
+    if not isinstance(item, dict):
+        return None
+    try:
+        nx = float(item.get("x"))
+        ny = float(item.get("y"))
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(nx) and math.isfinite(ny)):
+        return None
+    if not (-0.05 <= nx <= 1.05 and -0.05 <= ny <= 1.05):
+        return None
+    return {
+        "nx": max(0.0, min(1.0, nx)),
+        "ny": max(0.0, min(1.0, ny)),
+        "durationMs": int(
+            round(
+                _clamp_float(
+                    item.get("duration_ms"),
+                    POINTER_STEP_DURATION_MIN_MS,
+                    POINTER_STEP_DURATION_MAX_MS,
+                    450,
+                )
+            )
+        ),
+        "holdMs": int(
+            round(
+                _clamp_float(
+                    item.get("hold_ms"),
+                    POINTER_HOLD_MIN_MS,
+                    POINTER_STEP_HOLD_MAX_MS,
+                    0,
+                )
+            )
+        ),
+    }
+
+
 def _parse_pointer_action(text: object) -> dict | None:
     """把模型输出解析成指针动作；任何不合法都退化成「不动」。
 
     模型偶尔会包代码块、加解释文字，或者给出 0~100 的坐标；
     这里只接受 0~1（允许极小越界），宁可不动也不把指针甩出屏幕。
+    支持单点（x/y）和连续轨迹（steps，1~8 个点）。
     """
     if not isinstance(text, str):
         return None
@@ -358,6 +429,28 @@ def _parse_pointer_action(text: object) -> dict | None:
         return None
     if str(data.get("act") or "").strip().lower() != "move":
         return None
+    reason = str(data.get("reason") or "").strip().replace("\n", " ")
+    say = str(data.get("say") or "").strip().replace("\n", " ")
+
+    steps: list[dict] = []
+    raw_steps = data.get("steps")
+    if isinstance(raw_steps, list):
+        for item in raw_steps[:POINTER_MAX_STEPS]:
+            step = _parse_pointer_step(item)
+            if step is not None:
+                steps.append(step)
+    if steps:
+        last = steps[-1]
+        return {
+            "nx": last["nx"],
+            "ny": last["ny"],
+            "durationMs": last["durationMs"],
+            "holdMs": last["holdMs"],
+            "steps": steps,
+            "reason": reason[:POINTER_MAX_REASON],
+            "say": say[:POINTER_MAX_SAY],
+        }
+
     try:
         nx = float(data.get("x"))
         ny = float(data.get("y"))
@@ -367,8 +460,6 @@ def _parse_pointer_action(text: object) -> dict | None:
         return None
     if not (-0.05 <= nx <= 1.05 and -0.05 <= ny <= 1.05):
         return None
-    reason = str(data.get("reason") or "").strip().replace("\n", " ")
-    say = str(data.get("say") or "").strip().replace("\n", " ")
     return {
         "nx": max(0.0, min(1.0, nx)),
         "ny": max(0.0, min(1.0, ny)),
@@ -395,6 +486,19 @@ def _parse_pointer_action(text: object) -> dict | None:
         "reason": reason[:POINTER_MAX_REASON],
         "say": say[:POINTER_MAX_SAY],
     }
+
+
+def _pointer_region(nx: float, ny: float) -> str:
+    """把 0~1 的归一化落点说成聊天里能懂的方位。"""
+    horizontal = "左侧" if nx < 0.34 else "右侧" if nx > 0.66 else "中间"
+    vertical = "上方" if ny < 0.34 else "下方" if ny > 0.66 else "中间"
+    if horizontal == "中间" and vertical == "中间":
+        return "正中间"
+    if horizontal == "中间":
+        return "中间偏上" if vertical == "上方" else "中间偏下"
+    if vertical == "中间":
+        return f"{horizontal}偏中"
+    return f"{horizontal}{vertical}"
 
 
 def _component_text(comp: object) -> str:
@@ -868,6 +972,8 @@ class DesktopPetBridge(Star):
         self._pending_retract: dict[str, float] = {}
         # 最近几条指针闲聊：给下一轮观察和聊天模型当上下文，不写进会话历史。
         self._pointer_recent: list[tuple[float, str]] = []
+        # 最近一次指针动作的落点：聊天时让她知道自己刚才停在哪。
+        self._pointer_last: dict | None = None
 
     # ------------------------------------------------------------------ 生命周期
     async def initialize(self) -> None:
@@ -2143,8 +2249,18 @@ class DesktopPetBridge(Star):
             persona=persona or "你是希罗。",
             marker=POINTER_MARKER,
         )
+        # 真实交互插件：她自己维护的指针 SKILL + 最近几次落点。
+        interaction = self._get_plugin("astrbot_plugin_hiro_interaction")
+        skill_text = ""
+        if interaction is not None:
+            try:
+                skill_text = await interaction.build_pointer_context(self.umo)
+            except Exception:
+                logger.warning("[desktoppet] 读取指针 SKILL 失败", exc_info=True)
         context_text = await self._pointer_context()
         parts: list[str] = []
+        if skill_text:
+            parts.append(skill_text)
         if self._pointer_recent:
             tail = [text for _, text in self._pointer_recent[-3:]]
             parts.append(
@@ -2184,11 +2300,13 @@ class DesktopPetBridge(Star):
             logger.info("[desktoppet] 指针观察：不动 %sms", elapsed)
         else:
             say = str(action.get("say") or "").strip()
+            steps = action.get("steps") or []
             logger.info(
-                "[desktoppet] 指针观察：移动 %sms x=%.3f y=%.3f duration=%s hold=%s say=%s reason=%s",
+                "[desktoppet] 指针观察：移动 %sms x=%.3f y=%.3f steps=%s duration=%s hold=%s say=%s reason=%s",
                 elapsed,
                 action["nx"],
                 action["ny"],
+                len(steps),
                 action["durationMs"],
                 action["holdMs"],
                 say,
@@ -2204,6 +2322,28 @@ class DesktopPetBridge(Star):
                 self._pointer_recent.append((time.time(), say))
                 if len(self._pointer_recent) > 12:
                     self._pointer_recent = self._pointer_recent[-12:]
+            self._pointer_last = {
+                "nx": action["nx"],
+                "ny": action["ny"],
+                "steps": len(steps),
+                "say": say,
+                "ts": time.time(),
+            }
+            # 真实交互：把这次动作记进她的经验账本；累计够了会在后台复盘。
+            if interaction is not None:
+                try:
+                    await interaction.record_pointer_episode(
+                        self.umo,
+                        hint=hint,
+                        steps=steps
+                        or [{"nx": action["nx"], "ny": action["ny"]}],
+                        say=say,
+                        reason=action["reason"],
+                        duration_ms=action["durationMs"],
+                        hold_ms=action["holdMs"],
+                    )
+                except Exception:
+                    logger.warning("[desktoppet] 记录指针动作失败", exc_info=True)
         return {"status": "ok", "data": {"action": action, "say": say}}
 
     async def _api_send(self):
@@ -2585,7 +2725,7 @@ class DesktopPetBridge(Star):
                     "name": item["name"],
                     "aliases": [],
                     "description": item["description"],
-                    "permission": "admin" if item["name"].startswith(("/心情", "/好感", "/记忆")) else "everyone",
+                    "permission": "admin" if item["name"].startswith(("/心情", "/好感", "/记忆", "/交互")) else "everyone",
                     "plugin": "内置",
                     "dangerous": _is_dangerous_command(item["name"]),
                     "subcommands": [],
@@ -2743,6 +2883,13 @@ class DesktopPetBridge(Star):
                 parts = getattr(req, "extra_user_content_parts", None)
                 if isinstance(parts, list):
                     hint = self.pointer_hint
+                    if self._pointer_last:
+                        last = self._pointer_last
+                        region = _pointer_region(
+                            float(last.get("nx") or 0.5),
+                            float(last.get("ny") or 0.5),
+                        )
+                        hint = f"{hint}\n〔你刚才把第二指针停在了画面{region}〕"
                     if self._pointer_recent:
                         tail = "；".join(
                             text for _, text in self._pointer_recent[-3:]

@@ -6,6 +6,7 @@ import type {
   PointerAiSettings,
   PointerAiSkipReason,
   PointerAiState,
+  PointerAiStep,
 } from "../shared/types";
 import { captureDisplayForPointer } from "./chat/capture";
 import { requestPointer } from "./chat/client";
@@ -108,6 +109,7 @@ function sendControl(control: {
   y: number;
   durationMs: number;
   holdMs: number;
+  steps?: Array<{ x: number; y: number; durationMs: number; holdMs: number }>;
   seq: number;
 }): void {
   const win = getMainWindow();
@@ -321,25 +323,41 @@ async function observe(gen: number, force: boolean, hint?: string): Promise<void
     return;
   }
 
-  const nx = clamp(Number(raw.nx), 0, 1);
-  const ny = clamp(Number(raw.ny), 0, 1);
+  const rawSteps = Array.isArray(raw.steps) ? raw.steps.slice(0, 8) : [];
+  const steps: PointerAiStep[] = [];
+  for (const item of rawSteps) {
+    if (!item || typeof item !== "object") continue;
+    const sx = clamp(Number(item.nx), 0, 1);
+    const sy = clamp(Number(item.ny), 0, 1);
+    if (!Number.isFinite(sx) || !Number.isFinite(sy)) continue;
+    steps.push({
+      nx: sx,
+      ny: sy,
+      durationMs: clamp(Math.round(Number(item.durationMs) || 450), 120, 3000),
+      holdMs: clamp(Math.round(Number(item.holdMs) || 0), 0, 3000),
+    });
+  }
+  const last = steps[steps.length - 1];
+  const nx = last ? last.nx : clamp(Number(raw.nx), 0, 1);
+  const ny = last ? last.ny : clamp(Number(raw.ny), 0, 1);
   if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
     markSkip("error", startedAt, "模型返回的坐标无效");
     return;
   }
 
-  const durationMs = clamp(
-    Math.round(Number(raw.durationMs) || 900),
-    120,
-    6000,
-  );
-  const holdMs = clamp(Math.round(Number(raw.holdMs) || 1200), 0, 8000);
+  const durationMs = last
+    ? last.durationMs
+    : clamp(Math.round(Number(raw.durationMs) || 900), 120, 6000);
+  const holdMs = last
+    ? last.holdMs
+    : clamp(Math.round(Number(raw.holdMs) || 1200), 0, 8000);
   const action: PointerAiAction = {
     kind: "move",
     nx,
     ny,
     durationMs,
     holdMs,
+    steps: steps.length ? steps : undefined,
     reason: typeof raw.reason === "string" ? raw.reason.slice(0, 120) : undefined,
   };
   const saySource =
@@ -353,16 +371,27 @@ async function observe(gen: number, force: boolean, hint?: string): Promise<void
   lastSkipDetail = undefined;
   lastDurationMs = Date.now() - startedAt;
   broadcast();
+  const toScreen = (step: PointerAiStep) => ({
+    x: display.bounds.x + step.nx * Math.max(0, display.bounds.width - 1),
+    y: display.bounds.y + step.ny * Math.max(0, display.bounds.height - 1),
+  });
+  const controlSteps = steps.map((step) => ({
+    ...toScreen(step),
+    durationMs: step.durationMs,
+    holdMs: step.holdMs,
+  }));
+  const target = toScreen({ nx, ny, durationMs, holdMs });
   sendControl({
-    x: display.bounds.x + nx * Math.max(0, display.bounds.width - 1),
-    y: display.bounds.y + ny * Math.max(0, display.bounds.height - 1),
+    x: target.x,
+    y: target.y,
     durationMs,
     holdMs,
+    steps: controlSteps.length ? controlSteps : undefined,
     seq: actionSeq,
   });
   void appendLog(
     `move ${lastDurationMs}ms capture=${lastCaptureMs}ms ${lastCaptureBytes}B ` +
-      `display=${displayId} nx=${nx.toFixed(3)} ny=${ny.toFixed(3)} ` +
+      `display=${displayId} nx=${nx.toFixed(3)} ny=${ny.toFixed(3)} steps=${steps.length} ` +
       `duration=${durationMs} hold=${holdMs} say="${say}" "${action.reason ?? ""}"`,
   );
 }

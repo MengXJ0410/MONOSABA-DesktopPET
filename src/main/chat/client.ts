@@ -228,6 +228,13 @@ export type PointerObservation = {
     ny: number;
     durationMs: number;
     holdMs: number;
+    /** 连续轨迹（画圈 / 晃动 / 连续指两处）；缺省表示单点移动。 */
+    steps?: Array<{
+      nx: number;
+      ny: number;
+      durationMs: number;
+      holdMs: number;
+    }>;
     reason?: string;
     /** 她随口说的一句话；桥接已写进桌面聊天日志。 */
     say?: string;

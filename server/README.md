@@ -2,7 +2,7 @@
 
 `astrbot_plugin_desktoppet_bridge` 让 MONOSABA DesktopPET 的聊天窗口和手机 QQ 私聊共用同一个 AstrBot 会话。
 
-当前版本 **0.3.4**：点评整轮跳过心情 / 好感；睡着时只回 `zzZ`，不注入模型回合。配套 mood 1.5.0、sleep 0.1.4、life 0.1.9。
+当前版本 **0.4.2**：新增 `steps` 连续轨迹、真实交互 SKILL 注入、动作记录与 `/交互` 兜底指令；保留 0.4.1 的指针观察、撤回与引用。配套 real interaction 0.1.0、mood 1.5.0、sleep 0.1.4、life 0.1.9。
 
 - 桌面消息注入 `Hiro:FriendMessage:1955272576`，走完整管线（人格 / 记忆 / 会话）。
 - 注入事件使用假 bot，希罗对桌面消息的回复不会发到 QQ。
@@ -10,6 +10,8 @@
 - 手机 QQ 的用户消息由 `on_llm_request` 记录。
 - 支持图片 / GIF：原图存 `media/`，日志只存元数据，缩略图按需生成。
 - 桌面端可以使用全部 AstrBot 指令（注入事件按管理员处理）。
+- `/retract` 撤回刚发的这一轮，`/pointer` 让希罗看屏并决定第二指针动作（单点或 `steps` 连续轨迹）。
+- 指针观察前从 `astrbot_plugin_hiro_interaction` 取 SKILL + 最近落点，动作后回写轨迹；插件缺失时 fail-open。
 
 ## 部署
 
@@ -22,7 +24,7 @@ ssh mxjserver@10.144.144.1 "docker restart astrbot"
 启动日志里应出现：
 
 ```text
-[desktoppet] 桥接 0.3.4 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
+[desktoppet] 桥接 0.4.2 已加载 umo=Hiro:FriendMessage:1955272576 platform=Hiro ...
 [desktoppet] 发送捕获循环已启动
 [desktoppet] 已安装发送层捕获 bot=CQHttp replaced=functools.partial(...)
 ```
@@ -51,13 +53,30 @@ curl -H "Authorization: Bearer abk_..." \
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/ping` | `{platform, qqConnected, epoch, capture, capabilities}` |
-| POST | `/send` | `{text, image?, commentary?}` → 注入同一会话，返回日志条目；支持 `/` 指令 |
+| POST | `/send` | `{text, image?, commentary?, clientId?, quote?, pointerEnabled?}` → 注入同一会话，返回日志条目；支持 `/` 指令 |
+| POST | `/retract` | `{clientId}` → 撤回刚发的这一轮：中止生成、删日志、裁会话历史 |
+| POST | `/pointer` | `{image, screen?, hint?}` → 读屏一次，让模型决定单点 / `steps` 指针动作（不写会话历史 / 记忆 / 心情） |
 | GET | `/messages?after=&limit=` | 增量消息 + `cursor` + `hasMore` + `qqConnected` + `epoch` |
 | GET | `/bootstrap?` | 首次全量回填：全部日志 + 会话历史（默认 500 条）+ `epoch` / `version` / `capabilities` |
 | GET | `/status?` | 心情 / 好感面板数据（读取 `mood.json`，复刻半衰期与好感衰减） |
 | GET | `/media?media=&kind=thumb\|original` | 图片缩略图 / 原图，base64 JSON |
-| GET | `/commands` | 动态读取 AstrBot 指令列表（失败时用内置兜底） |
+| GET | `/commands` | 动态读取 AstrBot 指令列表（失败时用内置兜底，含 `/交互`） |
 | GET | `/history?limit=` | 兼容旧版：当前会话最近 N 条，最近 8 张图带缩略图 |
+
+`/pointer` 的请求 / 响应：
+
+```json
+// 请求
+{ "image": { "mime": "image/jpeg", "data": "<base64>" }, "screen": { "width": 1707, "height": 1067 }, "hint": "把指针绕着我画个圈" }
+
+// 单点
+{ "status": "ok", "data": { "action": { "nx": 0.42, "ny": 0.66, "durationMs": 900, "holdMs": 1500, "say": "你在看这个呀，我凑近点", "reason": "……" }, "say": "你在看这个呀，我凑近点" } }
+
+// 连续轨迹：顶层 nx / ny 取最后一步
+{ "status": "ok", "data": { "action": { "nx": 0.50, "ny": 0.35, "durationMs": 450, "holdMs": 1400, "steps": [ { "nx": 0.50, "ny": 0.35, "durationMs": 450, "holdMs": 0 }, { "nx": 0.62, "ny": 0.50, "durationMs": 450, "holdMs": 0 }, { "nx": 0.50, "ny": 0.65, "durationMs": 450, "holdMs": 0 }, { "nx": 0.38, "ny": 0.50, "durationMs": 450, "holdMs": 0 }, { "nx": 0.50, "ny": 0.35, "durationMs": 450, "holdMs": 1400 } ], "say": "看好啦，绕着你转了一圈", "reason": "绕角色画圈" }, "say": "看好啦，绕着你转了一圈" } }
+```
+
+`action` 为 `null` 表示模型选择不动（或睡着 / 上一轮还没跑完）。`hint` 是用户刚在桌面聊天里说的话，会优先照做；`say` 会作为 `pointer: true` 的 assistant 消息写进桥接日志（桌面可见），但不写 AstrBot 历史。
 
 `/send` 的 `image` 形如：
 
@@ -184,6 +203,9 @@ AstrBot 的 `WakingCheckStage` 只要发现消息以 `wake_prefix` 开头，就�
 | `mood_config_path` | 空 | 留空用 `config/astrbot_plugin_hiro_mood_config.json` |
 | `mood_timezone` | `Asia/Shanghai` | 「今日好感增减」的日期边界 |
 | `screen_hint` | 见下 | 带截图的桌面消息临时注入的设定 |
+| `pointer_hint` | 见下 | 指针开启时随桌面消息临时注入的能力提示，留空关闭 |
+
+`pointer_hint` 默认会告诉她：桌面上那个小光标是她自己的第二指针，可以移动但不能点击；如果用户在聊天里让她指某个东西就答应，桌面端会立刻把指针移过去。提示里还会带上最近几条指针闲聊和最后落点方位。
 
 `screen_hint` 默认内容：
 
