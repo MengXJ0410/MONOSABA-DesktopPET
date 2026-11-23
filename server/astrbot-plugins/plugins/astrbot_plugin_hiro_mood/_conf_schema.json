@@ -1,0 +1,290 @@
+{
+    "enabled": {
+        "description": "启用内心想法",
+        "type": "bool",
+        "hint": "关闭后不再评价、不再注入心情。",
+        "default": true
+    },
+    "umo": {
+        "description": "默认会话 UMO",
+        "type": "string",
+        "hint": "仅用于兜底取 provider；评价和注入都按当前会话自己的 UMO。",
+        "default": "Hiro:FriendMessage:1955272576"
+    },
+    "provider_id": {
+        "description": "评价用的模型",
+        "type": "string",
+        "hint": "留空则用当前会话的模型。想省钱可以填一个便宜的。",
+        "default": ""
+    },
+    "timezone": {
+        "description": "时区",
+        "type": "string",
+        "hint": "用于写长期记忆的日期。",
+        "default": "Asia/Shanghai"
+    },
+    "appraise_enabled": {
+        "description": "每轮让她自己评价",
+        "type": "bool",
+        "hint": "每轮结束后台跑一次小模型，只问“你自己心里起了什么变化”。",
+        "default": true
+    },
+    "appraise_umos": {
+        "description": "只评价这些会话",
+        "type": "string",
+        "hint": "留空表示所有会话都评价（每个会话各自独立）。填 UMO，逗号分隔，则只评这些。",
+        "default": ""
+    },
+    "appraise_timeout": {
+        "description": "评价超时（秒）",
+        "type": "int",
+        "hint": "超时就跳过这一轮，不影响回复。",
+        "default": 60
+    },
+    "inject_top": {
+        "description": "最多注入几条心情",
+        "type": "int",
+        "hint": "只取强度最高的几条，太多会抢戏。",
+        "default": 2
+    },
+    "inject_max_chars": {
+        "description": "注入内容上限（字）",
+        "type": "int",
+        "hint": "控制在 300 字以内比较自然。",
+        "default": 300
+    },
+    "min_intensity": {
+        "description": "注入阈值",
+        "type": "float",
+        "hint": "低于这个强度就不提了，让它自然淡掉。",
+        "default": 0.25
+    },
+    "thought_ttl_minutes": {
+        "description": "心里话保留多久（分钟）",
+        "type": "int",
+        "hint": "最近一句心里话的有效期，过期不再注入。",
+        "default": 120
+    },
+    "residual_hours": {
+        "description": "修复后余味保留时长（小时）",
+        "type": "float",
+        "hint": "情绪被修复后不会立刻归零，会留 0.08 的余味，最多保留这么久。默认 24 小时。",
+        "default": 24
+    },
+    "session_ttl_days": {
+        "description": "空会话保留天数",
+        "type": "int",
+        "hint": "超过这么多天没有情绪、也没有更新的会话会被清掉，避免群聊越积越多。",
+        "default": 30
+    },
+    "memory_write_enabled": {
+        "description": "强情绪写入长期记忆",
+        "type": "bool",
+        "hint": "只有主私聊会写，群聊不会污染私聊记忆。",
+        "default": true
+    },
+    "memory_write_threshold": {
+        "description": "写入记忆的强度阈值",
+        "type": "float",
+        "hint": "默认 0.8。调高更克制，调低更频繁。",
+        "default": 0.8
+    },
+    "memory_umo": {
+        "description": "写入记忆的会话",
+        "type": "string",
+        "hint": "只有这个会话的强情绪会写进记忆插件。默认主私聊。",
+        "default": "Hiro:FriendMessage:1955272576"
+    },
+    "memory_scope": {
+        "description": "写入记忆的会话域",
+        "type": "string",
+        "hint": "和记忆插件的 scope 保持一致，QQ 私聊默认 qq1955272576。",
+        "default": "qq1955272576"
+    },
+    "cold_war_enabled": {
+        "description": "启用冷战",
+        "type": "bool",
+        "hint": "生气达到阈值时，拒绝回复，直到用户主动安慰。",
+        "default": true
+    },
+    "cold_war_threshold": {
+        "description": "冷战生气阈值",
+        "type": "float",
+        "hint": "默认 0.9。达到这个值就进入冷战。",
+        "default": 0.9
+    },
+    "cold_war_anger": {
+        "description": "冷战时的生气值",
+        "type": "float",
+        "hint": "默认 0.92。进入冷战后锁在这里，不自然衰减。",
+        "default": 0.92
+    },
+    "cold_war_release_anger": {
+        "description": "安慰后生气降到多少",
+        "type": "float",
+        "hint": "默认 0.6。解除冷战，但仍保留一点冷。",
+        "default": 0.6
+    },
+    "cold_war_allow_commands": {
+        "description": "冷战时放行命令",
+        "type": "bool",
+        "hint": "默认 true。`/心情` 等命令仍然可用，方便查看状态。",
+        "default": true
+    },
+    "cold_war_appraise_timeout": {
+        "description": "冷战评价超时（秒）",
+        "type": "int",
+        "hint": "默认 45。判断“是不是在安慰”的超时时间。",
+        "default": 45
+    },
+    "affection_enabled": {
+        "description": "启用好感度",
+        "type": "bool",
+        "hint": "只对主私聊生效；群聊/网站不记录。",
+        "default": true
+    },
+    "affection_initial": {
+        "description": "主私聊初始好感度",
+        "type": "float",
+        "hint": "默认 30。新会话仍从 0 开始。",
+        "default": 30.0
+    },
+    "affection_new_session_initial": {
+        "description": "新会话初始好感度",
+        "type": "float",
+        "hint": "默认 0。主私聊用上面的 30。",
+        "default": 0.0
+    },
+    "affection_decay_floor": {
+        "description": "衰减曲线端点保留比例",
+        "type": "float",
+        "hint": "默认 0.2。两端保留 20% 速率，中间最陡。",
+        "default": 0.2
+    },
+    "affection_decay_days_20_to_1": {
+        "description": "20→1 需要多少天",
+        "type": "float",
+        "hint": "默认 30 天。用来校准衰减曲线。",
+        "default": 30.0
+    },
+    "affection_daily_gain_cap": {
+        "description": "每天最多涨多少好感",
+        "type": "float",
+        "hint": "默认 8。由聊天量和内容决定，但不会超过这个值。",
+        "default": 8.0
+    },
+    "affection_daily_loss_cap": {
+        "description": "每天最多掉多少好感",
+        "type": "float",
+        "hint": "默认 5。时间衰减另算。",
+        "default": 5.0
+    },
+    "affection_boost_enabled": {
+        "description": "开启每日额外好感奖励",
+        "type": "bool",
+        "hint": "开心≥60% 每天一次 +1；开心≥50% 且害羞≥80% 每天一次 +1.5；两项独立，都不计入每日上限。",
+        "default": true
+    },
+    "affection_boost_gain_cap": {
+        "description": "旧版加成上限（已停用）",
+        "type": "float",
+        "hint": "现在改为每天独立奖励，不再提高每日上限；此字段仅保留用于兼容旧配置。",
+        "default": 20.0
+    },
+    "affection_boost_threshold": {
+        "description": "旧版触发阈值（已停用）",
+        "type": "float",
+        "hint": "旧版「开心+害羞同时超过阈值」规则；现在改用下面三个阈值。",
+        "default": 0.7
+    },
+    "affection_boost_solo_threshold": {
+        "description": "开心单独奖励阈值",
+        "type": "float",
+        "hint": "默认 0.6。开心大于等于这个值时，当天额外 +1，只触发一次。",
+        "default": 0.6
+    },
+    "affection_boost_pair_happy_threshold": {
+        "description": "双条件奖励的开心阈值",
+        "type": "float",
+        "hint": "默认 0.5。开心大于等于这个值，且害羞达到下面阈值时，当天额外 +1.5。",
+        "default": 0.5
+    },
+    "affection_boost_pair_shy_threshold": {
+        "description": "双条件奖励的害羞阈值",
+        "type": "float",
+        "hint": "默认 0.8。开心达到上面阈值，且害羞大于等于这个值时，当天额外 +1.5。",
+        "default": 0.8
+    },
+    "affection_boost_solo_bonus": {
+        "description": "开心单独奖励点数",
+        "type": "float",
+        "hint": "默认 1.0。开心≥60% 时额外增加的好感点数。",
+        "default": 1.0
+    },
+    "affection_boost_pair_bonus": {
+        "description": "双条件奖励点数",
+        "type": "float",
+        "hint": "默认 1.5。开心≥50% 且害羞≥80% 时额外增加的好感点数。",
+        "default": 1.5
+    },
+    "affection_attitude_enabled": {
+        "description": "让好感度影响态度",
+        "type": "bool",
+        "hint": "把当前好感阶段转成语气/距离/主动性提示，和数值一起注入。",
+        "default": true
+    },
+    "affection_attitude_max_chars": {
+        "description": "态度块长度上限",
+        "type": "int",
+        "hint": "默认 320 字。太长会抢戏。",
+        "default": 320
+    },
+    "affection_confession_threshold": {
+        "description": "表白所需好感度",
+        "type": "float",
+        "hint": "默认 100。到 100 才能进入伴侣线判定。",
+        "default": 100.0
+    },
+    "affection_partner_max": {
+        "description": "伴侣线上限",
+        "type": "float",
+        "hint": "默认 200。",
+        "default": 200.0
+    },
+    "affection_confession_success": {
+        "description": "表白成功后好感度",
+        "type": "float",
+        "hint": "默认 110。",
+        "default": 110.0
+    },
+    "affection_confession_fail": {
+        "description": "表白失败后好感度",
+        "type": "float",
+        "hint": "默认 70。失败不把人一脚踢回陌生人。",
+        "default": 70.0
+    },
+    "affection_breakup_threshold": {
+        "description": "伴侣线分手阈值",
+        "type": "float",
+        "hint": "默认 80。掉到 80 以下会提出分手。",
+        "default": 80.0
+    },
+    "affection_breakup_save": {
+        "description": "挽回成功后好感度",
+        "type": "float",
+        "hint": "默认 85。",
+        "default": 85.0
+    },
+    "affection_tick_cron": {
+        "description": "好感度巡检 cron",
+        "type": "string",
+        "hint": "默认每小时第 5 分钟：5 * * * *。",
+        "default": "5 * * * *"
+    },
+    "affection_provider_id": {
+        "description": "好感事件用的模型",
+        "type": "string",
+        "hint": "留空则用当前会话模型。",
+        "default": ""
+    }
+}

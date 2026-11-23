@@ -1,0 +1,74 @@
+{
+    "enabled": {
+        "description": "启用真实交互",
+        "type": "bool",
+        "hint": "关闭后不再注入 SKILL、不记录动作、不学习；桥接自动退回默认提示词。",
+        "default": true
+    },
+    "umo": {
+        "description": "主私聊 UMO",
+        "type": "string",
+        "hint": "只在这个会话学习；群聊和网站访客不参与。",
+        "default": "Hiro:FriendMessage:1955272576"
+    },
+    "provider_id": {
+        "description": "复盘用的模型",
+        "type": "string",
+        "hint": "留空则用当前会话的模型。想省钱可以填一个便宜的。",
+        "default": ""
+    },
+    "timezone": {
+        "description": "时区",
+        "type": "string",
+        "hint": "用于日志和 /交互 历史里的时间显示。",
+        "default": "Asia/Shanghai"
+    },
+    "feedback_enabled": {
+        "description": "根据聊天反馈学习",
+        "type": "bool",
+        "hint": "你发消息后，她会在后台判断这句话是不是在评价刚才的指针操作；无关的聊天不会改 SKILL。",
+        "default": true
+    },
+    "feedback_window_sec": {
+        "description": "反馈有效窗口（秒）",
+        "type": "int",
+        "hint": "只有最近一次指针动作发生在这个时间内，才评估你的话。默认 600 秒。",
+        "default": 600
+    },
+    "reflect_enabled": {
+        "description": "周期自我复盘",
+        "type": "bool",
+        "hint": "每累计 N 次指针动作，后台自动检查原地微移、重复台词和动作单一。",
+        "default": true
+    },
+    "reflect_every_n": {
+        "description": "每多少次动作复盘一次",
+        "type": "int",
+        "hint": "默认 15。调小更敏感，但会多花 token。",
+        "default": 15
+    },
+    "skill_max_chars": {
+        "description": "SKILL 字数上限",
+        "type": "int",
+        "hint": "默认 900 字。超限时从条目最多的分区淘汰最旧的经验，每节至少保留 2 条。",
+        "default": 900
+    },
+    "episode_keep": {
+        "description": "保留多少次指针动作",
+        "type": "int",
+        "hint": "默认 200 条，供反馈对照和周期复盘使用。",
+        "default": 200
+    },
+    "recent_episodes": {
+        "description": "注入最近几次动作",
+        "type": "int",
+        "hint": "默认 3 条。让她知道指针现在大概在哪，避免原地踏步。",
+        "default": 3
+    },
+    "timeout": {
+        "description": "复盘超时（秒）",
+        "type": "int",
+        "hint": "超时就跳过这一轮，不影响聊天和指针。默认 60 秒。",
+        "default": 60
+    }
+}

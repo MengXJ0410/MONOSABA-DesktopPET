@@ -1,0 +1,276 @@
+{
+    "enabled": {
+        "description": "启用长期记忆",
+        "type": "bool",
+        "hint": "关掉后插件完全静默：不抓对话、不检索、不注入，已存的记忆也不会丢。",
+        "default": true
+    },
+    "kb_name": {
+        "description": "知识库名称",
+        "type": "string",
+        "hint": "记忆存放的 AstrBot 知识库。不存在时插件会在启动后自动创建。改名等于换一个空脑子。",
+        "default": "hiro_memory"
+    },
+    "embedding_provider_id": {
+        "description": "Embedding 提供商 ID",
+        "type": "string",
+        "hint": "必须与「服务提供商 → Embedding」里配置的 ID 一致。当前是 siliconflow-embedding（BAAI/bge-m3，1024 维）。⚠️ 建库后不要改模型或维度，否则整库要重建。",
+        "default": "siliconflow-embedding"
+    },
+    "timezone": {
+        "description": "时区",
+        "type": "string",
+        "hint": "用于判断「今天」、时间衰减和夜间整合。必须与容器时区一致。",
+        "default": "Asia/Shanghai"
+    },
+    "channel_allowlist": {
+        "description": "记住哪些渠道",
+        "type": "string",
+        "hint": "逗号分隔的 UMO 前缀。默认只记 QQ 私聊 195*****76 和网站陪伴（webchat）。想加群聊就追加 Hiro:GroupMessage:群号。",
+        "default": "Hiro:FriendMessage:195*****76,webchat"
+    },
+    "user_alias": {
+        "description": "记忆里对主人的称呼",
+        "type": "string",
+        "hint": "默认「他」。只用于 QQ 私聊记忆的称呼归一化，和日记插件的 user_alias 保持一致。",
+        "default": "他"
+    },
+    "buffer_umo": {
+        "description": "蒸馏时用的会话上下文",
+        "type": "string",
+        "hint": "取默认模型时用的 UMO（影响按会话配置的模型选择）。一般保持默认即可。",
+        "default": "Hiro:FriendMessage:195*****76"
+    },
+    "distill_provider_id": {
+        "description": "蒸馏用的模型",
+        "type": "string",
+        "hint": "留空 = 用默认对话模型。当前建议用 MXJAPI/cn:deepseek-v4.1-flash（走 Docker 内网）。蒸馏只影响记忆质量，不影响聊天。",
+        "default": "MXJAPI/cn:deepseek-v4.1-flash"
+    },
+    "flush_turns": {
+        "description": "攒够多少轮就整理一次",
+        "type": "int",
+        "hint": "每轮只往本地追加一行，开销可忽略；攒够这个轮数才调一次模型做蒸馏。12 轮通常对应 1-3 分钟的聊天。",
+        "default": 12
+    },
+    "idle_minutes": {
+        "description": "空闲多少分钟后自动整理",
+        "type": "int",
+        "hint": "对话停下后如果还没攒够轮数，也别忘了写进去。设为 0 附近会让写入更频繁、成本更高。",
+        "default": 5
+    },
+    "max_entries_per_flush": {
+        "description": "单次最多产出多少条记忆",
+        "type": "int",
+        "hint": "防止模型把一段长对话拆成几十条碎片。建议 8-15。",
+        "default": 12
+    },
+    "retrieval_enabled": {
+        "description": "启用检索注入",
+        "type": "bool",
+        "hint": "关掉后只记不忆。配合「影子模式」可以先观察召回质量再正式开启。",
+        "default": true
+    },
+    "shadow_mode": {
+        "description": "影子模式（只记录不注入）",
+        "type": "bool",
+        "hint": "开启后每次检索结果只写进 plugin_data/logs/retrieval.jsonl，不真正塞给模型。用来先验证召回质量，确认没问题再关掉。",
+        "default": false
+    },
+    "retrieve_top": {
+        "description": "先取回多少条候选",
+        "type": "int",
+        "hint": "知识库返回的候选数，之后由插件按「相关度 + 重要度 + 新鲜度」重新排序再挑几条。20 左右比较合适。",
+        "default": 20
+    },
+    "inject_top": {
+        "description": "最终注入几条",
+        "type": "int",
+        "hint": "每轮真正塞进提示词的记忆条数。太多会稀释注意力，5 条是甜点。",
+        "default": 5
+    },
+    "inject_max_chars": {
+        "description": "注入内容长度上限（字符）",
+        "type": "int",
+        "hint": "超过就按分数从低往高截断，避免记忆把当前对话挤掉。",
+        "default": 1200
+    },
+    "dedupe_enabled": {
+        "description": "跨天去重",
+        "type": "bool",
+        "hint": "新条目与最近 N 天同类条目高度相似时跳过，避免「他胃不好」这类事实重复几十条。",
+        "default": true
+    },
+    "dedupe_window_days": {
+        "description": "去重回看天数",
+        "type": "int",
+        "hint": "只和最近这么多天的同类条目比较。",
+        "default": 60
+    },
+    "dedupe_threshold": {
+        "description": "去重相似度阈值",
+        "type": "float",
+        "hint": "字符 bigram Jaccard。0.85 比较稳，调低会更激进地合并。",
+        "default": 0.85
+    },
+    "time_decay_days": {
+        "description": "记忆衰减尺度（天）",
+        "type": "int",
+        "hint": "越大越「念旧」。120 天意味着两个月前的事仍有一半权重；设成 30 会更偏向最近的事。",
+        "default": 120
+    },
+    "decay_mode": {
+        "description": "时间衰减模式",
+        "type": "string",
+        "options": [
+            "importance",
+            "legacy"
+        ],
+        "hint": "importance：按重要度分档，重要的事五年后仍有分量（推荐）；legacy：旧的单一 120 天衰减。",
+        "default": "importance"
+    },
+    "time_intent_boost": {
+        "description": "时间意图加权",
+        "type": "bool",
+        "hint": "用户问「以前/去年/那时候」时，临时降低时间衰减权重，让老记忆有机会冒头。",
+        "default": true
+    },
+    "retrieval_diversity_per_month": {
+        "description": "同月最多注入几条",
+        "type": "int",
+        "hint": "避免 5 条召回全是同一周的事。设为 1 表示完全不重复月份。",
+        "default": 2
+    },
+    "profile_enabled": {
+        "description": "生成人物画像",
+        "type": "bool",
+        "hint": "每晚把近 90 天的记忆压成一份 ≤600 字的「你记得的关于他的事」，作为常驻背景。",
+        "default": true
+    },
+    "profile_inject": {
+        "description": "把画像放进系统提示词",
+        "type": "bool",
+        "hint": "画像常驻（稳定的人设记忆），检索结果按需（具体的细节）。两者互补。",
+        "default": true
+    },
+    "profile_core_enabled": {
+        "description": "核心画像（跨年锚点）",
+        "type": "bool",
+        "hint": "把所有 imp5 条目压成一小段，跟画像一起注入；保证五年后仍记得约定、痛处、里程碑。",
+        "default": true
+    },
+    "profile_core_max": {
+        "description": "核心画像最多几条",
+        "type": "int",
+        "hint": "太多会占上下文，建议 20–40。",
+        "default": 30
+    },
+    "consolidate_cron": {
+        "description": "夜间整合时间（cron）",
+        "type": "string",
+        "hint": "五段式：分 时 日 月 周。默认 50 23 * * * = 每天 23:50。会做：刷缓冲、月归档、更新画像、检查预算、备份。",
+        "default": "50 23 * * *"
+    },
+    "archive_after_days": {
+        "description": "多少天后归档",
+        "type": "int",
+        "hint": "超过这个天数的日文档会合并成月文档，条目数按对数增长，避免检索噪声和 FAISS 内存膨胀。",
+        "default": 30
+    },
+    "budget_mb": {
+        "description": "记忆占用预算（MB）",
+        "type": "int",
+        "hint": "知识库 + 记忆数据的总占用上限。超过会强制归档并私聊提醒你。按当前估算 1GB 够用十年。",
+        "default": 900
+    },
+    "autobackup": {
+        "description": "每晚自动备份",
+        "type": "bool",
+        "hint": "把记忆目录复制到 data/backups/hiro_memory/YYYYMMDD，保留最近 7 天。知识库索引坏了可以随时重建，但 JSONL 丢了就真没了。",
+        "default": true
+    },
+    "admin_umo": {
+        "description": "管理员告警会话",
+        "type": "string",
+        "hint": "预算告警、回填结果会发到这里。默认是你的私聊。",
+        "default": "Hiro:FriendMessage:195*****76"
+    },
+    "context_compress_enabled": {
+        "description": "启用上下文压缩",
+        "type": "bool",
+        "hint": "按记忆年龄压缩发给模型的历史：最近 3 天原文，越久越概括。原始会话和 JSONL 永远不删。",
+        "default": true
+    },
+    "context_compress_min_tokens": {
+        "description": "多少 token 以上才压缩",
+        "type": "int",
+        "hint": "上下文小于这个值时保留原文，避免为了压缩而压缩。建议 12000。",
+        "default": 12000
+    },
+    "compress_after_days": {
+        "description": "多少天以前的记忆开始压缩",
+        "type": "int",
+        "hint": "默认 3：今天和前 3 天原文保留，第 4 天开始进入压缩。",
+        "default": 3
+    },
+    "light_until_days": {
+        "description": "轻度压缩截止天数",
+        "type": "int",
+        "hint": "4 到这个天数之间只做轻度压缩（去提醒、单条截 300 字）。默认 7。",
+        "default": 7
+    },
+    "medium_until_days": {
+        "description": "中度压缩截止天数",
+        "type": "int",
+        "hint": "超过轻度截止、到这一天之间用记忆条目做中度压缩；再久就是重度。默认 30。",
+        "default": 30
+    },
+    "medium_max_lines": {
+        "description": "8–30 天每天保留几条",
+        "type": "int",
+        "hint": "这一段用当天记忆条目替换原文，条数太多会把摘要撑大。建议 5–8。",
+        "default": 6
+    },
+    "important_imp": {
+        "description": "重要记忆阈值",
+        "type": "int",
+        "hint": "重要度 >= 这个值的条目在压缩时保留；5 尽量原文。默认 4。",
+        "default": 4
+    },
+    "target_context_tokens": {
+        "description": "压缩目标 token（仅日志参考）",
+        "type": "int",
+        "hint": "压缩后仍明显超过这个值时会在日志里提示，方便继续调参。默认 30000。",
+        "default": 30000
+    },
+    "history_month_max_lines": {
+        "description": "月度摘要最多几条",
+        "type": "int",
+        "hint": "每月压成多少条记忆，太多会撑大历史。",
+        "default": 30
+    },
+    "history_year_after_days": {
+        "description": "超过多少天改为年度粒度",
+        "type": "int",
+        "hint": "超过这个天数的月份只保留 imp>=4 的条目，条数也更少。",
+        "default": 365
+    },
+    "history_year_max_lines": {
+        "description": "年度粒度最多几条",
+        "type": "int",
+        "hint": "久远月份压缩后的条数上限。",
+        "default": 12
+    },
+    "daily_guard_enabled": {
+        "description": "启用每日兜底",
+        "type": "bool",
+        "hint": "每天检查昨天是否真的写进 memory/YYYY-MM-DD.jsonl；缺了就从 data_v4.db 补蒸馏。",
+        "default": true
+    },
+    "daily_guard_cron": {
+        "description": "每日兜底时间（cron）",
+        "type": "string",
+        "hint": "五段式：分 时 日 月 周。默认 10 0 * * * = 每天 00:10。",
+        "default": "10 0 * * *"
+    }
+}

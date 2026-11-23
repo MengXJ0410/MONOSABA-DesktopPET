@@ -1,0 +1,10 @@
+name: astrbot_plugin_hiro_memory
+display_name: 希罗の记忆
+desc: 把对话蒸馏成带日期/类型/重要度的记忆条目写入知识库，每轮按上下文检索并自然注入，支持历史回填、夜间整合与画像生成。
+version: 0.3.4
+author: MXJ
+repo: ""
+astrbot_version: ">=4.29.0"
+support_platforms:
+  - aiocqhttp
+  - webchat

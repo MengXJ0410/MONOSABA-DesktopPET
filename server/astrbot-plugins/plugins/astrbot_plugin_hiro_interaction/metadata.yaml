@@ -1,0 +1,7 @@
+name: astrbot_plugin_hiro_interaction
+display_name: 希罗酱の真实交互
+desc: 让希罗自己维护一份指针操作 SKILL：每次移动带上它，根据你在聊天里的夸奖 / 纠正和周期复盘持续改写，越用越顺手。
+version: 0.1.1
+author: MXJ
+repo: ""
+astrbot_version: ">=4.29.0"

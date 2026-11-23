@@ -1,0 +1,38 @@
+{
+  "enabled": {
+    "description": "启用读心",
+    "type": "bool",
+    "hint": "关闭后不再记录，/读心 也失效。",
+    "default": true
+  },
+  "capture_reasoning": {
+    "description": "捕获模型思考",
+    "type": "bool",
+    "hint": "给 OpenAI 适配器打补丁，累积流式 reasoning_content。关掉之后 /读心 只会显示「没返回思考内容」。",
+    "default": true
+  },
+  "default_count": {
+    "description": "默认查看轮数",
+    "type": "int",
+    "hint": "不带参数时 /读心 显示几轮。",
+    "default": 3
+  },
+  "max_count": {
+    "description": "最多查看轮数",
+    "type": "int",
+    "hint": "/读心 X 的上限，超出按上限显示。",
+    "default": 32
+  },
+  "max_entries": {
+    "description": "每个会话保留轮数",
+    "type": "int",
+    "hint": "环形缓冲，超出后丢最旧的。至少要大于 max_count。",
+    "default": 64
+  },
+  "timezone": {
+    "description": "时区",
+    "type": "string",
+    "hint": "用于 /读心 里的时间显示。",
+    "default": "Asia/Shanghai"
+  }
+}

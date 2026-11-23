@@ -1,0 +1,10 @@
+name: astrbot_plugin_life
+display_name: 希罗酱的生活
+desc: 让角色有自己的生活：每天生成生活事件，注入聊天，偶尔主动私聊分享。
+version: 0.1.9
+author: MXJ
+repo: ""
+astrbot_version: ">=4.29.0"
+support_platforms:
+  - aiocqhttp
+

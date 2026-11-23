@@ -1,0 +1,7 @@
+name: astrbot_plugin_immersion
+display_name: 人格沉浸
+desc: 清掉 AstrBot 每轮塞进系统提示词的“系统腔”包装（# Persona Instructions 标题、英文 Safe Mode 段），并断开历史思考回传，避免模型把人设当说明书、在思考里复述规则。
+version: 1.2.0
+author: MXJ
+repo: ""
+astrbot_version: ">=4.0.0"

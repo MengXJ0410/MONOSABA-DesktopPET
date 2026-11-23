@@ -1,0 +1,336 @@
+{
+    "enabled": {
+        "description": "启用生活插件",
+        "type": "bool",
+        "hint": "关闭后不再生成、注入或主动分享。",
+        "default": true
+    },
+    "target_umo": {
+        "description": "主动分享的目标会话",
+        "type": "string",
+        "hint": "只往这个会话注入生活背景、主动发消息。默认主私聊。",
+        "default": "Hiro:FriendMessage:1955272576"
+    },
+    "timezone": {
+        "description": "时区",
+        "type": "string",
+        "hint": "事件时间、免打扰、噩梦窗口都按这个时区。",
+        "default": "Asia/Shanghai"
+    },
+    "persona_id": {
+        "description": "使用的人格",
+        "type": "string",
+        "hint": "填 AstrBot 人格列表里的名字。默认「希罗」。",
+        "default": "希罗"
+    },
+    "persona_name": {
+        "description": "角色名",
+        "type": "string",
+        "hint": "写进世界观和提示词。换人格时一起改。",
+        "default": "希罗"
+    },
+    "companion_name": {
+        "description": "同住对象的名字",
+        "type": "string",
+        "hint": "默认「艾玛」。换人格时改成对方的同住对象。",
+        "default": "艾玛"
+    },
+    "user_alias": {
+        "description": "对用户的称呼",
+        "type": "string",
+        "hint": "默认「他」。和日记插件保持一致。",
+        "default": "他"
+    },
+    "world_file": {
+        "description": "世界观文件",
+        "type": "string",
+        "hint": "相对插件目录或绝对路径。默认 world/hiro.md。",
+        "default": "world/hiro.md"
+    },
+    "event_provider_id": {
+        "description": "生成生活事件的模型",
+        "type": "string",
+        "hint": "默认 GLM-5.3-flash。留空则用当前会话模型。",
+        "default": "MXJAPI/cn:glm-5.3-flash"
+    },
+    "share_provider_id": {
+        "description": "写主动消息的模型",
+        "type": "string",
+        "hint": "默认主模型 deepseek-v4.1-flash。留空则用当前会话模型。",
+        "default": "MXJAPI/cn:deepseek-v4.1-flash"
+    },
+    "seed_cron": {
+        "description": "每天生成事件的时间",
+        "type": "string",
+        "hint": "五段式 cron。默认 30 6 * * *，每天 06:30。",
+        "default": "30 6 * * *"
+    },
+    "nightmare_cron": {
+        "description": "每晚掷噩梦概率的时间",
+        "type": "string",
+        "hint": "默认 30 23 * * *，每天 23:30 掷一次 5%。",
+        "default": "30 23 * * *"
+    },
+    "events_min": {
+        "description": "每天最少几件生活事件",
+        "type": "int",
+        "hint": "默认 4。工作日偏少，周末偏多。",
+        "default": 4
+    },
+    "events_max": {
+        "description": "每天最多几件生活事件",
+        "type": "int",
+        "hint": "默认 7。",
+        "default": 7
+    },
+    "share_min": {
+        "description": "每天最少主动分享几条",
+        "type": "int",
+        "hint": "默认 3。保底时间会强制发一条。",
+        "default": 3
+    },
+    "share_max": {
+        "description": "每天最多主动分享几条",
+        "type": "int",
+        "hint": "默认 5。",
+        "default": 5
+    },
+    "share_affection_enabled": {
+        "description": "按好感调整主动分享频率",
+        "type": "bool",
+        "hint": "开启后：0-10 不主动；10-50 每天 1-3 条；50-100 每天 3-6 条；100+ 每天 5-10 条。",
+        "default": true
+    },
+    "share_quota_mode": {
+        "description": "好感配额模式",
+        "type": "string",
+        "options": [
+            "target",
+            "floor"
+        ],
+        "hint": "target：配额是目标范围，事件不够或没机会时可以少发；floor：尽量凑到当前好感范围的下限。",
+        "default": "target"
+    },
+    "share_start": {
+        "description": "主动分享开始时间",
+        "type": "string",
+        "hint": "HH:MM。默认 08:00。",
+        "default": "08:00"
+    },
+    "share_end": {
+        "description": "主动分享结束时间",
+        "type": "string",
+        "hint": "HH:MM。默认 23:00。",
+        "default": "23:00"
+    },
+    "quiet_start": {
+        "description": "免打扰开始",
+        "type": "string",
+        "hint": "HH:MM。默认 23:30。噩梦除外。",
+        "default": "23:30"
+    },
+    "quiet_end": {
+        "description": "免打扰结束",
+        "type": "string",
+        "hint": "HH:MM。默认 06:30。",
+        "default": "06:30"
+    },
+    "cooldown_minutes": {
+        "description": "两次主动分享的最小间隔（分钟）",
+        "type": "int",
+        "hint": "默认 60。",
+        "default": 60
+    },
+    "base_probability": {
+        "description": "基础分享概率",
+        "type": "float",
+        "hint": "默认 0.7。还会乘以分享意愿、情绪强度、心情和时段。",
+        "default": 0.7
+    },
+    "after_user_minutes": {
+        "description": "你刚聊完多久内不主动发",
+        "type": "int",
+        "hint": "默认 8 分钟。避免像在抢话。",
+        "default": 8
+    },
+    "max_unanswered": {
+        "description": "最多允许几条未回复的主动消息",
+        "type": "int",
+        "hint": "默认 3。到第 3 条会进入冷战，之后不再分享。",
+        "default": 3
+    },
+    "unanswered_cooldown_minutes": {
+        "description": "未回复后的等待时间（分钟）",
+        "type": "int",
+        "hint": "默认 45。",
+        "default": 45
+    },
+    "unanswered_complain_after": {
+        "description": "第几条分享后开始抱怨",
+        "type": "int",
+        "hint": "默认 1。前一条没回，这一条发完就抱怨；填 1 表示第 2 条分享后。",
+        "default": 1
+    },
+    "unanswered_cold_war_after": {
+        "description": "第几条分享后进入冷战",
+        "type": "int",
+        "hint": "默认 2。前两条都没回，第 3 条发完就进入冷战。",
+        "default": 2
+    },
+    "unanswered_message_delay_min": {
+        "description": "抱怨/冷战消息最短延迟（秒）",
+        "type": "float",
+        "hint": "默认 4。分享后停一下再发，像临时起意。",
+        "default": 4.0
+    },
+    "unanswered_message_delay_max": {
+        "description": "抱怨/冷战消息最长延迟（秒）",
+        "type": "float",
+        "hint": "默认 12。",
+        "default": 12.0
+    },
+    "unanswered_segment_delay_min": {
+        "description": "抱怨/冷战分段最短间隔（秒）",
+        "type": "float",
+        "hint": "默认 2。",
+        "default": 2.0
+    },
+    "unanswered_segment_delay_max": {
+        "description": "抱怨/冷战分段最长间隔（秒）",
+        "type": "float",
+        "hint": "默认 4。",
+        "default": 4.0
+    },
+    "cold_war_enabled": {
+        "description": "启用冷战",
+        "type": "bool",
+        "hint": "关闭后只抱怨，不会拒绝回复。",
+        "default": true
+    },
+    "force_one_if_none": {
+        "description": "每天保底分享一条",
+        "type": "bool",
+        "hint": "每天开始时随机挑 18:00-22:30 的一个时间；到点还没分享就强制发一件。",
+        "default": true
+    },
+    "nightmare_enabled": {
+        "description": "启用噩梦惊醒",
+        "type": "bool",
+        "hint": "每晚 5% 概率，必定主动分享，不占日常额度。",
+        "default": true
+    },
+    "nightmare_min_affection": {
+        "description": "噩梦的最低好感",
+        "type": "float",
+        "hint": "好感低于这个值就不做噩梦；默认 10，对应 0-10 不主动分享的阶段。",
+        "default": 10.0
+    },
+    "nightmare_probability": {
+        "description": "噩梦概率",
+        "type": "float",
+        "hint": "默认 0.05，即平均 20 晚一次。",
+        "default": 0.05
+    },
+    "nightmare_window_start": {
+        "description": "噩梦窗口开始",
+        "type": "string",
+        "hint": "HH:MM。默认 23:30。",
+        "default": "23:30"
+    },
+    "nightmare_window_end": {
+        "description": "噩梦窗口结束",
+        "type": "string",
+        "hint": "HH:MM。默认 06:30。",
+        "default": "06:30"
+    },
+    "nightmare_active_minutes": {
+        "description": "你在聊天时噩梦延迟多久",
+        "type": "int",
+        "hint": "默认 10 分钟内还在聊，就延后。",
+        "default": 10
+    },
+    "nightmare_delay_minutes": {
+        "description": "噩梦延迟时长（分钟）",
+        "type": "int",
+        "hint": "默认 30。",
+        "default": 30
+    },
+    "nightmare_max_late_minutes": {
+        "description": "重启后补发噩梦的时限（分钟）",
+        "type": "int",
+        "hint": "默认 90。超过就跳过，避免早上突然发“做噩梦了”。",
+        "default": 90
+    },
+    "nightmare_segments_min": {
+        "description": "噩梦消息最少几段",
+        "type": "int",
+        "hint": "默认 3。第一段先表达情绪，第二段说这么晚还想说，后面是梦的内容。",
+        "default": 3
+    },
+    "nightmare_segments_max": {
+        "description": "噩梦消息最多几段",
+        "type": "int",
+        "hint": "默认 6。每段 1-2 句，太长会拆得不像刚醒。",
+        "default": 6
+    },
+    "nightmare_segment_delay_min": {
+        "description": "噩梦分段最短间隔（秒）",
+        "type": "float",
+        "hint": "默认 2.0。像刚醒来喘匀气，再慢慢说。",
+        "default": 2.0
+    },
+    "nightmare_segment_delay_max": {
+        "description": "噩梦分段最长间隔（秒）",
+        "type": "float",
+        "hint": "默认 4.0。",
+        "default": 4.0
+    },
+    "inject_max_events": {
+        "description": "聊天里最多注入几件生活事件",
+        "type": "int",
+        "hint": "默认 4。",
+        "default": 4
+    },
+    "inject_max_chars": {
+        "description": "生活注入上限（字）",
+        "type": "int",
+        "hint": "默认 350。",
+        "default": 350
+    },
+    "mood_link": {
+        "description": "联动心情插件",
+        "type": "bool",
+        "hint": "事件会调整心情；心情会影响分享概率和主动消息语气。",
+        "default": true
+    },
+    "diary_link": {
+        "description": "联动日记插件",
+        "type": "bool",
+        "hint": "日记插件会读取当天事件作为「我的生活」素材。此开关仅作说明，实际由日记插件配置控制。",
+        "default": true
+    },
+    "event_timeout": {
+        "description": "事件生成超时（秒）",
+        "type": "int",
+        "hint": "默认 90。",
+        "default": 90
+    },
+    "share_timeout": {
+        "description": "主动消息生成超时（秒）",
+        "type": "int",
+        "hint": "默认 45。",
+        "default": 45
+    },
+    "dry_run": {
+        "description": "演练模式",
+        "type": "bool",
+        "hint": "开启后只生成文案并写日志，不真的发送。",
+        "default": false
+    },
+    "debug": {
+        "description": "调试日志",
+        "type": "bool",
+        "hint": "输出分享判定和注入内容。",
+        "default": false
+    }
+}

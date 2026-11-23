@@ -1,0 +1,7 @@
+name: astrbot_plugin_empty_guard
+display_name: 空输出兜底
+desc: 把“只有思考、没有正文”的模型响应判定为空输出，触发 AstrBot 自动重试与 fallback，避免空回复被替换成暴露 AI 身份的提示语。
+version: 1.0.0
+author: MXJ
+repo: ""
+astrbot_version: ">=4.0.0"

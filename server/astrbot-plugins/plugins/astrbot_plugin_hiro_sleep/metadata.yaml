@@ -1,0 +1,10 @@
+name: astrbot_plugin_hiro_sleep
+display_name: 希罗酱的睡眠
+desc: 给希罗一个会困、会睡、会被吵醒的作息：随机入睡/起床、拖睡、zzZ、起床补回。
+version: 0.1.4
+author: MXJ
+repo: ""
+astrbot_version: ">=4.29.0"
+support_platforms:
+  - aiocqhttp
+

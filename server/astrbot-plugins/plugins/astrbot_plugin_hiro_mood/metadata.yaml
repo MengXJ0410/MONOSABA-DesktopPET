@@ -1,0 +1,7 @@
+name: astrbot_plugin_hiro_mood
+display_name: 希罗酱の内心想法
+desc: 给希罗一份会残留、会消退的心情：每轮让她自己评价这轮对话，心情跨轮影响回复，强情绪写入长期记忆。
+version: 1.5.0
+author: MXJ
+repo: ""
+astrbot_version: ">=4.29.0"

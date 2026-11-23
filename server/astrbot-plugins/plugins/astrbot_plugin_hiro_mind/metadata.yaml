@@ -1,0 +1,9 @@
+name: astrbot_plugin_hiro_mind
+display_name: 希罗酱の读心
+desc: 记录模型回复前的真实思考，用 /读心 查看最近几轮，用来排查她为什么误解你。
+version: 0.2.0
+author: MXJ
+repo: ""
+astrbot_version: ">=4.29.0"
+support_platforms:
+  - aiocqhttp

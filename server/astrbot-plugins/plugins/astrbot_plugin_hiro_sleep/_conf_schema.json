@@ -1,0 +1,200 @@
+{
+  "enabled": {
+    "description": "启用睡眠系统",
+    "type": "bool",
+    "hint": "关闭后希罗恢复全天清醒。",
+    "default": true
+  },
+  "umo": {
+    "description": "生效的私聊 UMO",
+    "type": "string",
+    "hint": "只对这个会话生效；群聊不受影响。",
+    "default": "Hiro:FriendMessage:1955272576"
+  },
+  "timezone": {
+    "description": "时区",
+    "type": "string",
+    "hint": "随机入睡/起床时间按这个时区计算。",
+    "default": "Asia/Shanghai"
+  },
+  "sleep_window_start": {
+    "description": "入睡窗口开始",
+    "type": "string",
+    "hint": "每天在这个时间到入睡窗口结束之间随机一个入睡点。格式 HH:MM。",
+    "default": "22:30"
+  },
+  "sleep_window_end": {
+    "description": "入睡窗口结束",
+    "type": "string",
+    "hint": "可以跨午夜，例如 00:30。格式 HH:MM。",
+    "default": "00:30"
+  },
+  "wake_window_start": {
+    "description": "起床窗口开始",
+    "type": "string",
+    "hint": "次日在这个时间到起床窗口结束之间随机一个起床点。格式 HH:MM。",
+    "default": "06:30"
+  },
+  "wake_window_end": {
+    "description": "起床窗口结束",
+    "type": "string",
+    "hint": "格式 HH:MM。",
+    "default": "08:30"
+  },
+  "quiet_minutes": {
+    "description": "入睡前安静分钟数",
+    "type": "int",
+    "hint": "入睡点前这么久没有对话就直接睡；有对话就按最后一条对话往后顺延。",
+    "default": 15
+  },
+  "max_delay_minutes": {
+    "description": "最多顺延分钟数",
+    "type": "int",
+    "hint": "从原入睡点算，最多拖这么久；到上限会严重困倦并强制睡。",
+    "default": 60
+  },
+  "wake_guard_minutes": {
+    "description": "起床前不再回睡的分钟数",
+    "type": "int",
+    "hint": "被吵醒后如果距离起床点已经不到这么久，就不再回睡，直接等起床。",
+    "default": 30
+  },
+  "sleep_reply": {
+    "description": "睡眠中被叫的固定回复",
+    "type": "string",
+    "hint": "默认 zzZ，建议不要改。",
+    "default": "zzZ"
+  },
+  "wake_after_messages": {
+    "description": "睡梦中被几条消息吵醒",
+    "type": "int",
+    "hint": "超过这个数量后，下一条消息会把她吵醒并正常回复。默认 5 表示第 6 条醒。",
+    "default": 5
+  },
+  "return_sleep_minutes": {
+    "description": "被吵醒后多久回睡",
+    "type": "int",
+    "hint": "最后一次对话结束后这么久，如果没有到起床点，就回到睡眠。",
+    "default": 5
+  },
+  "tired_on_sleep": {
+    "description": "入睡时的累",
+    "type": "float",
+    "hint": "进入睡眠时把「累」设到这个值。",
+    "default": 0.55
+  },
+  "tired_on_delay": {
+    "description": "拖睡时的累",
+    "type": "float",
+    "hint": "还在拖、但已经很困时把「累」设到这个值。",
+    "default": 0.5
+  },
+  "tired_on_forced": {
+    "description": "严重困倦时的累",
+    "type": "float",
+    "hint": "拖到上限、强制睡时把「累」设到这个值；必须大于 0.6。",
+    "default": 0.9
+  },
+  "tired_on_wake": {
+    "description": "被吵醒时的累",
+    "type": "float",
+    "hint": "被消息吵醒时把「累」设到这个值；必须大于 0.6。",
+    "default": 0.8
+  },
+  "tired_on_morning": {
+    "description": "早上起床后的累",
+    "type": "float",
+    "hint": "正常起床后把「累」降到这个值。",
+    "default": 0.2
+  },
+  "greeting_affection_threshold": {
+    "description": "主动晚安/早安的好感门槛",
+    "type": "float",
+    "hint": "好感大于这个值才会主动说晚安/早安；0-200 制下 70 是密友线。",
+    "default": 70.0
+  },
+  "goodnight_enabled": {
+    "description": "主动说晚安",
+    "type": "bool",
+    "hint": "好感过门槛时，真正入睡前主动说晚安。",
+    "default": true
+  },
+  "goodmorning_enabled": {
+    "description": "主动说早安",
+    "type": "bool",
+    "hint": "好感过门槛且起床时没有在聊天，就主动说早安。",
+    "default": true
+  },
+  "catchup_enabled": {
+    "description": "起床后补回睡眠消息",
+    "type": "bool",
+    "hint": "睡眠期间没被正常回复的消息，起床后逐条回复。",
+    "default": true
+  },
+  "catchup_max_messages": {
+    "description": "起床最多补回几条",
+    "type": "int",
+    "hint": "只取最近这么多条，避免一次性刷屏。",
+    "default": 20
+  },
+  "allow_commands": {
+    "description": "睡眠中放行斜杠命令",
+    "type": "bool",
+    "hint": "开启后 /睡眠、/好感 等命令不会被 zzZ 拦住。",
+    "default": true
+  },
+  "generate_greetings": {
+    "description": "用模型生成晚安/早安",
+    "type": "bool",
+    "hint": "关闭则使用固定短句；模型失败时也会自动兜底。",
+    "default": true
+  },
+  "provider_id": {
+    "description": "生成用的模型",
+    "type": "string",
+    "hint": "留空则用当前会话模型；想省钱可以填一个便宜的。",
+    "default": ""
+  },
+  "persona_id": {
+    "description": "人格 ID",
+    "type": "string",
+    "hint": "用来生成晚安/早安/补回的人格。",
+    "default": "希罗"
+  },
+  "persona_name": {
+    "description": "角色名",
+    "type": "string",
+    "hint": "只在提示词里使用。",
+    "default": "希罗"
+  },
+  "user_alias": {
+    "description": "对用户的称呼",
+    "type": "string",
+    "hint": "提示词里用「他」即可。",
+    "default": "他"
+  },
+  "generation_timeout": {
+    "description": "生成超时（秒）",
+    "type": "int",
+    "hint": "超时就使用固定短句，不阻塞睡眠。",
+    "default": 30
+  },
+  "diary_share_delay_seconds": {
+    "description": "起床后补发日记的延迟（秒）",
+    "type": "int",
+    "hint": "避免早安、补回、日记挤在一起；0 表示立即补发。",
+    "default": 45
+  },
+  "diary_pre_sleep_minutes": {
+    "description": "睡前提前分享日记的分钟数",
+    "type": "int",
+    "hint": "如果日记配置的分享时间晚于「睡前 N 分钟」，就在「睡前 N 分钟」分享；0 表示关闭。",
+    "default": 5
+  },
+  "debug": {
+    "description": "调试日志",
+    "type": "bool",
+    "hint": "打印状态切换细节。",
+    "default": false
+  }
+}
