@@ -351,6 +351,8 @@ embedding 侧一年约 **900 万 token**：硅基流动 `bge-m3` 免费额度足
 
 ### Phase 1 · 插件骨架 + 写入（1 天）
 
+> 历史方案记录，路径已失效：下文 `deploy/astrbot/...` 是搬迁前的旧位置；当前源码在 `server/astrbot-plugins/plugins/astrbot_plugin_hiro_memory/`。
+
 - 新建 `deploy/astrbot/plugin-memory/`（`main.py` / `metadata.yaml` / `_conf_schema.json` / `README.md`）
 - 配置项：渠道白名单、flush 轮数、空闲分钟、蒸馏模型、KB 名、开关、影子模式
 - `on_llm_response` 抓取 → jsonl 缓冲
@@ -455,6 +457,8 @@ embedding 侧一年约 **900 万 token**：硅基流动 `bge-m3` 免费额度足
   - 「咖喱饭 日记」→ 日记全文 0.754
 
 ### 11.2 目录
+
+> 历史方案记录，路径已失效：下图为搬迁前的目录快照；当前源码在 `server/astrbot-plugins/plugins/astrbot_plugin_hiro_memory/`。
 
 ```
 deploy/astrbot/plugin-memory/

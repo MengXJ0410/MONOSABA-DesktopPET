@@ -241,3 +241,16 @@ AstrBot 的 `WakingCheckStage` 只要发现消息以 `wake_prefix` 开头，就�
 - 注入事件依赖 `Hiro` 适配器已加载；QQ / NapCat 没连上也能聊，只是手机消息同步不过来。
 - 插件改动后重启一次 AstrBot；API Key 是数据库里的，不需要跟着重启。
 - `mood.json` 不存在或字段缺失时，`/status` 返回 `available: false`，桌面端会隐藏状态面板的数据而不是报错。
+
+## 与核心插件的关系
+
+`server/` 下有两类 AstrBot 插件，职责不同、部署到同一个 AstrBot 实例：
+
+| 目录 | 类型 | 职责 |
+|---|---|---|
+| `server/astrbot_plugin_desktoppet_bridge/` | 桥接插件（本文件所述） | 桌面聊天窗口与手机 QQ 私聊共用同一 AstrBot 会话；消息日志、状态接口、指针观察、撤回与引用、SKILL 只读接口 |
+| `server/astrbot-plugins/plugins/` | 核心插件（9 个） | 记忆、心情、睡眠、生活、日记、真实交互、读心、人格沉浸、空输出兜底 |
+
+- 核心插件的源码、版本与部署步骤见 `server/astrbot-plugins/README.md`；部署时把 `plugins/*` 整体复制到 AstrBot 的 `data/plugins/`。
+- 桥接插件**不包含**核心插件，也不会复制它们；它只通过公共方法调用 `astrbot_plugin_hiro_interaction`（指针 SKILL）与 `astrbot_plugin_hiro_mood`（心情面板），核心插件缺失时按各插件约定 fail-open 或隐藏对应面板。
+- 两类插件升级互不影响：桥接升级只需替换 `astrbot_plugin_desktoppet_bridge/`，核心插件升级替换 `astrbot-plugins/plugins/` 下对应目录后重启 AstrBot。

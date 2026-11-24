@@ -1,6 +1,6 @@
 # MONOSABA DesktopPET
 
-把 JxmFUN 的希罗 / 艾玛 Live2D 看板娘搬到 Windows 桌面，做成独立桌宠。
+把网站上的希罗 / 艾玛 Live2D 看板娘搬到 Windows 桌面，做成独立桌宠。
 
 当前版本：**v0.5.4**（便携版 `dist/MONOSABA-DesktopPET-0.5.4-portable.exe`，桥接插件 0.4.3，真实交互插件 0.1.1，心情插件 1.5.0，睡眠插件 0.1.4，生活插件 0.1.9）
 
@@ -166,7 +166,7 @@ src/
 server/                   # AstrBot 桥接插件（部署到服务器）
 ```
 
-《真实交互》插件 `astrbot_plugin_hiro_interaction` 的源码在 JxmFUN 仓库 `deploy/astrbot/plugin-interaction/`，和桥接一起部署到 AstrBot；它只维护指针 SKILL，不参与人格 / 记忆 / 心情。
+《真实交互》插件 `astrbot_plugin_hiro_interaction` 的源码在本仓库 `server/astrbot-plugins/plugins/astrbot_plugin_hiro_interaction/`，和桥接一起部署到 AstrBot；它只维护指针 SKILL，不参与人格 / 记忆 / 心情。
 
 ## 日记配置
 

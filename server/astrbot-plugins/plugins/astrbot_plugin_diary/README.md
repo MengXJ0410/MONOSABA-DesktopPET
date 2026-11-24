@@ -181,7 +181,7 @@
 ## 部署
 
 ```bash
-scp -r deploy/astrbot/plugin-diary/. <server>:/home/<user>/astrbot/data/plugins/astrbot_plugin_diary/
+scp -r server/astrbot-plugins/plugins/astrbot_plugin_diary/. <server>:/home/<user>/astrbot/data/plugins/astrbot_plugin_diary/
 ssh <server> 'docker restart astrbot'
 ssh <server> 'docker logs --tail 50 astrbot 2>&1 | grep -i diary'
 ```

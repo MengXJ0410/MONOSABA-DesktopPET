@@ -3,7 +3,8 @@
 本目录是希罗「服务端大脑」的**权威源码副本**：9 个 AstrBot 插件 + 人格文本 + 相关交接文档。
 从此**源码以本仓库为准**，网站仓库（JxmFUN）不再持有这些插件的源码。
 
-> 本目录只做搬迁归档，插件逻辑与网站仓库 `deploy/astrbot/` 冻结版**逐字节一致**（来源 tag `hiro-freeze-20261123`）。
+> 本目录只做搬迁归档：9 个插件的**代码与配置**与网站仓库归档分支 `archive/hiro-before-split`（tag `hiro-freeze-20261123`）中的 `deploy/astrbot/` 逐字节一致。
+> `deploy/astrbot/` 是**历史归档路径，非当前路径**，网站仓库不再维护这些插件；当前源码只在本仓库。
 
 ## 目录结构
 
@@ -70,6 +71,6 @@ server/
 
 ## 源码归属
 
-- 本目录的插件源码以**本仓库**为唯一真源；网站仓库（JxmFUN）的 `deploy/astrbot/` 是搬迁前的历史副本，已在归档分支 `archive/hiro-before-split`（tag `hiro-freeze-20261123`）冻结，不再修改。
+- 本目录的插件源码以**本仓库**为唯一真源；网站仓库（JxmFUN）的 `deploy/astrbot/` 是**历史归档路径，非当前路径**，已在 `archive/hiro-before-split`（tag `hiro-freeze-20261123`）冻结，不再修改。
 - 桌面端桥接插件 `server/astrbot_plugin_desktoppet_bridge/` 仍在原位，负责桌面聊天窗口与 QQ 私聊共用同一 AstrBot 会话，与本目录的核心插件互补。
 - 迁移只做位置与目录名的调整，**未改动任何插件逻辑**。
